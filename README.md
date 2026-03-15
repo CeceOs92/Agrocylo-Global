@@ -1,9 +1,9 @@
 # AGROCYLO🌾
 ### Overview
 
-Agrocylo is a decentralized application that enables peer-to-peer trade between farmers and consumers using escrow smart contracts on the Stellar network. The platform removes intermediaries, ensures swift and fair payments, and verifiable transactions.
+Agrocylo is an Agro-DeFi platform. The aim is to make life easier for farmers (especially homegrown/urban), enabling exchange of agro-goods and services using an escrow system. It eliminates middlemen, allows peer-to-peer trade between farmers and consumers, and gives both parties access to Blockchain, Native DeFi, and Digital services. 
 
-Each purchase is secured using an a escrow mechanism: funds are locked when a customer places an order and are released only after the buyer confirms receipt of goods. This guarantees protection for both parties while maintaining full user custody.
+Each purchase is secured using an escrow mechanism: funds are locked when a customer places an order and are released only after the buyer confirms receipt of goods. This guarantees protection for both parties while maintaining full user custody.
 
 ### ✨ Features
 * On-chain escrow settlement - Funds are locked in an escrow smart contract until buyers confirm receipt of goods.
