@@ -1,3 +1,5 @@
+import type { SignAndSubmitResult } from "../lib/signTransaction";
+
 export interface WalletState {
   address: string | null;
   balance: string | null; // XLM balance as human-readable string
@@ -11,4 +13,6 @@ export interface WalletContextType extends WalletState {
   connect: () => Promise<void>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
+  /** Sign a transaction XDR with Freighter, submit it, and wait for confirmation. */
+  signAndSubmit: (transactionXdr: string) => Promise<SignAndSubmitResult>;
 }
