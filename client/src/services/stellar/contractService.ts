@@ -1,0 +1,322 @@
+/**
+ * Soroban Contract Interaction Service
+ *
+ * Provides typed helpers for every escrow-contract method used by the
+ * Agrocylo frontend: creating orders, confirming delivery, requesting
+ * refunds, and querying order state.
+ *
+ * All public functions return a {@link ContractResult} that wraps either
+ * the decoded return value or a human-readable error so callers never
+ * need to catch raw RPC exceptions.
+ */
+
+import * as StellarSdk from "@stellar/stellar-sdk";
+import { getNetworkConfig, type NetworkConfig } from "./networkConfig";
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+/** Standardised response envelope for every contract call. */
+export interface ContractResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+/** On-chain order representation returned by `get_order`. */
+export interface Order {
+  orderId: string;
+  buyer: string;
+  seller: string;
+  amount: bigint;
+  status: string;
+  createdAt: number;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+let _config: NetworkConfig | null = null;
+
+function config(): NetworkConfig {
+  if (!_config) _config = getNetworkConfig();
+  return _config;
+}
+
+function rpcServer(): StellarSdk.rpc.Server {
+  return new StellarSdk.rpc.Server(config().rpcUrl);
+}
+
+function contractInstance(): StellarSdk.Contract {
+  const { contractId } = config();
+  if (!contractId) {
+    throw new Error(
+      "Contract ID is not configured. Set NEXT_PUBLIC_CONTRACT_ID in your environment."
+    );
+  }
+  return new StellarSdk.Contract(contractId);
+}
+
+/**
+ * Build, simulate, and return a transaction ready for signing.
+ *
+ * The caller (usually the wallet-signing layer) is responsible for
+ * signing and submitting the returned transaction.
+ */
+async function buildTransaction(
+  sourcePublicKey: string,
+  method: string,
+  ...params: StellarSdk.xdr.ScVal[]
+): Promise<StellarSdk.Transaction> {
+  const server = rpcServer();
+  const { networkPassphrase } = config();
+  const contract = contractInstance();
+
+  const sourceAccount = await server.getAccount(sourcePublicKey);
+
+  const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+    fee: StellarSdk.BASE_FEE,
+    networkPassphrase,
+  })
+    .addOperation(contract.call(method, ...params))
+    .setTimeout(30)
+    .build();
+
+  const simulated = await server.simulateTransaction(tx);
+
+  if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
+    throw new Error(
+      `Simulation failed: ${(simulated as StellarSdk.rpc.Api.SimulateTransactionErrorResponse).error}`
+    );
+  }
+
+  const prepared = StellarSdk.rpc.assembleTransaction(
+    tx,
+    simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse
+  ).build();
+
+  return prepared;
+}
+
+/**
+ * Submit a signed transaction and wait for confirmation.
+ */
+async function submitTransaction(
+  signedXdr: string
+): Promise<StellarSdk.rpc.Api.GetTransactionResponse> {
+  const server = rpcServer();
+  const { networkPassphrase } = config();
+  const tx = StellarSdk.TransactionBuilder.fromXDR(
+    signedXdr,
+    networkPassphrase
+  );
+
+  const response = await server.sendTransaction(tx);
+
+  if (response.status === "ERROR") {
+    throw new Error(`Transaction submission failed: ${response.status}`);
+  }
+
+  // Poll until the transaction leaves PENDING state
+  let result = await server.getTransaction(response.hash);
+  const deadline = Date.now() + 30_000;
+
+  while (
+    result.status === StellarSdk.rpc.Api.GetTransactionStatus.NOT_FOUND &&
+    Date.now() < deadline
+  ) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    result = await server.getTransaction(response.hash);
+  }
+
+  return result;
+}
+
+// ── Decode helpers ───────────────────────────────────────────────────────
+
+function decodeOrderStatus(val: StellarSdk.xdr.ScVal): string {
+  const vec = val.vec();
+  if (vec && vec.length > 0) {
+    return vec[0].sym().toString();
+  }
+  return "Unknown";
+}
+
+function decodeOrder(val: StellarSdk.xdr.ScVal): Order {
+  const fields = val.map();
+  if (!fields) throw new Error("Expected map value for order");
+
+  const get = (key: string): StellarSdk.xdr.ScVal => {
+    const entry = fields.find(
+      (e) => e.key().sym().toString() === key
+    );
+    if (!entry) throw new Error(`Missing field: ${key}`);
+    return entry.val();
+  };
+
+  return {
+    orderId: StellarSdk.scValToNative(get("order_id")),
+    buyer: StellarSdk.Address.fromScVal(get("buyer")).toString(),
+    seller: StellarSdk.Address.fromScVal(get("seller")).toString(),
+    amount: StellarSdk.scValToNative(get("amount")),
+    status: decodeOrderStatus(get("status")),
+    createdAt: Number(StellarSdk.scValToNative(get("created_at"))),
+  };
+}
+
+// ── Public API ───────────────────────────────────────────────────────────
+
+/**
+ * Build a `create_order` transaction.
+ *
+ * @param buyer   - Stellar public key of the buyer
+ * @param seller  - Stellar public key of the seller
+ * @param amount  - Payment amount in stroops
+ * @returns Transaction XDR ready for wallet signing
+ */
+export async function createOrder(
+  buyer: string,
+  seller: string,
+  amount: bigint
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      buyer,
+      "create_order",
+      new StellarSdk.Address(buyer).toScVal(),
+      new StellarSdk.Address(seller).toScVal(),
+      StellarSdk.nativeToScVal(amount, { type: "i128" })
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Build a `confirm_delivery` transaction.
+ *
+ * @param buyer   - Stellar public key of the buyer confirming delivery
+ * @param orderId - On-chain order identifier
+ * @returns Transaction XDR ready for wallet signing
+ */
+export async function confirmDelivery(
+  buyer: string,
+  orderId: string
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      buyer,
+      "confirm_delivery",
+      new StellarSdk.Address(buyer).toScVal(),
+      StellarSdk.nativeToScVal(orderId, { type: "symbol" })
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Build a `refund_order` transaction.
+ *
+ * @param caller  - Stellar public key of the caller requesting the refund
+ * @param orderId - On-chain order identifier
+ * @returns Transaction XDR ready for wallet signing
+ */
+export async function refundOrder(
+  caller: string,
+  orderId: string
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      caller,
+      "refund_order",
+      new StellarSdk.Address(caller).toScVal(),
+      StellarSdk.nativeToScVal(orderId, { type: "symbol" })
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Query order details (read-only, no signing required).
+ *
+ * @param orderId - On-chain order identifier
+ * @returns Decoded {@link Order} object
+ */
+export async function getOrder(
+  orderId: string
+): Promise<ContractResult<Order>> {
+  try {
+    const server = rpcServer();
+    const contract = contractInstance();
+    const { networkPassphrase } = config();
+
+    // Use a zero-account source since this is read-only
+    const fakeSource = StellarSdk.Keypair.random().publicKey();
+    const sourceAccount = await server.getAccount(fakeSource).catch(() => {
+      // For read-only calls we can create a mock account
+      return new StellarSdk.Account(fakeSource, "0");
+    });
+
+    const tx = new StellarSdk.TransactionBuilder(sourceAccount, {
+      fee: StellarSdk.BASE_FEE,
+      networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          "get_order",
+          StellarSdk.nativeToScVal(orderId, { type: "symbol" })
+        )
+      )
+      .setTimeout(30)
+      .build();
+
+    const simulated = await server.simulateTransaction(tx);
+
+    if (StellarSdk.rpc.Api.isSimulationError(simulated)) {
+      throw new Error(
+        `Query failed: ${(simulated as StellarSdk.rpc.Api.SimulateTransactionErrorResponse).error}`
+      );
+    }
+
+    const successResult =
+      simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse;
+    const returnVal = successResult.result?.retval;
+
+    if (!returnVal) {
+      throw new Error("No return value from get_order");
+    }
+
+    return { success: true, data: decodeOrder(returnVal) };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Submit a signed transaction XDR to the network and wait for
+ * confirmation.
+ *
+ * @param signedXdr - Base64-encoded signed transaction envelope
+ * @returns The final transaction status
+ */
+export async function submitSignedTransaction(
+  signedXdr: string
+): Promise<ContractResult<string>> {
+  try {
+    const result = await submitTransaction(signedXdr);
+
+    if (result.status === StellarSdk.rpc.Api.GetTransactionStatus.SUCCESS) {
+      return { success: true, data: "Transaction confirmed" };
+    }
+
+    return {
+      success: false,
+      error: `Transaction ended with status: ${result.status}`,
+    };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
