@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, symbol_short, Address, Env, Vec, Symbol};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -44,6 +44,7 @@ pub enum DataKey {
     OrderCount,            // Global counter for order IDs
     SupportedTokens,       // Maps to Vec<Address>
     Admin,                 // Maps to Address
+    FeeCollector,          // Maps to Address
 }
 
 const NINTY_SIX_HOURS_IN_SECONDS: u64 = 96 * 60 * 60;
@@ -58,6 +59,7 @@ impl EscrowContract {
         env: Env,
         admin: Address,
         supported_tokens: Vec<Address>,
+        fee_collector: Address,
     ) -> Result<(), EscrowError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
@@ -70,12 +72,14 @@ impl EscrowContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
+            .set(&DataKey::FeeCollector, &fee_collector);
+        env.storage()
+            .instance()
             .set(&DataKey::SupportedTokens, &supported_tokens);
         Ok(())
     }
 
-    /// Creates a new order.
-    /// Locks the buyer's funds by transferring them to the contract address.
+    /// Creates a new order. Emits a 'created' event.
     pub fn create_order(
         env: Env,
         buyer: Address,
@@ -103,6 +107,20 @@ impl EscrowContract {
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&buyer, &env.current_contract_address(), &amount);
 
+        // --- NEW: Implement Platform Fee (Issue #13) ---
+        let fee_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(EscrowError::ContractNotInitialized)?;
+        
+        let fee_amount = amount * 3 / 100;
+        let net_amount = amount - fee_amount;
+
+        if fee_amount > 0 {
+            token_client.transfer(&env.current_contract_address(), &fee_collector, &fee_amount);
+        }
+
         // Get the next order ID
         let mut order_id: u64 = env
             .storage()
@@ -120,7 +138,7 @@ impl EscrowContract {
             buyer: buyer.clone(),
             farmer: farmer.clone(),
             token,
-            amount,
+            amount: net_amount,
             timestamp,
             status: OrderStatus::Pending,
         };
@@ -139,7 +157,7 @@ impl EscrowContract {
         buyer_orders.push_back(order_id);
         env.storage()
             .persistent()
-            .set(&DataKey::BuyerOrders(buyer), &buyer_orders);
+            .set(&DataKey::BuyerOrders(buyer.clone()), &buyer_orders);
 
         // Update farmer's order list
         let mut farmer_orders: Vec<u64> = env
@@ -150,18 +168,24 @@ impl EscrowContract {
         farmer_orders.push_back(order_id);
         env.storage()
             .persistent()
-            .set(&DataKey::FarmerOrders(farmer), &farmer_orders);
+            .set(&DataKey::FarmerOrders(farmer.clone()), &farmer_orders);
 
         // Extend data lifetime
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
 
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, created), Data: (order_id, buyer, farmer, amount, token)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("created")),
+            (order_id, buyer, farmer, amount, token),
+        );
+
         Ok(order_id)
     }
 
-    /// Buyer confirms that goods have been received.
-    /// Escrow releases payment to the farmer.
+    /// Buyer confirms receipt. Emits a 'confirmed' event.
     pub fn confirm_receipt(env: Env, buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         buyer.require_auth();
 
@@ -194,10 +218,18 @@ impl EscrowContract {
             &order.farmer,
             &order.amount,
         );
+
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, confirmed), Data: (order_id, buyer, farmer)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("confirmed")),
+            (order_id, order.buyer, order.farmer),
+        );
+
         Ok(())
     }
 
-    /// Anyone can call this to refund an order that is older than 96 hours without confirmation.
+    /// Refund an expired order. Emits a 'refunded' event.
     pub fn refund_expired_order(env: Env, order_id: u64) -> Result<(), EscrowError> {
         let mut order: Order = env
             .storage()
@@ -226,6 +258,14 @@ impl EscrowContract {
         // Transfer funds back to the buyer
         let token_client = token::Client::new(&env, &order.token);
         token_client.transfer(&env.current_contract_address(), &order.buyer, &order.amount);
+
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, refunded), Data: (order_id, buyer)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("refunded")),
+            (order_id, order.buyer),
+        );
+
         Ok(())
     }
 

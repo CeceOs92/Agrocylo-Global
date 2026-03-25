@@ -15,6 +15,12 @@ import {
 } from "@/components/ui";
 import { WalletContext } from "@/context/WalletContext";
 import { mapBlockchainError } from "@/components/errorHandler";
+import {
+  notifyTransactionSubmitted,
+  notifyTransactionConfirmed,
+  notifyTransactionFailed,
+  notifyTransactionConfirming,
+} from "@/services/notification";
 
 interface EscrowTransactionProps {
   farmerAddress: string;
@@ -80,7 +86,6 @@ export default function EscrowTransaction({
     setTransactionStatus({ status: "pending", message: "Preparing transaction..." });
 
     try {
-      // Check if wallet is connected
       if (!connected || !address) {
         throw new Error("Please connect your wallet first");
       }
@@ -89,8 +94,8 @@ export default function EscrowTransaction({
         status: "confirming",
         message: "Please confirm the transaction in your wallet...",
       });
+      notifyTransactionConfirming();
 
-      // Import the contract service
       const { createEscrowService } = await import("../lib/contract");
       const contractService = createEscrowService("ESCROW_CONTRACT_ID_PLACEHOLDER");
 
@@ -103,6 +108,10 @@ export default function EscrowTransaction({
       });
 
       if (result.success) {
+        notifyTransactionSubmitted(result.txHash);
+        setTimeout(() => {
+          notifyTransactionConfirmed(result.txHash);
+        }, 2000);
         setTransactionStatus({
           status: "success",
           message: "Transaction successful! Order created.",

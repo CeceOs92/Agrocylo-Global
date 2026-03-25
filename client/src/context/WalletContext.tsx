@@ -1,8 +1,10 @@
 "use client";
 
-import React, { createContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useEffect, useState } from "react";
 import type { WalletContextType } from "../types/wallet";
 import { getXlmBalance, getCurrentNetworkName } from "../lib/stellar";
+import { signAndSubmitTransaction } from "../lib/signTransaction";
+import type { SignAndSubmitResult } from "../lib/signTransaction";
 import FreighterApi from "@stellar/freighter-api";
 
 const initialState: WalletContextType = {
@@ -15,6 +17,7 @@ const initialState: WalletContextType = {
   connect: async () => {},
   disconnect: () => {},
   refreshBalance: async () => {},
+  signAndSubmit: async () => ({ success: false, error: "Wallet not connected" }),
 };
 
 export const WalletContext = createContext<WalletContextType>(initialState);
@@ -111,6 +114,28 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.removeItem("walletNetwork");
   };
 
+  const signAndSubmit = useCallback(
+    async (transactionXdr: string): Promise<SignAndSubmitResult> => {
+      if (!connected || !address) {
+        return { success: false, error: "Wallet not connected" };
+      }
+      setError(null);
+      try {
+        const result = await signAndSubmitTransaction(transactionXdr);
+        // Refresh balance after a successful on-chain transaction
+        if (result.success) {
+          await refreshBalance();
+        }
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        return { success: false, error: msg };
+      }
+    },
+    [connected, address]
+  );
+
   const ctx = {
     address,
     balance,
@@ -121,6 +146,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     connect,
     disconnect,
     refreshBalance: async () => refreshBalance(),
+    signAndSubmit,
   };
 
   return (
