@@ -104,7 +104,7 @@ model PriceHistory {
   @@map("price_history")
 }
 
-model Transaction {
+model EscrowTransaction {
   id              String   @id @default(uuid())
   orderIdOnChain  String
   action          String   // e.g., "CREATED", "CONFIRMED", "REFUNDED"
@@ -113,6 +113,6 @@ model Transaction {
   timestamp       DateTime
   createdAt       DateTime @default(now())
 
-  @@map("transactions")
+  @@map("escrow_transactions")
   @@index([orderIdOnChain])
 }

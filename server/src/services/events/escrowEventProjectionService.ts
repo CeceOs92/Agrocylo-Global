@@ -33,8 +33,8 @@ export class EscrowEventProjectionService {
         });
       }
 
-      // 2. Record Transaction (Audit Log - Issue #44)
-      await prisma.transaction.create({
+
+      await prisma.escrowTransaction.create({
         data: {
           orderIdOnChain: orderId,
           action: action.toUpperCase(),
