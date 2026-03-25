@@ -19,6 +19,26 @@ model Notification {
   isRead        Boolean  @default(false)
   createdAt     DateTime @default(now())
 
+  @@index([walletAddress]) 
+}
+model Nonce {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  nonce         String
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([walletAddress])
+}
+
+model RefreshToken {
+  id            String   @id @default(uuid())
+  walletAddress String
+  token         String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([walletAddress])
   @@index([walletAddress])
 }
 
