@@ -21,3 +21,19 @@ model Notification {
 
   @@index([walletAddress]) 
 }
+
+model EscrowEvent {
+  id          String   @id @default(uuid())
+  orderId     String
+  buyer       String
+  seller      String
+  amount      String
+  token       String
+  status      String
+  ledger      Int      
+  eventIndex  Int      
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([ledger, eventIndex]) 
+}

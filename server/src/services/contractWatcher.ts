@@ -29,6 +29,13 @@ export async function startContractWatcher() {
       });
 
       for (const event of response.events) {
+        // --- NEW: Structured Ingestion for the Indexer ---
+        import("./events/escrowEventIngestionService.js")
+          .then(({ EscrowEventIngestionService }) => {
+            EscrowEventIngestionService.ingestEvent(event);
+          })
+          .catch((err) => logger.error("Dynamic Import Fail (IngestionService):", err));
+
         handleContractEvent(event);
         // Update ledger tracker to avoid processing the same event twice
         if (event.ledger > lastKnownLedger) {
