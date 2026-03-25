@@ -16,7 +16,7 @@ export interface MappedEscrowEvent {
   seller: string;
   amount: string;
   token: string;
-  status: string;
+  action: string;
   ledger: number;
   eventIndex: number;
   timestamp: Date;

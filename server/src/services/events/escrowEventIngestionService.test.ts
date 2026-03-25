@@ -2,6 +2,25 @@ import { describe, it, expect, vi } from "vitest";
 import { EscrowEventIngestionService } from "./escrowEventIngestionService.js";
 import { EscrowEventParser } from "./escrowEventParser.js";
 import { EscrowEventRepository } from "./escrowEventRepository.js";
+import { EscrowEventProjectionService } from "./escrowEventProjectionService.js";
+
+vi.mock("../../config/database.js", () => ({
+    prisma: {
+        escrowEvent: { upsert: vi.fn(), create: vi.fn() },
+        transaction: { create: vi.fn() },
+        user: { upsert: vi.fn() },
+        order: { upsert: vi.fn(), update: vi.fn() },
+        product: { findFirst: vi.fn() },
+        priceHistory: { create: vi.fn() }
+    },
+    default: { query: vi.fn() }
+}));
+
+vi.mock("./escrowEventProjectionService.js", () => ({
+    EscrowEventProjectionService: {
+        projectEvent: vi.fn()
+    }
+}));
 
 describe("EscrowEventIngestionService", () => {
   it("should orchestrate ingestion flow", async () => {

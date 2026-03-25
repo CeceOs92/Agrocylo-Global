@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EscrowEventMapper } from "./escrowEventMapper.js";
-import { ParsedEscrowEvent } from "../../types/escrowEvent.js";
+import type { ParsedEscrowEvent } from "../../types/escrowEvent.js";
 
 describe("EscrowEventMapper", () => {
   it("should map a parsed event to the mapped model shape", () => {
@@ -19,7 +19,7 @@ describe("EscrowEventMapper", () => {
     const mapped = EscrowEventMapper.mapToModel(parsed);
 
     expect(mapped.orderId).toBe("1");
-    expect(mapped.status).toBe("CREATED");
+    expect(mapped.action).toBe("created");
     expect(mapped.seller).toBe("F...");
     expect(mapped.timestamp).toBeInstanceOf(Date);
     expect(mapped.ledger).toBe(100);

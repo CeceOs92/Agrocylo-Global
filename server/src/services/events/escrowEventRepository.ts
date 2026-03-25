@@ -1,4 +1,4 @@
-import prisma from "../../config/database.js";
+import { prisma } from "../../config/database.js";
 import type { MappedEscrowEvent } from "../../types/escrowEvent.js";
 import logger from "../../config/logger.js";
 
@@ -26,7 +26,7 @@ export class EscrowEventRepository {
           seller: mapped.seller,
           amount: mapped.amount,
           token: mapped.token,
-          status: mapped.status,
+          action: mapped.action,
           ledger: mapped.ledger,
           eventIndex: mapped.eventIndex,
           timestamp: mapped.timestamp,

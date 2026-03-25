@@ -1,6 +1,7 @@
 import { EscrowEventParser } from "./escrowEventParser.js";
 import { EscrowEventMapper } from "./escrowEventMapper.js";
 import { EscrowEventRepository } from "./escrowEventRepository.js";
+import { EscrowEventProjectionService } from "./escrowEventProjectionService.js";
 import logger from "../../config/logger.js";
 
 /**
@@ -22,6 +23,9 @@ export class EscrowEventIngestionService {
       // 3. Persist
       const record = await EscrowEventRepository.createEscrowEvent(mapped);
       logger.info(`Escrow event stored in DB: ${record.id}`);
+
+      // --- NEW: Project to Application Domain (Issue #44) ---
+      await EscrowEventProjectionService.projectEvent(record);
 
       return record;
     } catch (error) {
