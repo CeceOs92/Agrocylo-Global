@@ -14,7 +14,7 @@ import {
   Input,
 } from "@/components/ui";
 import { WalletContext } from "@/context/WalletContext";
-import FreighterApi from "@stellar/freighter-api";
+import { mapBlockchainError } from "@/components/errorHandler";
 
 interface EscrowTransactionProps {
   farmerAddress: string;
@@ -113,12 +113,10 @@ export default function EscrowTransaction({
       }
     } catch (error) {
       console.error("Transaction error:", error);
+      const errorInfo = mapBlockchainError(error);
       setTransactionStatus({
         status: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Transaction failed. Please try again.",
+        message: `${errorInfo.title}: ${errorInfo.message} ${errorInfo.action}`,
       });
     }
   };
