@@ -21,3 +21,48 @@ model Notification {
 
   @@index([walletAddress]) 
 }
+
+model User {
+  id            String   @id @default(uuid())
+  walletAddress String   @unique
+  role          String?  // e.g., "BUYER", "SELLER"
+  createdAt     DateTime @default(now())
+
+  ordersAsBuyer Order[]  @relation("BuyerOrders")
+  ordersAsSeller Order[] @relation("SellerOrders")
+
+  @@map("users")
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  farmerWallet  String   
+  name          String
+  pricePerUnit  String   
+  currency      String   
+  isAvailable   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  orders        Order[]
+
+  @@map("products")
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  orderIdOnChain String  @unique 
+  buyerAddress  String
+  sellerAddress String
+  amount        String
+  token         String
+  status        String   
+  productId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  buyerUser     User     @relation("BuyerOrders", fields: [buyerAddress], references: [walletAddress], onDelete: Cascade)
+  sellerUser    User     @relation("SellerOrders", fields: [sellerAddress], references: [walletAddress], onDelete: Cascade)
+  product       Product? @relation(fields: [productId], references: [id])
+
+  @@map("orders")
+}
