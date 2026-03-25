@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, symbol_short, Address, Env, Vec, Symbol};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -74,8 +74,7 @@ impl EscrowContract {
         Ok(())
     }
 
-    /// Creates a new order.
-    /// Locks the buyer's funds by transferring them to the contract address.
+    /// Creates a new order. Emits a 'created' event.
     pub fn create_order(
         env: Env,
         buyer: Address,
@@ -139,7 +138,7 @@ impl EscrowContract {
         buyer_orders.push_back(order_id);
         env.storage()
             .persistent()
-            .set(&DataKey::BuyerOrders(buyer), &buyer_orders);
+            .set(&DataKey::BuyerOrders(buyer.clone()), &buyer_orders);
 
         // Update farmer's order list
         let mut farmer_orders: Vec<u64> = env
@@ -150,18 +149,24 @@ impl EscrowContract {
         farmer_orders.push_back(order_id);
         env.storage()
             .persistent()
-            .set(&DataKey::FarmerOrders(farmer), &farmer_orders);
+            .set(&DataKey::FarmerOrders(farmer.clone()), &farmer_orders);
 
         // Extend data lifetime
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
 
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, created), Data: (order_id, buyer, farmer, amount)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("created")),
+            (order_id, buyer, farmer, amount),
+        );
+
         Ok(order_id)
     }
 
-    /// Buyer confirms that goods have been received.
-    /// Escrow releases payment to the farmer.
+    /// Buyer confirms receipt. Emits a 'confirmed' event.
     pub fn confirm_receipt(env: Env, buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         buyer.require_auth();
 
@@ -194,10 +199,18 @@ impl EscrowContract {
             &order.farmer,
             &order.amount,
         );
+
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, confirmed), Data: (order_id, buyer, farmer)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("confirmed")),
+            (order_id, order.buyer, order.farmer),
+        );
+
         Ok(())
     }
 
-    /// Anyone can call this to refund an order that is older than 96 hours without confirmation.
+    /// Refund an expired order. Emits a 'refunded' event.
     pub fn refund_expired_order(env: Env, order_id: u64) -> Result<(), EscrowError> {
         let mut order: Order = env
             .storage()
@@ -226,6 +239,14 @@ impl EscrowContract {
         // Transfer funds back to the buyer
         let token_client = token::Client::new(&env, &order.token);
         token_client.transfer(&env.current_contract_address(), &order.buyer, &order.amount);
+
+        // --- NEW: Emit Event for Backend Notification ---
+        // Topics: (order, refunded), Data: (order_id, buyer)
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("refunded")),
+            (order_id, order.buyer),
+        );
+
         Ok(())
     }
 
@@ -249,7 +270,7 @@ impl EscrowContract {
     pub fn get_orders_by_farmer(env: Env, farmer: Address) -> Vec<u64> {
         env.storage()
             .persistent()
-            .get(&DataKey::FarmerOrders(farmer))
+            .get(&Key::FarmerOrders(farmer))
             .unwrap_or_else(|| Vec::new(&env))
     }
 
