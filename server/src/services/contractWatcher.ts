@@ -1,6 +1,6 @@
 import { rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import logger from "../config/logger.js";
-import prisma from "../config/database.js";
+import { prisma } from "../config/database.js";
 
 const CONTRACT_ID = process.env.CONTRACT_ID || "C...";
 const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
@@ -29,6 +29,13 @@ export async function startContractWatcher() {
       });
 
       for (const event of response.events) {
+        // --- NEW: Structured Ingestion for the Indexer ---
+        import("./events/escrowEventIngestionService.js")
+          .then(({ EscrowEventIngestionService }) => {
+            EscrowEventIngestionService.ingestEvent(event);
+          })
+          .catch((err) => logger.error("Dynamic Import Fail (IngestionService):", err));
+
         handleContractEvent(event);
         // Update ledger tracker to avoid processing the same event twice
         if (event.ledger > lastKnownLedger) {
