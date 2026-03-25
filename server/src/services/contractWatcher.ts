@@ -1,11 +1,12 @@
 import { rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import logger from "../config/logger.js";
-import prisma from "../config/database.js";
+import { PrismaClient } from "@prisma/client";
 
 const CONTRACT_ID = process.env.CONTRACT_ID || "C...";
 const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
 
 const server = new rpc.Server(RPC_URL);
+const prisma = new PrismaClient();
 
 // This service "watches" the blockchain for our Escrow events
 export async function startContractWatcher() {
