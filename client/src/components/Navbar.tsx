@@ -3,7 +3,6 @@
 import React from "react";
 import WalletButton from "./WalletButton";
 import WalletDisplay from "./WalletDisplay";
-import Link from "next/link";
 import { useCart } from "@/context/CartContext";
 
 export default function Navbar() {
