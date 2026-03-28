@@ -55,10 +55,10 @@ export class EscrowEventProjectionService {
           await this.handleOrderRefunded(orderId);
           break;
         case "dispute":
-          await this.handleOrderDisputed(orderId);
+          await this.handleOrderDisputed(orderId, parsed.buyer, eventDate);
           break;
         case "resolved":
-          await this.handleOrderResolved(orderId, parsed.buyer === "REFUNDED");
+          await this.handleOrderResolved(orderId, parsed.buyer === "REFUNDED", eventDate);
           break;
       }
     } catch (error) {
@@ -114,17 +114,40 @@ export class EscrowEventProjectionService {
     });
   }
 
-  private static async handleOrderDisputed(orderId: string) {
+  private static async handleOrderDisputed(orderId: string, raisedBy: string, eventDate: Date) {
     await prisma.order.update({
       where: { orderIdOnChain: orderId },
       data: { status: "DISPUTED" },
     });
+
+    await prisma.dispute.upsert({
+      where: { orderIdOnChain: orderId },
+      create: {
+        orderIdOnChain: orderId,
+        raisedBy,
+        status: "OPEN",
+        createdAt: eventDate,
+      },
+      update: {
+        status: "OPEN",
+        raisedBy,
+      },
+    });
   }
 
-  private static async handleOrderResolved(orderId: string, isRefund: boolean) {
+  private static async handleOrderResolved(orderId: string, isRefund: boolean, eventDate: Date) {
     await prisma.order.update({
       where: { orderIdOnChain: orderId },
       data: { status: isRefund ? "REFUNDED" : "COMPLETED" },
+    });
+
+    await prisma.dispute.update({
+      where: { orderIdOnChain: orderId },
+      data: {
+        status: "RESOLVED",
+        outcome: isRefund ? "REFUNDED" : "COMPLETED",
+        resolvedAt: eventDate,
+      },
     });
   }
 }

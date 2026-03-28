@@ -66,6 +66,7 @@ model Order {
   buyerUser     User     @relation("BuyerOrders", fields: [buyerAddress], references: [walletAddress], onDelete: Cascade)
   sellerUser    User     @relation("SellerOrders", fields: [sellerAddress], references: [walletAddress], onDelete: Cascade)
   product       Product? @relation(fields: [productId], references: [id])
+  dispute       Dispute?
 
   @@map("orders")
 }
@@ -136,4 +137,18 @@ model OrderMetadata {
   buyer_address     String
 
   @@map("order_metadata")
+}
+
+model Dispute {
+  id              String   @id @default(uuid())
+  orderIdOnChain  String   @unique
+  raisedBy        String   // Wallet address of the one who raised it
+  status          String   // "OPEN", "RESOLVED"
+  outcome         String?  // "REFUNDED", "COMPLETED"
+  createdAt       DateTime @default(now())
+  resolvedAt      DateTime?
+
+  order           Order    @relation(fields: [orderIdOnChain], references: [orderIdOnChain])
+  
+  @@map("disputes")
 }
