@@ -48,7 +48,15 @@ fn setup_test() -> (
 
 #[test]
 fn test_create_and_confirm_order() {
-    let (_env, client, buyer, farmer, _collector, token, _, _) = setup_test();
+    let (_env, client, buyer, farmer, collector, token, _, _) = setup_test();
+
+    assert_eq!(token.balance(&buyer), 1000);
+    assert_eq!(token.balance(&farmer), 0);
+    assert_eq!(token.balance(&collector), 0);
+
+    let amount = 500;
+    let _expected_fee = 15; // 3% of 500
+    let _expected_net = 485;
 
     let order_id = client
         .mock_all_auths()
