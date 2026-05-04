@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -192,9 +194,10 @@ impl RegistryContract {
 
         let mut farmer_campaign_ids = read_farmer_campaign_ids(&env, &farmer);
         farmer_campaign_ids.push_back(campaign_id);
-        env.storage()
-            .persistent()
-            .set(&DataKey::FarmerCampaigns(farmer.clone()), &farmer_campaign_ids);
+        env.storage().persistent().set(
+            &DataKey::FarmerCampaigns(farmer.clone()),
+            &farmer_campaign_ids,
+        );
 
         // (campaign, registered) → (campaign_id, farmer_address)
         env.events().publish(

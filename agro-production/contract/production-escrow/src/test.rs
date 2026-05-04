@@ -179,7 +179,8 @@ fn test_refund_expired_order() {
     let (env, client, _admin, buyer, farmer, token, _) = setup_test();
 
     let order_id = client.create_order(&buyer, &farmer, &token.address, &500);
-    env.ledger().set_timestamp(env.ledger().timestamp() + NINETY_SIX_HOURS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + NINETY_SIX_HOURS + 1);
 
     client.refund_expired_order(&order_id);
     let order = client.get_order_details(&order_id);
@@ -221,7 +222,8 @@ fn test_dispute_cooldown_blocks_second_dispute() {
     let order_id2 = client.create_order(&buyer, &farmer, &token.address, &500);
 
     // Advance time but stay within cooldown window.
-    env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_COOLDOWN_SECONDS / 2);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DISPUTE_COOLDOWN_SECONDS / 2);
 
     let result = client.try_open_dispute(&buyer, &order_id2);
     assert_eq!(
@@ -242,7 +244,8 @@ fn test_dispute_allowed_after_cooldown() {
     let order_id2 = client.create_order(&buyer, &farmer, &token.address, &500);
 
     // Advance past cooldown.
-    env.ledger().set_timestamp(env.ledger().timestamp() + DISPUTE_COOLDOWN_SECONDS + 1);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + DISPUTE_COOLDOWN_SECONDS + 1);
 
     let dispute_id2 = client.open_dispute(&buyer, &order_id2);
     assert_eq!(dispute_id2, 2);

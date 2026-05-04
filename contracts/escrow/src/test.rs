@@ -20,15 +20,15 @@ fn setup_test() -> (
     let env = Env::default();
     env.mock_all_auths();
 
-    let admin       = Address::generate(&env);
-    let farmer      = Address::generate(&env);
-    let buyer       = Address::generate(&env);
-    let investor1   = Address::generate(&env);
-    let investor2   = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let investor1 = Address::generate(&env);
+    let investor2 = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
-    let xlm_contract   = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let xlm_client     = token::Client::new(&env, &xlm_contract.address());
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let xlm_client = token::Client::new(&env, &xlm_contract.address());
     let xlm_sac_client = token::StellarAssetClient::new(&env, &xlm_contract.address());
 
     xlm_sac_client.mint(&buyer, &1000);
@@ -36,10 +36,10 @@ fn setup_test() -> (
     xlm_sac_client.mint(&investor2, &2000);
 
     let usdc_contract = env.register_stellar_asset_contract_v2(token_admin);
-    let usdc_client   = token::Client::new(&env, &usdc_contract.address());
+    let usdc_client = token::Client::new(&env, &usdc_contract.address());
 
     let contract_id = env.register(EscrowContract, ());
-    let client      = EscrowContractClient::new(&env, &contract_id);
+    let client = EscrowContractClient::new(&env, &contract_id);
 
     let mut supported_tokens = Vec::new(&env);
     supported_tokens.push_back(xlm_client.address.clone());
@@ -49,10 +49,27 @@ fn setup_test() -> (
 
     client.initialize(&admin, &fee_collector, &supported_tokens);
 
-    (env, client, buyer, farmer, fee_collector, xlm_client, usdc_client, admin, investor1)
+    (
+        env,
+        client,
+        buyer,
+        farmer,
+        fee_collector,
+        xlm_client,
+        usdc_client,
+        admin,
+        investor1,
+    )
 }
 
-fn create_test_with_tokens() -> (Env, EscrowContractClient<'static>, Address, Address, Address, token::Client<'static>) {
+fn create_test_with_tokens() -> (
+    Env,
+    EscrowContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    token::Client<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -192,7 +209,8 @@ fn test_refund_expired_order() {
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
-    env.ledger().set_timestamp(env.ledger().timestamp() + 345_601);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 345_601);
 
     client.mock_all_auths().refund_expired_order(&order_id);
 
@@ -209,9 +227,7 @@ fn test_refund_unexpired_order_fails() {
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 3600);
 
-    let result = client
-        .mock_all_auths()
-        .try_refund_expired_order(&order_id);
+    let result = client.mock_all_auths().try_refund_expired_order(&order_id);
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotExpired);
 }
 
@@ -236,13 +252,15 @@ fn test_platform_fee_acceptance_criteria() {
     let (_env, client, buyer, farmer, collector, token, _, _, _) = setup_test();
 
     let amount = 1000;
-    
-    client.mock_all_auths().create_order(&buyer, &farmer, &token.address, &amount);
+
+    client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &amount);
 
     assert_eq!(token.balance(&collector), 30);
     let order_details = client.get_order_details(&1);
     assert_eq!(order_details.amount, 970);
-    
+
     client.mock_all_auths().confirm_receipt(&buyer, &1);
     assert_eq!(token.balance(&farmer), 970);
 }
@@ -306,9 +324,10 @@ fn test_open_dispute_not_pending_fails() {
     let reason = String::from_str(&_env, "Issue with order");
     let evidence_hash = String::from_str(&_env, "QmHash789");
 
-    let result = client
-        .mock_all_auths()
-        .try_open_dispute(&buyer, &order_id, &reason, &evidence_hash);
+    let result =
+        client
+            .mock_all_auths()
+            .try_open_dispute(&buyer, &order_id, &reason, &evidence_hash);
 
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotPending);
 }
@@ -325,11 +344,17 @@ fn test_open_dispute_not_participant_fails() {
     let reason = String::from_str(&env, "Not involved");
     let evidence_hash = String::from_str(&env, "QmHashXYZ");
 
-    let result = client
-        .mock_all_auths()
-        .try_open_dispute(&non_participant, &order_id, &reason, &evidence_hash);
+    let result = client.mock_all_auths().try_open_dispute(
+        &non_participant,
+        &order_id,
+        &reason,
+        &evidence_hash,
+    );
 
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::NotOrderParticipant);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::NotOrderParticipant
+    );
 }
 
 #[test]
@@ -350,11 +375,15 @@ fn test_open_dispute_duplicate_fails() {
     let reason2 = String::from_str(&_env, "Second dispute");
     let evidence_hash2 = String::from_str(&_env, "QmHash222");
 
-    let result = client
-        .mock_all_auths()
-        .try_open_dispute(&buyer, &order_id, &reason2, &evidence_hash2);
+    let result =
+        client
+            .mock_all_auths()
+            .try_open_dispute(&buyer, &order_id, &reason2, &evidence_hash2);
 
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::DisputeAlreadyExists);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::DisputeAlreadyExists
+    );
 }
 
 #[test]
@@ -443,9 +472,11 @@ fn test_resolve_dispute_not_admin_fails() {
         .open_dispute(&buyer, &order_id, &reason, &evidence_hash);
 
     let not_admin = Address::generate(&env);
-    let result = client
-        .mock_all_auths()
-        .try_resolve_dispute(&not_admin, &order_id, &DisputeResolution::Refund);
+    let result = client.mock_all_auths().try_resolve_dispute(
+        &not_admin,
+        &order_id,
+        &DisputeResolution::Refund,
+    );
 
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::NotAdmin);
 }
@@ -458,9 +489,10 @@ fn test_resolve_dispute_not_disputed_fails() {
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
-    let result = client
-        .mock_all_auths()
-        .try_resolve_dispute(&admin, &order_id, &DisputeResolution::Refund);
+    let result =
+        client
+            .mock_all_auths()
+            .try_resolve_dispute(&admin, &order_id, &DisputeResolution::Refund);
 
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotDisputed);
 }
@@ -480,9 +512,11 @@ fn test_resolve_dispute_invalid_split_ratio_fails() {
         .mock_all_auths()
         .open_dispute(&buyer, &order_id, &reason, &evidence_hash);
 
-    let result = client
-        .mock_all_auths()
-        .try_resolve_dispute(&admin, &order_id, &DisputeResolution::Split(15000));
+    let result = client.mock_all_auths().try_resolve_dispute(
+        &admin,
+        &order_id,
+        &DisputeResolution::Split(15000),
+    );
 
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::InvalidSplitRatio);
 }

@@ -234,10 +234,13 @@ impl ProductionEscrowContract {
             status: CampaignStatus::Funding,
         };
 
-        env.storage().persistent().set(&DataKey::Campaign(id), &campaign);
         env.storage()
             .persistent()
-            .set(&DataKey::Contributions(id), &Map::<Address, i128>::new(&env));
+            .set(&DataKey::Campaign(id), &campaign);
+        env.storage().persistent().set(
+            &DataKey::Contributions(id),
+            &Map::<Address, i128>::new(&env),
+        );
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Campaign(id), TTL_THRESHOLD, TTL_EXTEND);
@@ -302,9 +305,11 @@ impl ProductionEscrowContract {
         env.storage()
             .persistent()
             .set(&DataKey::Campaign(campaign_id), &campaign);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Campaign(campaign_id), TTL_THRESHOLD, TTL_EXTEND);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Campaign(campaign_id),
+            TTL_THRESHOLD,
+            TTL_EXTEND,
+        );
 
         env.events().publish(
             (t_campaign(), symbol_short!("invested")),
@@ -356,8 +361,8 @@ impl ProductionEscrowContract {
         }
         campaign.status = CampaignStatus::Harvested;
 
-        let cumulative_target = (campaign.total_raised * (TRANCHE_START_BPS + TRANCHE_HARVEST_BPS))
-            / BPS_DENOM;
+        let cumulative_target =
+            (campaign.total_raised * (TRANCHE_START_BPS + TRANCHE_HARVEST_BPS)) / BPS_DENOM;
         let delta = cumulative_target - campaign.tranche_released;
         if delta > 0 {
             release_tranche_internal(&env, &mut campaign, delta)?;
@@ -443,7 +448,9 @@ impl ProductionEscrowContract {
         campaign.total_revenue += order.amount;
         order.status = OrderStatus::Confirmed;
 
-        env.storage().persistent().set(&DataKey::Order(order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(order_id), &order);
         save_campaign(&env, &campaign);
 
         env.events().publish(
@@ -539,19 +546,13 @@ impl ProductionEscrowContract {
         campaign.status = CampaignStatus::Failed;
         save_campaign(&env, &campaign);
 
-        env.events().publish(
-            (t_campaign(), symbol_short!("failed")),
-            (campaign_id,),
-        );
+        env.events()
+            .publish((t_campaign(), symbol_short!("failed")), (campaign_id,));
         Ok(())
     }
 
     /// Investor reclaims their contribution on a failed campaign.
-    pub fn refund(
-        env: Env,
-        investor: Address,
-        campaign_id: u64,
-    ) -> Result<i128, EscrowError> {
+    pub fn refund(env: Env, investor: Address, campaign_id: u64) -> Result<i128, EscrowError> {
         investor.require_auth();
         let campaign = load_campaign(&env, campaign_id)?;
         if campaign.status != CampaignStatus::Failed {
@@ -642,17 +643,15 @@ impl ProductionEscrowContract {
             DisputeResolution::RefundInvestors => {
                 campaign.status = CampaignStatus::Failed;
                 save_campaign(&env, &campaign);
-                env.events().publish(
-                    (t_campaign(), symbol_short!("failed")),
-                    (campaign_id,),
-                );
+                env.events()
+                    .publish((t_campaign(), symbol_short!("failed")), (campaign_id,));
             }
             DisputeResolution::Partial(farmer_bps) => {
                 if farmer_bps > BPS_DENOM as u32 {
                     return Err(EscrowError::InvalidResolution);
                 }
-                let pool = campaign.total_raised + campaign.total_revenue
-                    - campaign.tranche_released;
+                let pool =
+                    campaign.total_raised + campaign.total_revenue - campaign.tranche_released;
                 if pool > 0 && farmer_bps > 0 {
                     let farmer_cut = (pool * farmer_bps as i128) / BPS_DENOM;
                     if farmer_cut > 0 {
@@ -752,11 +751,7 @@ fn release_tranche_internal(
         return Err(EscrowError::InvalidTranche);
     }
     let token_client = token::Client::new(env, &campaign.token);
-    token_client.transfer(
-        &env.current_contract_address(),
-        &campaign.farmer,
-        &amount,
-    );
+    token_client.transfer(&env.current_contract_address(), &campaign.farmer, &amount);
     campaign.tranche_released += amount;
 
     env.events().publish(
