@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
-    String, Vec, Map,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
+    String, Vec,
 };
 
 // Errors
@@ -9,9 +9,9 @@ use soroban_sdk::{
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
-    AlreadyInitialized     = 1,
-    MustSupportTwoTokens   = 2,
-    AmountMustBePositive   = 3,
+    AlreadyInitialized = 1,
+    MustSupportTwoTokens = 2,
+    AmountMustBePositive = 3,
     ContractNotInitialized = 4,
     UnsupportedToken = 5,
     OrderDoesNotExist = 6,
@@ -67,21 +67,21 @@ pub enum CampaignStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Investment {
-    pub amount:  i128,
+    pub amount: i128,
     pub claimed: bool,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Campaign {
-    pub admin:           Address,
-    pub farmer:          Address,
-    pub token:           Address,
-    pub total_invested:  i128,
+    pub admin: Address,
+    pub farmer: Address,
+    pub token: Address,
+    pub total_invested: i128,
     pub return_rate_bps: u32,
-    pub created_at:      u64,
-    pub settled_at:      Option<u64>,
-    pub status:          CampaignStatus,
+    pub created_at: u64,
+    pub settled_at: Option<u64>,
+    pub status: CampaignStatus,
 }
 
 #[contracttype]
@@ -121,7 +121,9 @@ fn read_order(env: &Env, order_id: u64) -> Result<Order, EscrowError> {
 }
 
 fn write_order(env: &Env, order_id: u64, order: &Order) {
-    env.storage().persistent().set(&DataKey::Order(order_id), order);
+    env.storage()
+        .persistent()
+        .set(&DataKey::Order(order_id), order);
     env.storage()
         .persistent()
         .extend_ttl(&DataKey::Order(order_id), TTL_THRESHOLD, TTL_EXTEND_TO);
@@ -138,9 +140,11 @@ fn write_dispute(env: &Env, order_id: u64, dispute: &Dispute) {
     env.storage()
         .persistent()
         .set(&DataKey::Dispute(order_id), dispute);
-    env.storage()
-        .persistent()
-        .extend_ttl(&DataKey::Dispute(order_id), TTL_THRESHOLD, TTL_EXTEND_TO);
+    env.storage().persistent().extend_ttl(
+        &DataKey::Dispute(order_id),
+        TTL_THRESHOLD,
+        TTL_EXTEND_TO,
+    );
 }
 
 fn read_admin(env: &Env) -> Result<Address, EscrowError> {
@@ -170,7 +174,9 @@ impl EscrowContract {
         }
         storage.set(&DataKey::Admin, &admin);
         storage.set(&DataKey::SupportedTokens, &supported_tokens);
-        env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeCollector, &fee_collector);
         Ok(())
     }
 
@@ -198,18 +204,19 @@ impl EscrowContract {
         }
 
         let token_client = token::Client::new(&env, &token);
-        
-        let fee_collector: Address = env.storage().instance().get(&DataKey::FeeCollector).ok_or(EscrowError::ContractNotInitialized)?;
+
+        let fee_collector: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(EscrowError::ContractNotInitialized)?;
         let fee = amount * 3 / 100;
         let net_amount = amount - fee;
 
         token_client.transfer(&buyer, &fee_collector, &fee);
         token_client.transfer(&buyer, &env.current_contract_address(), &net_amount);
 
-        let order_id: u64 = instance_storage
-            .get(&DataKey::OrderCount)
-            .unwrap_or(0u64)
-            + 1;
+        let order_id: u64 = instance_storage.get(&DataKey::OrderCount).unwrap_or(0u64) + 1;
         instance_storage.set(&DataKey::OrderCount, &order_id);
 
         let timestamp = env.ledger().timestamp();
@@ -228,7 +235,13 @@ impl EscrowContract {
 
         env.events().publish(
             (symbol_short!("order"), symbol_short!("created")),
-            (order_id, buyer.clone(), farmer.clone(), amount, token.clone()),
+            (
+                order_id,
+                buyer.clone(),
+                farmer.clone(),
+                amount,
+                token.clone(),
+            ),
         );
 
         persistent_storage.set(&order_key, &order);
@@ -291,8 +304,11 @@ impl EscrowContract {
         order.status = OrderStatus::Completed;
         write_order(&env, order_id, &order);
 
-        token::Client::new(&env, &order.token)
-            .transfer(&env.current_contract_address(), &order.farmer, &order.amount);
+        token::Client::new(&env, &order.token).transfer(
+            &env.current_contract_address(),
+            &order.farmer,
+            &order.amount,
+        );
 
         env.events().publish(
             (symbol_short!("order"), symbol_short!("confirmed")),
@@ -316,8 +332,11 @@ impl EscrowContract {
         order.status = OrderStatus::Refunded;
         write_order(&env, order_id, &order);
 
-        token::Client::new(&env, &order.token)
-            .transfer(&env.current_contract_address(), &order.buyer, &order.amount);
+        token::Client::new(&env, &order.token).transfer(
+            &env.current_contract_address(),
+            &order.buyer,
+            &order.amount,
+        );
 
         env.events().publish(
             (symbol_short!("order"), symbol_short!("refunded")),
@@ -347,8 +366,11 @@ impl EscrowContract {
             storage.set(&key, &order);
             storage.extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
-            token::Client::new(&env, &order.token)
-                .transfer(&env.current_contract_address(), &order.buyer, &order.amount);
+            token::Client::new(&env, &order.token).transfer(
+                &env.current_contract_address(),
+                &order.buyer,
+                &order.amount,
+            );
 
             env.events().publish(
                 (symbol_short!("order"), symbol_short!("refunded")),
@@ -432,7 +454,11 @@ impl EscrowContract {
             }
             DisputeResolution::Release => {
                 order.status = OrderStatus::Completed;
-                token_client.transfer(&env.current_contract_address(), &order.farmer, &order.amount);
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &order.farmer,
+                    &order.amount,
+                );
             }
             DisputeResolution::Split(buyer_share_bps) => {
                 if buyer_share_bps > 10_000 {
@@ -447,10 +473,18 @@ impl EscrowContract {
                 let release_amount = order.amount - refund_amount;
 
                 if refund_amount > 0 {
-                    token_client.transfer(&env.current_contract_address(), &order.buyer, &refund_amount);
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &order.buyer,
+                        &refund_amount,
+                    );
                 }
                 if release_amount > 0 {
-                    token_client.transfer(&env.current_contract_address(), &order.farmer, &release_amount);
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &order.farmer,
+                        &release_amount,
+                    );
                 }
 
                 order.status = OrderStatus::Completed;

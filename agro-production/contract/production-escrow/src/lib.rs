@@ -1,7 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, symbol_short,
-    Address, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Vec,
 };
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -172,8 +171,12 @@ impl ProductionEscrowContract {
             return Err(ProductionEscrowError::DisputeStakeMustBePositive);
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::SupportedTokens, &supported_tokens);
-        env.storage().instance().set(&DataKey::DisputeStakeAmount, &dispute_stake_amount);
+        env.storage()
+            .instance()
+            .set(&DataKey::SupportedTokens, &supported_tokens);
+        env.storage()
+            .instance()
+            .set(&DataKey::DisputeStakeAmount, &dispute_stake_amount);
         Ok(())
     }
 
@@ -209,7 +212,9 @@ impl ProductionEscrowContract {
             .get(&DataKey::CampaignCount)
             .unwrap_or(0);
         campaign_id += 1;
-        env.storage().instance().set(&DataKey::CampaignCount, &campaign_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::CampaignCount, &campaign_id);
 
         let campaign = Campaign {
             farmer: farmer.clone(),
@@ -220,7 +225,9 @@ impl ProductionEscrowContract {
             status: CampaignStatus::Active,
         };
 
-        env.storage().persistent().set(&DataKey::Campaign(campaign_id), &campaign);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Campaign(campaign_id), 1000, 100000);
@@ -237,7 +244,13 @@ impl ProductionEscrowContract {
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("created")),
-            (campaign_id, farmer, campaign.token.clone(), funding_goal, harvest_deadline),
+            (
+                campaign_id,
+                farmer,
+                campaign.token.clone(),
+                funding_goal,
+                harvest_deadline,
+            ),
         );
 
         Ok(campaign_id)
@@ -276,17 +289,23 @@ impl ProductionEscrowContract {
             campaign.status = CampaignStatus::Funded;
         }
         let total_raised = campaign.total_funded;
-        env.storage().persistent().set(&DataKey::Campaign(campaign_id), &campaign);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
 
         let mut position: InvestorPosition = env
             .storage()
             .persistent()
             .get(&DataKey::InvestorPosition(campaign_id, investor.clone()))
-            .unwrap_or(InvestorPosition { amount: 0, refunded: false });
+            .unwrap_or(InvestorPosition {
+                amount: 0,
+                refunded: false,
+            });
         position.amount += amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::InvestorPosition(campaign_id, investor.clone()), &position);
+        env.storage().persistent().set(
+            &DataKey::InvestorPosition(campaign_id, investor.clone()),
+            &position,
+        );
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("invested")),
@@ -339,7 +358,9 @@ impl ProductionEscrowContract {
         );
 
         campaign.status = CampaignStatus::Harvested;
-        env.storage().persistent().set(&DataKey::Campaign(campaign_id), &campaign);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("harvested")),
@@ -357,10 +378,7 @@ impl ProductionEscrowContract {
 
     /// Mark a campaign as Failed when the harvest deadline has passed (Issue #137).
     /// Anyone can call this once the deadline is exceeded — no centralised gating.
-    pub fn mark_campaign_failed(
-        env: Env,
-        campaign_id: u64,
-    ) -> Result<(), ProductionEscrowError> {
+    pub fn mark_campaign_failed(env: Env, campaign_id: u64) -> Result<(), ProductionEscrowError> {
         let mut campaign: Campaign = env
             .storage()
             .persistent()
@@ -377,7 +395,9 @@ impl ProductionEscrowContract {
         }
 
         campaign.status = CampaignStatus::Failed;
-        env.storage().persistent().set(&DataKey::Campaign(campaign_id), &campaign);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("failed")),
@@ -414,16 +434,13 @@ impl ProductionEscrowContract {
         }
 
         position.refunded = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::InvestorPosition(campaign_id, investor.clone()), &position);
+        env.storage().persistent().set(
+            &DataKey::InvestorPosition(campaign_id, investor.clone()),
+            &position,
+        );
 
         let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &investor,
-            &position.amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &investor, &position.amount);
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("refunded")),
@@ -479,7 +496,9 @@ impl ProductionEscrowContract {
             .get(&DataKey::OrderCount)
             .unwrap_or(0);
         order_id += 1;
-        env.storage().instance().set(&DataKey::OrderCount, &order_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::OrderCount, &order_id);
 
         let timestamp = env.ledger().timestamp();
         let order = Order {
@@ -492,7 +511,9 @@ impl ProductionEscrowContract {
             status: OrderStatus::Pending,
         };
 
-        env.storage().persistent().set(&DataKey::Order(order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(order_id), &order);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
@@ -548,7 +569,9 @@ impl ProductionEscrowContract {
         let delivery_timestamp = env.ledger().timestamp();
         order.status = OrderStatus::Delivered;
         order.delivery_timestamp = Some(delivery_timestamp);
-        env.storage().persistent().set(&DataKey::Order(order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(order_id), &order);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
@@ -582,7 +605,9 @@ impl ProductionEscrowContract {
         }
 
         order.status = OrderStatus::Completed;
-        env.storage().persistent().set(&DataKey::Order(order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(order_id), &order);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
@@ -602,10 +627,7 @@ impl ProductionEscrowContract {
         Ok(())
     }
 
-    pub fn refund_expired_order(
-        env: Env,
-        order_id: u64,
-    ) -> Result<(), ProductionEscrowError> {
+    pub fn refund_expired_order(env: Env, order_id: u64) -> Result<(), ProductionEscrowError> {
         let mut order: Order = env
             .storage()
             .persistent()
@@ -622,7 +644,9 @@ impl ProductionEscrowContract {
         }
 
         order.status = OrderStatus::Refunded;
-        env.storage().persistent().set(&DataKey::Order(order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(order_id), &order);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Order(order_id), 1000, 100000);
@@ -709,7 +733,9 @@ impl ProductionEscrowContract {
             .get(&DataKey::DisputeCount)
             .unwrap_or(0);
         dispute_id += 1;
-        env.storage().instance().set(&DataKey::DisputeCount, &dispute_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::DisputeCount, &dispute_id);
 
         let dispute = Dispute {
             order_id,
@@ -719,7 +745,9 @@ impl ProductionEscrowContract {
             status: DisputeStatus::Open,
         };
 
-        env.storage().persistent().set(&DataKey::Dispute(dispute_id), &dispute);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(dispute_id), &dispute);
         env.storage()
             .persistent()
             .set(&DataKey::OrderDispute(order_id), &dispute_id);
@@ -802,8 +830,12 @@ impl ProductionEscrowContract {
             order.status = OrderStatus::Completed;
         }
 
-        env.storage().persistent().set(&DataKey::Dispute(dispute_id), &dispute);
-        env.storage().persistent().set(&DataKey::Order(dispute.order_id), &order);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(dispute_id), &dispute);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Order(dispute.order_id), &order);
 
         env.events().publish(
             (symbol_short!("campaign"), symbol_short!("resolved")),
@@ -815,10 +847,7 @@ impl ProductionEscrowContract {
 
     // ── Getters ──────────────────────────────────────────────────────────────
 
-    pub fn get_campaign(
-        env: Env,
-        campaign_id: u64,
-    ) -> Result<Campaign, ProductionEscrowError> {
+    pub fn get_campaign(env: Env, campaign_id: u64) -> Result<Campaign, ProductionEscrowError> {
         env.storage()
             .persistent()
             .get(&DataKey::Campaign(campaign_id))
@@ -836,20 +865,14 @@ impl ProductionEscrowContract {
             .ok_or(ProductionEscrowError::NotInvestor)
     }
 
-    pub fn get_order_details(
-        env: Env,
-        order_id: u64,
-    ) -> Result<Order, ProductionEscrowError> {
+    pub fn get_order_details(env: Env, order_id: u64) -> Result<Order, ProductionEscrowError> {
         env.storage()
             .persistent()
             .get(&DataKey::Order(order_id))
             .ok_or(ProductionEscrowError::OrderDoesNotExist)
     }
 
-    pub fn get_dispute(
-        env: Env,
-        dispute_id: u64,
-    ) -> Result<Dispute, ProductionEscrowError> {
+    pub fn get_dispute(env: Env, dispute_id: u64) -> Result<Dispute, ProductionEscrowError> {
         env.storage()
             .persistent()
             .get(&DataKey::Dispute(dispute_id))
