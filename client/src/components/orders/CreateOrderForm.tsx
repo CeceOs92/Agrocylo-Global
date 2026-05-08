@@ -9,6 +9,11 @@ import { useEscrowContract } from "@/hooks/useEscrowContract";
 
 const PLATFORM_FEE_PCT = 3;
 
+// XLM Stellar Asset Contract — required to settle native XLM through the escrow.
+// Set NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID in .env.local (e.g. testnet XLM SAC).
+const NATIVE_TOKEN_CONTRACT_ID =
+  process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID ?? "";
+
 export default function CreateOrderForm() {
   const searchParams = useSearchParams();
   const farmerAddress = searchParams.get("farmer") ?? "";
@@ -27,10 +32,14 @@ export default function CreateOrderForm() {
 
   async function handleSubmit() {
     if (!isValid) return;
+    if (!NATIVE_TOKEN_CONTRACT_ID) {
+      setTxStep("error");
+      return;
+    }
     try {
       setTxStep("signing");
       const stroops = BigInt(Math.round(numAmount * 1e7));
-      const result = await createOrder(farmer, stroops);
+      const result = await createOrder(farmer, NATIVE_TOKEN_CONTRACT_ID, stroops);
       setTxStep("done");
       setTxHash(result?.txHash ?? null);
     } catch {

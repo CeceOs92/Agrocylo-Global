@@ -23,6 +23,7 @@ import {
   updateProduct,
   uploadProductImage,
 } from "@/services/productService";
+import { isTestMode } from "@/lib/testMode";
 
 type Mode = "add" | "edit";
 
@@ -111,17 +112,13 @@ export default function ProductFormModal({
   };
 
   function validate(): boolean {
-    const isTestMode =
-      typeof window !== "undefined" &&
-      (window as any).freighter?.signTransaction;
-
     const next: FormErrors = {};
     if (!name.trim()) next.name = "Product name is required.";
     if (!category) next.category = "Select a category.";
     if (!pricePerUnit || Number(pricePerUnit) <= 0)
       next.pricePerUnit = "Invalid price.";
     // In test mode, location and deliveryWindow are optional
-    if (!isTestMode) {
+    if (!isTestMode()) {
       if (!location.trim()) next.location = "Location is required.";
       if (!deliveryWindow.trim())
         next.deliveryWindow = "Delivery window is required.";

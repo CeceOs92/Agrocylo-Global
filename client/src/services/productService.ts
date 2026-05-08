@@ -6,17 +6,8 @@ import type {
   ProductWriteInput,
 } from "@/types/product";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:5000";
-
-/**
- * Detect test mode (E2E Playwright)
- */
-function isTestMode(): boolean {
-  if (typeof window === "undefined") return false;
-  const w = window as any;
-  return !!(w.freighter && w.freighter.signTransaction && typeof w.freighter.signTransaction === "function");
-}
+import { API_BASE_URL } from "@/lib/apiConfig";
+import { isTestMode } from "@/lib/testMode";
 
 function productFromJson(json: any): Product {
   return json as Product;
@@ -65,6 +56,16 @@ export async function listProducts(params: ListProductsParams = {}) {
   }>(url);
 }
 
+export async function getProductById(productId: string): Promise<Product | null> {
+  try {
+    const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`);
+    return productFromJson(json);
+  } catch (err) {
+    if (err instanceof Error && /404|not found/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function createProduct(
   walletAddress: string,
   input: ProductWriteInput,
@@ -73,21 +74,21 @@ export async function createProduct(
   if (isTestMode()) {
     return {
       id: String(Date.now()),
-      farmerWallet: walletAddress,
+      farmer_wallet: walletAddress,
       name: input.name ?? "Test Product",
       category: input.category ?? "Other",
       price_per_unit: input.price_per_unit ?? "0",
-      currency: input.currency ?? "STRK",
+      currency: input.currency ?? "USDC",
       unit: input.unit ?? "kg",
       stock_quantity: input.stock_quantity ?? null,
       description: input.description ?? "",
       location: input.location ?? "Test Location",
       delivery_window: input.delivery_window ?? "Test Window",
       is_available: input.is_available ?? true,
-      images: [],
+      image_url: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    } as Product;
+    };
   }
 
   const payload = {

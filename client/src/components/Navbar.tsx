@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import WalletButton from "./WalletButton";
 import WalletDisplay from "./WalletDisplay";
 import { useCart } from "@/context/CartContext";
@@ -9,6 +10,13 @@ import { useCart } from "@/context/CartContext";
 
 export default function Navbar() {
   const { itemCount, setDrawerOpen } = useCart();
+  const pathname = usePathname();
+
+  // Onboarding has its own minimal layout — hide the global navbar to avoid
+  // showing a second wallet-connect UI alongside step 1's connect-wallet card.
+  if (pathname?.startsWith("/onboarding")) {
+    return null;
+  }
   return (
     <nav className="w-full flex items-center justify-between px-6 py-3 bg-gray-900 text-white">
       <div className="flex items-center gap-6">

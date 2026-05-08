@@ -1,23 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
-import "./globals.css";
+import { montserratAlternates } from "@/fonts";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import WalletProviderWrapper from "../components/WalletProviderWrapper";
+import QueryProvider from "../components/QueryProvider";
 import { TransactionFeedbackProvider } from "@/context/TransactionFeedbackContext";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AGROCYLO",
-  description: "Peer-to-peer agricultural trade secured by Stellar escrow",
+  title: "AgroCylo 🌾",
+  description:
+    "Peer-to-peer agro marketplace secured by Stellar escrow. Farmers sell directly to buyers — no middlemen, no chargebacks.",
 };
 
 export default function RootLayout({
@@ -26,15 +19,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${montserratAlternates.variable} flex min-h-screen flex-col font-sans antialiased`}
       >
-        <TransactionFeedbackProvider>
-          <WalletProviderWrapper>
-            {children}
-          </WalletProviderWrapper>
-        </TransactionFeedbackProvider>
+        <ThemeProvider>
+          <QueryProvider>
+            <TransactionFeedbackProvider>
+              <WalletProviderWrapper>{children}</WalletProviderWrapper>
+            </TransactionFeedbackProvider>
+          </QueryProvider>
+        </ThemeProvider>
         <Toaster position="top-right" richColors closeButton />
       </body>
     </html>

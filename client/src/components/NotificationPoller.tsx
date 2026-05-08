@@ -26,6 +26,8 @@ export default function NotificationPoller() {
       return;
     }
 
+    // Capture address as non-null inside the effect so TS can narrow it
+    const walletAddress = address;
     let active = true;
 
     async function pollNotifications() {
@@ -36,7 +38,7 @@ export default function NotificationPoller() {
       isPollingRef.current = true;
 
       try {
-        const notifications = await listUnreadNotifications(address);
+        const notifications = await listUnreadNotifications(walletAddress);
         if (!active || notifications.length === 0) {
           return;
         }
@@ -57,7 +59,7 @@ export default function NotificationPoller() {
         });
 
         await markNotificationsRead(
-          address,
+          walletAddress,
           unseen.map((notification) => notification.id),
         );
       } catch (error) {

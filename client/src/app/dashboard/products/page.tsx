@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useContext, useEffect, useMemo, useState } from "react";
-import { WalletContext } from "@/context/WalletContext";
+import React, { useEffect, useMemo, useState } from "react";
+import { useWallet } from "@/hooks/useWallet";
 import type { Product } from "@/types/product";
 import {
   listProducts,
@@ -21,7 +21,7 @@ import ProductFormModal from "@/components/ProductFormModal";
 import { ProductCard, ProductCardSkeleton } from "@/components/ProductCard";
 
 export default function FarmerProductsDashboard() {
-  const { address, connected } = useContext(WalletContext);
+  const { address, connected } = useWallet();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);

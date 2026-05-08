@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useContext } from "react";
+import React, { useState } from "react";
 import {
   Container,
   Button,
@@ -13,7 +13,7 @@ import {
   Text,
   Input,
 } from "@/components/ui";
-import { WalletContext } from "@/context/WalletContext";
+import { useWallet } from "@/hooks/useWallet";
 import { mapBlockchainError } from "@/components/errorHandler";
 import { createOrder } from "@/services/stellar/contractService";
 import { signAndSubmitTransaction } from "@/lib/signTransaction";
@@ -43,7 +43,7 @@ export default function EscrowTransaction({
   pricePerUnit,
   productName,
 }: EscrowTransactionProps) {
-  const { address, connected, network } = useContext(WalletContext);
+  const { address, connected, network } = useWallet();
   const [quantity, setQuantity] = useState<string>("1");
   const [deliveryDeadline, setDeliveryDeadline] = useState<string>("");
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatus>({

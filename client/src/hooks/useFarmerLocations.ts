@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { API_BASE_URL as API_BASE } from "@/lib/apiConfig";
 
 export interface FarmerLocation {
   wallet_address: string;
@@ -19,8 +20,6 @@ interface UseFarmerLocationsOptions {
   longitude?: number | null;
   radiusKm?: number | null;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
 
 export function useFarmerLocations(opts: UseFarmerLocationsOptions = {}) {
   const { latitude, longitude, radiusKm } = opts;

@@ -12,6 +12,7 @@ import { TransactionBuilder } from "@stellar/stellar-sdk";
 import { rpc } from "@stellar/stellar-sdk";
 import FreighterApi from "@stellar/freighter-api";
 import { getRpcServer, getCurrentNetworkName } from "./stellar";
+import { isTestMode } from "./testMode";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -67,11 +68,10 @@ export async function signTransaction(
   );
 
   // Prefer window.freighter if available (e.g. Playwright test mocks).
-  const w = typeof window !== "undefined" ? (window as any) : null;
   const freighterDirect =
-    w?.freighter?.signTransaction ? w.freighter :
-    w?.freighterApi?.signTransaction ? w.freighterApi :
-    null;
+    typeof window !== "undefined"
+      ? window.freighter ?? window.freighterApi ?? null
+      : null;
 
   const signedXdr = freighterDirect
     ? await freighterDirect.signTransaction(transactionXdr, {
@@ -101,7 +101,7 @@ export async function submitTransaction(
   opts?: SignTransactionOptions
 ): Promise<SignAndSubmitResult> {
   // Test mode: return dummy success response
-  if (typeof window !== "undefined" && (window as any).freighter?.signTransaction) {
+  if (isTestMode()) {
     return {
       success: true,
       txHash: "0000000000000000000000000000000000000000000000000000000000000000",

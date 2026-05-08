@@ -1,8 +1,8 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { WalletContext } from "@/context/WalletContext";
+import { useWallet } from "@/hooks/useWallet";
 import { getProductById } from "@/services/productService";
 import { useCart } from "@/context/CartContext";
 import {
@@ -19,7 +19,7 @@ import type { Product } from "@/types/product";
 export default function ProductDetailPage() {
   const { productId } = useParams<{ productId: string }>();
   const router = useRouter();
-  const { connected } = useContext(WalletContext);
+  const { connected } = useWallet();
   const { cart, setQuantityForProduct } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
@@ -267,7 +267,7 @@ export default function ProductDetailPage() {
               {currentQty > 0 && (
                 <Text variant="body" muted className="text-xs">
                   {currentQty} {product.unit} in cart —{" "}
-                  {(product.price_per_unit * currentQty).toFixed(2)}{" "}
+                  {(Number(product.price_per_unit) * currentQty).toFixed(2)}{" "}
                   {product.currency} total. Funds are held in escrow until you
                   confirm receipt.
                 </Text>

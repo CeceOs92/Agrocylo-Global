@@ -33,31 +33,52 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
   const [network, setNetwork] = useState<string | null>(null);
 
   useEffect(() => {
-    // Try to restore from localStorage
-    const addr =
-      typeof window !== "undefined"
-        ? localStorage.getItem("walletAddress")
-        : null;
-    const net =
-      typeof window !== "undefined"
-        ? localStorage.getItem("walletNetwork")
-        : null;
-    if (addr) {
-      // attempt to refresh balance but don't auto-connect Freighter
-      setAddress(addr);
-      setConnected(true);
-      if (net) setNetwork(net);
-      // call getXlmBalance directly to avoid referencing refreshBalance in deps
-      (async () => {
-        try {
-          const b = await getXlmBalance(addr);
+    if (typeof window === "undefined") return;
+
+    const cachedAddr = localStorage.getItem("walletAddress");
+    const cachedNet = localStorage.getItem("walletNetwork");
+    if (!cachedAddr) return;
+
+    // Show cached state immediately so the UI doesn't flash a disconnected nav.
+    setAddress(cachedAddr);
+    setConnected(true);
+    if (cachedNet) setNetwork(cachedNet);
+
+    // Then reconcile with Freighter — the user may have switched wallets
+    // outside of our app, in which case the cached address is stale and would
+    // sign transactions for the wrong account.
+    (async () => {
+      try {
+        const freighterDirect = window.freighter ?? window.freighterApi ?? null;
+        const livePub = freighterDirect
+          ? await freighterDirect.getPublicKey()
+          : await FreighterApi.getPublicKey();
+
+        if (livePub && livePub !== cachedAddr) {
+          // Wallet switched — adopt the live key and refetch.
+          setAddress(livePub);
+          localStorage.setItem("walletAddress", livePub);
+          const liveNet = await getCurrentNetworkName();
+          setNetwork(liveNet);
+          localStorage.setItem("walletNetwork", liveNet);
+          const b = await getXlmBalance(livePub);
           setBalance(b);
-        } catch {
-          /* ignore */
+          return;
         }
-      })();
-    }
-    // run only on mount
+
+        const b = await getXlmBalance(cachedAddr);
+        setBalance(b);
+      } catch {
+        // Freighter unreachable (e.g. extension uninstalled). Treat the cached
+        // session as disconnected rather than silently signing with stale data.
+        setAddress(null);
+        setConnected(false);
+        setNetwork(null);
+        setBalance(null);
+        localStorage.removeItem("walletAddress");
+        localStorage.removeItem("walletNetwork");
+      }
+    })();
   }, []);
 
   const refreshBalance = async (addr?: string) => {
@@ -80,11 +101,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       // Prefer window.freighter / window.freighterApi if available (e.g. Playwright test mocks).
       // The @stellar/freighter-api npm package uses browser-extension messaging which
       // is unavailable in headless test contexts.
-      const w = typeof window !== "undefined" ? (window as any) : null;
       const freighterDirect =
-        w?.freighter?.getPublicKey ? w.freighter :
-        w?.freighterApi?.getPublicKey ? w.freighterApi :
-        null;
+        typeof window !== "undefined"
+          ? window.freighter ?? window.freighterApi ?? null
+          : null;
 
       // Get current network
       const networkName = freighterDirect?.getNetwork

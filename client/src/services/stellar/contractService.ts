@@ -12,16 +12,7 @@
 
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { getNetworkConfig, type NetworkConfig } from "./networkConfig";
-
-// ── Test mode detection (Playwright E2E) ──────────────────────────────────
-
-/** Detect if running in E2E test mode (Playwright). */
-function isTestMode(): boolean {
-  if (typeof window === "undefined") return false;
-  const w = window as any;
-  // Test mode is indicated by window.freighter mock from Playwright init script
-  return !!(w.freighter && w.freighter.signTransaction && typeof w.freighter.signTransaction === "function");
-}
+import { isTestMode } from "@/lib/testMode";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -37,15 +28,9 @@ export interface CreateOrderTx {
   orderId: string;
 }
 
-/** On-chain order representation returned by `get_order`. */
-export interface Order {
-  orderId: string;
-  buyer: string;
-  seller: string;
-  amount: bigint;
-  status: string;
-  createdAt: number;
-}
+// Re-export Order from canonical location so existing callers don't need to update.
+export type { Order } from "@/types/order";
+import type { Order } from "@/types/order";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -508,7 +493,7 @@ export async function getOrder(
       .addOperation(
         contract.call(
           "get_order",
-          [StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" })]
+          StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" })
         )
       )
       .setTimeout(30)
