@@ -6,7 +6,7 @@ import Image from "next/image";
 import Wrapper from "@/components/shared/wrapper";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Separator } from "@/components/ui/separator";
-import WalletButton from "@/components/WalletButton";
+import ConnectWallet from "@/components/shared/connect-wallet";
 import { siteConfig } from "@/config/site.config";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
@@ -68,7 +68,7 @@ export default function Header() {
         <div className="flex items-center justify-end gap-1 lg:max-w-[280px]">
           <ThemeToggle />
           <Separator orientation="vertical" className="!h-5 mx-1" />
-          <WalletButton />
+          <ConnectWallet />
           <Separator orientation="vertical" className="!h-5 mx-1" />
           <Button
             variant="ghost"
