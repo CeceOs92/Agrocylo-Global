@@ -50,7 +50,7 @@ export default function DisputeActionModal({ dispute, onClose, onSuccess }: Disp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <Card variant="elevated" className="w-full max-w-lg">
+      <Card className="w-full max-w-lg">
         <CardContent className="p-6">
           <div className="flex justify-between items-center mb-4">
             <Text variant="h3" className="font-bold">Resolve Dispute</Text>
@@ -82,21 +82,21 @@ export default function DisputeActionModal({ dispute, onClose, onSuccess }: Disp
               <Text variant="body" muted className="text-xs uppercase font-semibold mb-2">Resolution Type</Text>
               <div className="flex gap-2">
                 <Button 
-                  variant={resolutionType === "refund" ? "primary" : "outline"} 
+                  variant={resolutionType === "refund" ? "default" : "outline"} 
                   size="sm" 
                   onClick={() => setResolutionType("refund")}
                 >
                   Refund Buyer
                 </Button>
                 <Button 
-                  variant={resolutionType === "release" ? "primary" : "outline"} 
+                  variant={resolutionType === "release" ? "default" : "outline"} 
                   size="sm" 
                   onClick={() => setResolutionType("release")}
                 >
                   Release to Farmer
                 </Button>
                 <Button 
-                  variant={resolutionType === "split" ? "primary" : "outline"} 
+                  variant={resolutionType === "split" ? "default" : "outline"} 
                   size="sm" 
                   onClick={() => setResolutionType("split")}
                 >
@@ -131,7 +131,7 @@ export default function DisputeActionModal({ dispute, onClose, onSuccess }: Disp
 
           <div className="flex gap-3">
             <Button 
-              variant="primary" 
+              
               className="flex-1" 
               onClick={handleResolve}
               isLoading={resolveState.isLoading || splitState.isLoading}

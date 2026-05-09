@@ -1,77 +1,72 @@
-"use client";
+import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
-import { forwardRef, type ButtonHTMLAttributes } from "react";
-
-export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
-export type ButtonSize = "sm" | "md" | "lg";
-
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-  fullWidth?: boolean;
-  isLoading?: boolean;
-}
-
-const variantClasses: Record<ButtonVariant, string> = {
-  primary:
-    "bg-primary-600 text-white border-transparent hover:bg-primary-700 active:bg-primary-800 focus-visible:ring-primary-500",
-  secondary:
-    "bg-secondary-500 text-secondary-950 border-transparent hover:bg-secondary-600 active:bg-secondary-700 focus-visible:ring-secondary-500",
-  outline:
-    "bg-transparent text-foreground border-neutral-300 hover:bg-surface hover:border-neutral-400 focus-visible:ring-neutral-400 dark:border-neutral-600 dark:hover:bg-neutral-800",
-  ghost:
-    "bg-transparent text-foreground border-transparent hover:bg-surface focus-visible:ring-neutral-400",
-  danger:
-    "bg-error text-white border-transparent hover:opacity-90 active:opacity-80 focus-visible:ring-error",
-};
-
-const sizeClasses: Record<ButtonSize, string> = {
-  sm: "px-3 py-1.5 text-sm rounded-md min-h-8",
-  md: "px-4 py-2 text-base rounded-lg min-h-10 sm:px-5 sm:py-2.5",
-  lg: "px-6 py-3 text-lg rounded-lg min-h-12 sm:px-8 sm:py-3.5",
-};
-
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      className = "",
-      variant = "primary",
-      size = "md",
-      fullWidth = false,
-      isLoading = false,
-      disabled,
-      children,
-      ...props
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all cursor-pointer disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none",
+  {
+    variants: {
+      variant: {
+        default:
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 rounded-[20px]",
+        destructive:
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 rounded-[20px]",
+        outline:
+          "border bg-background border-foreground shadow-xs hover:bg-accent hover:text-accent-foreground rounded-[20px]",
+        secondary:
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80 rounded-[20px]",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground rounded-[20px]",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-10 sm:h-11 px-4 sm:px-5 has-[>svg]:px-3",
+        sm: "h-9 sm:h-10 px-3 has-[>svg]:px-2.5 text-xs",
+        lg: "h-14 md:h-16 rounded-[25px] px-6 sm:px-8 has-[>svg]:px-4 text-base",
+        icon: "size-10",
+      },
     },
-    ref
-  ) => {
-    return (
-      <button
-        ref={ref}
-        type="button"
-        disabled={disabled || isLoading}
-        className={[
-          "inline-flex items-center justify-center gap-2 font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none",
-          variantClasses[variant],
-          sizeClasses[size],
-          fullWidth ? "w-full" : "",
-          className,
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        {...props}
-      >
-        {isLoading ? (
-          <>
-            <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
-            <span className="sr-only">Loading</span>
-          </>
-        ) : (
-          children
-        )}
-      </button>
-    );
-  }
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  },
 );
 
-Button.displayName = "Button";
+function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  isLoading = false,
+  children,
+  ...props
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean;
+    isLoading?: boolean;
+  }) {
+  const Comp = asChild ? Slot : "button";
+
+  return (
+    <Comp
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      disabled={isLoading || props.disabled}
+      {...props}
+    >
+      {isLoading ? (
+        <>
+          <Loader2 className="size-4 animate-spin" />
+          {children}
+        </>
+      ) : (
+        children
+      )}
+    </Comp>
+  );
+}
+
+export { Button, buttonVariants };

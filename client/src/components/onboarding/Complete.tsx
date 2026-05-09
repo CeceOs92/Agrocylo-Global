@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 interface CompleteProps {
   role: "farmer" | "buyer";
@@ -10,7 +10,7 @@ interface CompleteProps {
 
 export default function Complete({ role }: CompleteProps) {
   return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto text-center">
+    <Card className="max-w-md mx-auto text-center">
       <div className="text-5xl mb-4">{role === "farmer" ? "🌾" : "🛒"}</div>
       <h2 className="text-2xl font-bold text-foreground mb-2">
         You&apos;re All Set!
@@ -22,7 +22,7 @@ export default function Complete({ role }: CompleteProps) {
       </p>
 
       <Link href={role === "farmer" ? "/map" : "/map"}>
-        <Button variant="primary" fullWidth>
+        <Button>
           {role === "farmer" ? "View My Pin on the Map" : "Explore Farmer Map"}
         </Button>
       </Link>

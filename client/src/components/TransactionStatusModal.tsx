@@ -22,14 +22,14 @@ export interface TransactionStatusModalProps {
 
 interface StateConfig {
   label: string;
-  badgeVariant: "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline";
+  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
   showSpinner: boolean;
 }
 
 const stateConfig: Record<Exclude<TransactionState, "idle">, StateConfig> = {
   preparing: {
     label: "Preparing transaction",
-    badgeVariant: "primary",
+    badgeVariant: "default",
     showSpinner: true,
   },
   waiting_signature: {
@@ -39,7 +39,7 @@ const stateConfig: Record<Exclude<TransactionState, "idle">, StateConfig> = {
   },
   submitting: {
     label: "Submitting transaction",
-    badgeVariant: "primary",
+    badgeVariant: "default",
     showSpinner: true,
   },
   confirming: {
@@ -54,7 +54,7 @@ const stateConfig: Record<Exclude<TransactionState, "idle">, StateConfig> = {
   },
   failed: {
     label: "Transaction failed",
-    badgeVariant: "error",
+    badgeVariant: "destructive",
     showSpinner: false,
   },
 };
@@ -81,8 +81,8 @@ export function TransactionStatusModal({
         aria-hidden="true"
       />
       <Card
-        variant="elevated"
-        padding="lg"
+       
+       
         className="relative w-full max-w-md"
         role="dialog"
         aria-modal="true"
@@ -159,7 +159,7 @@ export function TransactionStatusModal({
           )}
 
           {isTerminal && (
-            <Button variant="primary" onClick={onClose} fullWidth>
+            <Button onClick={onClose}>
               Close
             </Button>
           )}

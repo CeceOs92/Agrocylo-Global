@@ -9,7 +9,7 @@ interface DemandVolumeProps {
 
 export function DemandVolume({ data }: DemandVolumeProps) {
   return (
-    <Card variant="elevated">
+    <Card>
       <CardHeader>
         <CardTitle>Current Demand Volume</CardTitle>
       </CardHeader>

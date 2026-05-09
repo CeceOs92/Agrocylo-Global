@@ -308,7 +308,7 @@ export default function BarterOfferForm({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
       <div className="w-full max-w-2xl my-8">
-        <Card variant="elevated" padding="lg">
+        <Card>
           <CardHeader>
             <CardTitle>Propose a Barter Trade</CardTitle>
             <Text variant="body" muted className="text-sm mt-1">
@@ -459,7 +459,7 @@ export default function BarterOfferForm({
               >
                 Cancel
               </Button>
-              <Button variant="primary" type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving}>
                 {saving ? "Submitting..." : "Submit Offer"}
               </Button>
             </CardFooter>

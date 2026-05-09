@@ -32,7 +32,7 @@ interface EscrowTransactionProps {
 }
 
 interface TransactionStatus {
-  status: "idle" | "pending" | "confirming" | "success" | "error";
+  status: "idle" | "pending" | "confirming" | "success" | "destructive";
   message?: string;
   txHash?: string;
 }
@@ -56,7 +56,7 @@ export default function EscrowTransaction({
   const validateForm = (): boolean => {
     if (!farmerAddress) {
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: "Farmer address is missing.",
       });
       return false;
@@ -64,7 +64,7 @@ export default function EscrowTransaction({
 
     if (!tokenAddress) {
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: "Token contract address is missing.",
       });
       return false;
@@ -72,7 +72,7 @@ export default function EscrowTransaction({
 
     if (!quantity || parseFloat(quantity) <= 0) {
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: "Please enter a valid quantity",
       });
       return false;
@@ -80,7 +80,7 @@ export default function EscrowTransaction({
 
     if (!deliveryDeadline) {
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: "Please select a delivery deadline",
       });
       return false;
@@ -89,7 +89,7 @@ export default function EscrowTransaction({
     const deadline = new Date(deliveryDeadline);
     if (deadline <= new Date()) {
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: "Delivery deadline must be in the future",
       });
       return false;
@@ -148,23 +148,23 @@ export default function EscrowTransaction({
       console.error("Transaction error:", error);
       const errorInfo = mapBlockchainError(error);
       setTransactionStatus({
-        status: "error",
+        status: "destructive",
         message: `${errorInfo.title}: ${errorInfo.message} ${errorInfo.action}`,
       });
     }
   };
 
-  const getStatusColor = (): "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline" => {
+  const getStatusColor = (): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" => {
     switch (transactionStatus.status) {
       case "pending":
       case "confirming":
         return "warning";
       case "success":
         return "success";
-      case "error":
-        return "error";
+      case "destructive":
+        return "destructive";
       default:
-        return "primary";
+        return "default";
     }
   };
 
@@ -176,7 +176,7 @@ export default function EscrowTransaction({
         return "Awaiting Confirmation";
       case "success":
         return "Success";
-      case "error":
+      case "destructive":
         return "Error";
       default:
         return "Ready";
@@ -185,8 +185,8 @@ export default function EscrowTransaction({
 
   if (!connected) {
     return (
-      <Container size="md" className="py-8">
-        <Card variant="elevated" padding="lg">
+      <Container className="py-8">
+        <Card>
           <CardContent className="text-center py-8">
             <Text variant="h3" as="h3" className="mb-4">
               Connect Wallet Required
@@ -201,8 +201,8 @@ export default function EscrowTransaction({
   }
 
   return (
-    <Container size="md" className="py-8">
-      <Card variant="elevated" padding="lg">
+    <Container className="py-8">
+      <Card>
         <CardHeader>
           <CardTitle>Escrow Transaction</CardTitle>
           <Text variant="body" muted>
@@ -319,7 +319,7 @@ export default function EscrowTransaction({
 
         <CardFooter className="flex gap-3">
           <Button
-            variant="primary"
+           
             size="lg"
             onClick={callCreateOrder}
             disabled={

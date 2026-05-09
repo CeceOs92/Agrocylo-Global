@@ -23,7 +23,7 @@ export default function DisputeList({ disputes, onRefresh }: DisputeListProps) {
       case "RESOLVED":
         return "success";
       case "REJECTED":
-        return "error";
+        return "destructive";
       default:
         return "default";
     }

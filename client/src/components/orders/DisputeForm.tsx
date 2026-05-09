@@ -51,7 +51,7 @@ export default function DisputeForm({ isLoading, error, onSubmit, onCancel }: Di
       <div className="flex gap-2 pt-1">
         <Button
           type="submit"
-          variant="danger"
+          variant="destructive"
           size="sm"
           isLoading={isLoading}
           disabled={!reason.trim() || isLoading}

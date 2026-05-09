@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
 
 const PLATFORM_FEE_PCT = 3;
@@ -49,7 +49,7 @@ export default function CreateOrderForm() {
 
   if (txStep === "done") {
     return (
-      <Card variant="elevated" padding="lg" className="max-w-lg mx-auto text-center">
+      <Card className="max-w-lg mx-auto text-center">
         <div className="text-5xl mb-4">✅</div>
         <h2 className="text-xl font-bold text-foreground mb-2">Order Created</h2>
         <p className="text-sm text-muted mb-4">
@@ -60,7 +60,7 @@ export default function CreateOrderForm() {
             TX: {txHash}
           </p>
         )}
-        <Button variant="primary" onClick={() => { setTxStep("idle"); setAmount(""); }}>
+        <Button onClick={() => { setTxStep("idle"); setAmount(""); }}>
           Create Another Order
         </Button>
       </Card>
@@ -68,7 +68,7 @@ export default function CreateOrderForm() {
   }
 
   return (
-    <Card variant="elevated" padding="lg" className="max-w-lg mx-auto">
+    <Card className="max-w-lg mx-auto">
       <h2 className="text-xl font-bold text-foreground mb-1">Create Order</h2>
       <p className="text-sm text-muted mb-6">
         Funds will be held in escrow until you confirm receipt of goods.
@@ -129,8 +129,8 @@ export default function CreateOrderForm() {
         )}
 
         <Button
-          variant="primary"
-          fullWidth
+         
+         
           size="lg"
           disabled={!isValid}
           isLoading={createState.isLoading}

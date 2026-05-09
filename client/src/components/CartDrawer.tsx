@@ -216,7 +216,7 @@ export default function CartDrawer() {
           ) : cartError ? (
             <Text variant="body" className="text-error">{cartError}</Text>
           ) : empty ? (
-            <Card variant="outlined" padding="md">
+            <Card>
               <CardContent className="py-10 text-center space-y-3">
                 <Text variant="h3" as="h3">
                   Your cart is empty
@@ -225,7 +225,7 @@ export default function CartDrawer() {
                   Browse the market and add products to checkout.
                 </Text>
                 <Button
-                  variant="primary"
+                 
                   onClick={() => {
                     closeAndReset();
                     router.push("/market");
@@ -249,7 +249,7 @@ export default function CartDrawer() {
                       const fee = feeFromGross(gross);
                       const net = gross - fee;
                       return (
-                        <Card key={g.farmer_wallet} variant="elevated" padding="md">
+                        <Card key={g.farmer_wallet}>
                           <CardHeader>
                             <CardTitle className="text-base">
                               {g.farmer_name}
@@ -309,7 +309,7 @@ export default function CartDrawer() {
                     })}
                   </div>
 
-                  <Card variant="elevated" padding="md">
+                  <Card>
                     <CardContent className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span>Total Gross</span>
@@ -331,10 +331,10 @@ export default function CartDrawer() {
                       Continue shopping
                     </Button>
                     <Button
-                      variant="primary"
+                     
                       onClick={() => setStep(2)}
                       disabled={running}
-                      fullWidth
+                     
                     >
                       Proceed to Checkout
                     </Button>
@@ -360,7 +360,7 @@ export default function CartDrawer() {
                     />
                   </div>
 
-                  <Card variant="elevated" padding="md">
+                  <Card>
                     <CardContent className="space-y-2">
                       <Text variant="body" className="font-medium">
                         Progress
@@ -391,10 +391,10 @@ export default function CartDrawer() {
                       Back
                     </Button>
                     <Button
-                      variant="primary"
+                     
                       onClick={() => void createOrdersForCart(groups)}
                       disabled={running}
-                      fullWidth
+                     
                     >
                       {running ? "Creating orders..." : "Confirm & Create Escrow Orders"}
                     </Button>
@@ -409,7 +409,7 @@ export default function CartDrawer() {
                   </Text>
 
                   {successOrders.length > 0 ? (
-                    <Card variant="elevated" padding="md">
+                    <Card>
                       <CardHeader>
                         <CardTitle className="text-base">Created</CardTitle>
                       </CardHeader>
@@ -437,7 +437,7 @@ export default function CartDrawer() {
                   ) : null}
 
                   {failedOrders.length > 0 ? (
-                    <Card variant="outlined" padding="md">
+                    <Card>
                       <CardHeader>
                         <CardTitle className="text-base">Failed</CardTitle>
                       </CardHeader>
@@ -466,9 +466,9 @@ export default function CartDrawer() {
                       Back to cart
                     </Button>
                     <Button
-                      variant="primary"
+                     
                       onClick={closeAndReset}
-                      fullWidth
+                     
                     >
                       Done
                     </Button>

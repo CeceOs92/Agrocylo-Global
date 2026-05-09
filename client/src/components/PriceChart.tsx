@@ -139,7 +139,7 @@ export function PriceChart({
   // Loading state
   if (loading) {
     return (
-      <Card variant="elevated" padding="md" className={className}>
+      <Card className={className}>
         <CardHeader>
           <CardTitle className="text-base">Price History</CardTitle>
         </CardHeader>
@@ -158,7 +158,7 @@ export function PriceChart({
   // Error state
   if (error) {
     return (
-      <Card variant="elevated" padding="md" className={className}>
+      <Card className={className}>
         <CardHeader>
           <CardTitle className="text-base">Price History</CardTitle>
         </CardHeader>
@@ -176,7 +176,7 @@ export function PriceChart({
   // No data state
   if (!chartData || chartData.dataPoints.length === 0) {
     return (
-      <Card variant="elevated" padding="md" className={className}>
+      <Card className={className}>
         <CardHeader>
           <CardTitle className="text-base">Price History</CardTitle>
         </CardHeader>
@@ -197,7 +197,7 @@ export function PriceChart({
   }
 
   return (
-    <Card variant="elevated" padding="md" className={className}>
+    <Card className={className}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Price History</CardTitle>

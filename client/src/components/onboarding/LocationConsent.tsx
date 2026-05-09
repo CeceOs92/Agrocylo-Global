@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface LocationConsentProps {
   onComplete: (location: {
@@ -62,7 +62,7 @@ export default function LocationConsent({
 
   if (mode === "ask") {
     return (
-      <Card variant="elevated" padding="lg" className="max-w-md mx-auto">
+      <Card className="max-w-md mx-auto">
         <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
           Share Your Location
         </h2>
@@ -89,8 +89,8 @@ export default function LocationConsent({
 
         <div className="space-y-3">
           <Button
-            variant="primary"
-            fullWidth
+           
+           
             onClick={handleShareLocation}
             isLoading={isSubmitting}
           >
@@ -98,14 +98,14 @@ export default function LocationConsent({
           </Button>
           <Button
             variant="outline"
-            fullWidth
+           
             onClick={() => setMode("manual")}
           >
             Enter Manually Instead
           </Button>
           <Button
             variant="ghost"
-            fullWidth
+           
             onClick={() => onComplete(null)}
             disabled={isSubmitting}
           >
@@ -114,7 +114,7 @@ export default function LocationConsent({
         </div>
 
         <div className="mt-4">
-          <Button variant="outline" fullWidth onClick={onBack}>
+          <Button variant="outline" onClick={onBack}>
             Back
           </Button>
         </div>
@@ -124,7 +124,7 @@ export default function LocationConsent({
 
   if (mode === "detecting") {
     return (
-      <Card variant="elevated" padding="lg" className="max-w-md mx-auto text-center">
+      <Card className="max-w-md mx-auto text-center">
         <div className="animate-pulse">
           <div className="h-12 w-12 mx-auto rounded-full bg-primary-100 mb-4" />
           <p className="text-foreground font-medium">Detecting location...</p>
@@ -138,7 +138,7 @@ export default function LocationConsent({
 
   // Manual entry
   return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto">
+    <Card className="max-w-md mx-auto">
       <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
         Enter Your Location
       </h2>
@@ -174,12 +174,12 @@ export default function LocationConsent({
       </div>
 
       <div className="flex gap-3">
-        <Button variant="outline" fullWidth onClick={onBack}>
+        <Button variant="outline" onClick={onBack}>
           Back
         </Button>
         <Button
-          variant="primary"
-          fullWidth
+         
+         
           disabled={!city.trim() || !country.trim()}
           onClick={handleManualSubmit}
           isLoading={isSubmitting}

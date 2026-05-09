@@ -183,7 +183,7 @@ export default function ProductFormModal({
       <div className="w-full max-w-2xl my-auto">
         {" "}
         {/* my-auto + overflow-y-auto fixes the scroll */}
-        <Card variant="elevated" className="shadow-2xl">
+        <Card className="shadow-2xl">
           <CardHeader className="sticky top-0 bg-background z-10 border-b border-border/50">
             <CardTitle>
               {mode === "add" ? "Add Product" : "Edit Listing"}
@@ -355,7 +355,7 @@ export default function ProductFormModal({
               >
                 Cancel
               </Button>
-              <Button variant="primary" type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving}>
                 {saving
                   ? "Processing..."
                   : mode === "add"

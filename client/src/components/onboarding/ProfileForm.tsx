@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface ProfileFormProps {
   displayName: string;
@@ -32,7 +32,7 @@ export default function ProfileForm({
   }
 
   return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto">
+    <Card className="max-w-md mx-auto">
       <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
         Your Profile
       </h2>
@@ -71,10 +71,10 @@ export default function ProfileForm({
       </div>
 
       <div className="flex gap-3 mt-6">
-        <Button variant="outline" fullWidth onClick={onBack}>
+        <Button variant="outline" onClick={onBack}>
           Back
         </Button>
-        <Button variant="primary" fullWidth onClick={handleNext}>
+        <Button onClick={handleNext}>
           Continue
         </Button>
       </div>

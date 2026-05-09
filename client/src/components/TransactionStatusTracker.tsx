@@ -17,7 +17,7 @@ export interface TransactionStatusTrackerProps {
 interface StatusConfig {
   label: string;
   description: string;
-  badgeVariant: "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline";
+  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
   color: string;
   icon: React.ReactNode;
 }
@@ -37,7 +37,7 @@ const statusConfig: Record<EscrowStatus, StatusConfig> = {
   funded: {
     label: "Funded",
     description: "Escrow has been funded successfully",
-    badgeVariant: "primary",
+    badgeVariant: "default",
     color: "text-blue-600",
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -59,7 +59,7 @@ const statusConfig: Record<EscrowStatus, StatusConfig> = {
   refunded: {
     label: "Refunded",
     description: "Transaction has been refunded",
-    badgeVariant: "error",
+    badgeVariant: "destructive",
     color: "text-red-600",
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -150,7 +150,7 @@ export function TransactionStatusTracker({
   };
 
   return (
-    <Card variant="elevated" padding="lg" className={className}>
+    <Card className={className}>
       <CardContent className="space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
