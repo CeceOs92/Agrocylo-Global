@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
+import { API_BASE_URL as API_BASE } from "@/lib/apiConfig";
 
 export interface Profile {
   wallet_address: string;

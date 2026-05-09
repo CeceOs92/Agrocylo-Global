@@ -1,22 +1,22 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useContext } from "react";
-import { 
-  Container, 
-  Card, 
-  CardHeader, 
-  CardTitle, 
-  CardContent, 
-  Text, 
-  Button, 
-  Badge 
+import React, { useEffect, useState, useCallback } from "react";
+import {
+  Container,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Text,
+  Button,
+  Badge
 } from "@/components/ui";
-import { WalletContext } from "@/context/WalletContext";
+import { useWallet } from "@/hooks/useWallet";
 import { useSocket } from "@/hooks/useSocket";
 import DisputeList from "@/components/admin/DisputeList";
 
 export default function AdminDisputeDashboard() {
-  const { address, connected } = useContext(WalletContext);
+  const { address, connected } = useWallet();
   const [disputes, setDisputes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

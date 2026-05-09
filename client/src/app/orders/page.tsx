@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useContext, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { Order } from "@/services/stellar/contractService";
-import { WalletContext } from "@/context/WalletContext";
+import { useWallet } from "@/hooks/useWallet";
 import { listOrdersAsBuyer } from "@/services/orderService";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
 import OrderCard from "@/components/orders/OrderCard";
@@ -10,7 +10,7 @@ import CreateOrderForm from "@/components/orders/CreateOrderForm";
 import { Card, CardContent, CardHeader, CardTitle, Text } from "@/components/ui";
 
 function OrdersList() {
-  const { address } = useContext(WalletContext);
+  const { address } = useWallet();
   const { confirmReceipt, confirmState } = useEscrowContract();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);

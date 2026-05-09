@@ -80,7 +80,6 @@ export default function OrderDetailsPage() {
     
     const cleanup = onSocket("order:status_changed", (payload: any) => {
       if (String(payload.orderId) === String(orderId)) {
-        console.log("[OrderDetails] Real-time status update:", payload.status);
         void fetchOrder();
       }
     });
@@ -163,7 +162,7 @@ export default function OrderDetailsPage() {
       case "Refunded":
         return <Badge variant="error">Refunded</Badge>;
       case "Disputed":
-        return <Badge variant="danger">Disputed</Badge>;
+        return <Badge variant="error">Disputed</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }

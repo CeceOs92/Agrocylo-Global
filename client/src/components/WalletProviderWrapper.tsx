@@ -2,6 +2,7 @@
 
 import React from "react";
 import { WalletProvider } from "../context/WalletContext";
+import { ProfileProvider } from "@/context/ProfileContext";
 import Navbar from "./Navbar";
 import { CartProvider } from "@/context/CartContext";
 import CartDrawer from "./CartDrawer";
@@ -14,12 +15,14 @@ export default function WalletProviderWrapper({
 }) {
   return (
     <WalletProvider>
-      <CartProvider>
-        <Navbar />
-        {children}
-        <CartDrawer />
-        <NotificationPoller />
-      </CartProvider>
+      <ProfileProvider>
+        <CartProvider>
+          <Navbar />
+          {children}
+          <CartDrawer />
+          <NotificationPoller />
+        </CartProvider>
+      </ProfileProvider>
     </WalletProvider>
   );
 }

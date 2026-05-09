@@ -41,8 +41,6 @@ export async function getServer(): Promise<Horizon.Server> {
       HORIZON_URLS[networkName] ||
       networkDetails.networkUrl ||
       DEFAULT_HORIZON_URL;
-    console.log(`Switching Horizon to network: ${networkName} (${horizonUrl})`);
-
     currentServer = new Horizon.Server(horizonUrl);
     currentNetworkName = networkName;
     return currentServer;
@@ -70,10 +68,8 @@ export async function getRpcServer(): Promise<rpc.Server> {
 
     const rpcUrl =
       RPC_URLS[networkName] ||
-      (networkDetails as any).rpcUrl ||
+      (networkDetails as { rpcUrl?: string }).rpcUrl ||
       DEFAULT_RPC_URL;
-    console.log(`Switching RPC to network: ${networkName} (${rpcUrl})`);
-
     currentRpcServer = new rpc.Server(rpcUrl);
     // Keep network name in sync with Horizon if possible, but at least update if missing
     currentNetworkName = networkName;
@@ -114,11 +110,10 @@ export async function getXlmBalance(address: string): Promise<string> {
 export async function getCurrentNetworkName(): Promise<string> {
   try {
     // Prefer window.freighter if available (e.g. Playwright test mocks).
-    const w = typeof window !== "undefined" ? (window as any) : null;
     const freighterDirect =
-      w?.freighter?.getNetwork ? w.freighter :
-      w?.freighterApi?.getNetwork ? w.freighterApi :
-      null;
+      typeof window !== "undefined"
+        ? window.freighter ?? window.freighterApi ?? null
+        : null;
 
     if (freighterDirect) {
       return await freighterDirect.getNetwork();

@@ -10,6 +10,7 @@ import {
   getOrder,
   type Order,
 } from "@/services/stellar/contractService";
+import { isTestMode } from "@/lib/testMode";
 
 interface ActionState {
   isLoading: boolean;
@@ -55,10 +56,7 @@ export function useEscrowContract() {
       if (!address) throw new Error("Wallet not connected");
       setConfirmState({ isLoading: true, error: null });
       try {
-        if (
-          typeof window !== "undefined" &&
-          (window as any).freighter?.signTransaction
-        ) {
+        if (isTestMode()) {
           const mocked = {
             success: true,
             txHash:

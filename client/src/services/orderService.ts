@@ -9,17 +9,8 @@
 
 import type { Order } from "@/services/stellar/contractService";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:5000";
-
-/**
- * Detect test mode (E2E Playwright)
- */
-function isTestMode(): boolean {
-  if (typeof window === "undefined") return false;
-  const w = window as any;
-  return !!(w.freighter && w.freighter.signTransaction && typeof w.freighter.signTransaction === "function");
-}
+import { API_BASE_URL } from "@/lib/apiConfig";
+import { isTestMode } from "@/lib/testMode";
 
 /**
  * Generate a deterministic fake order for testing

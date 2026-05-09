@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useContext, useEffect, useMemo, useState } from "react";
-import { WalletContext } from "@/context/WalletContext";
+import React, { useEffect, useMemo, useState } from "react";
+import { useWallet } from "@/hooks/useWallet";
 import type { Product, ProductCategory } from "@/types/product";
 import { listProducts } from "@/services/productService";
 import { useCart } from "@/context/CartContext";
@@ -28,7 +28,7 @@ const CATEGORIES: Array<ProductCategory | "All"> = [
 ];
 
 export default function MarketPage() {
-  const { connected } = useContext(WalletContext);
+  const { connected } = useWallet();
   const { cart, setQuantityForProduct } = useCart();
 
   const [category, setCategory] = useState<ProductCategory | "All">("All");

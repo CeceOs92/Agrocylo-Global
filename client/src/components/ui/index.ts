@@ -25,3 +25,5 @@ export type { BadgeProps, BadgeVariant } from "./Badge";
 
 export { Text } from "./Text";
 export type { TextProps, TextVariant } from "./Text";
+
+export { default as Spinner } from "./Spinner";

@@ -1,101 +1,164 @@
-import ModalExample from "@/components/examples/ModalExample";
+import Link from "next/link";
 import {
   Container,
   Button,
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
-  CardFooter,
   Badge,
   Text,
-  Input,
 } from "@/components/ui";
-import { TransactionFeedbackContext } from "@/context/TransactionFeedbackContext";
+
+const features = [
+  {
+    title: "On-chain escrow",
+    description:
+      "Buyer funds are locked in a Soroban smart contract until delivery is confirmed. Neither side can be cheated.",
+  },
+  {
+    title: "Direct trade",
+    description:
+      "Farmers sell to buyers without middlemen. Both sides keep more value at every step.",
+  },
+  {
+    title: "Real-time tracking",
+    description:
+      "Order status, payment receipts, and dispute resolution happen on-chain — visible to everyone involved.",
+  },
+];
+
+const flow = [
+  {
+    step: "01",
+    title: "Connect your Stellar wallet",
+    description: "Sign in with Freighter — no email, no password, no custodian.",
+  },
+  {
+    step: "02",
+    title: "Browse the market or list produce",
+    description:
+      "Buyers shop verified farmer listings. Farmers create their dashboard in under a minute.",
+  },
+  {
+    step: "03",
+    title: "Pay into escrow",
+    description:
+      "Funds lock on Stellar. The farmer sees the order; the buyer sees the receipt.",
+  },
+  {
+    step: "04",
+    title: "Confirm delivery, release payment",
+    description:
+      "Buyer confirms → funds release to the farmer. Disputes go to the on-chain mediation flow.",
+  },
+];
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      {/* Hero: responsive padding and typography */}
-      <section className="py-12 sm:py-16 md:py-20 lg:py-24">
+      {/* Hero */}
+      <section className="py-16 sm:py-24 lg:py-32">
         <Container size="lg" className="text-center">
-          <Badge variant="primary" className="mb-4 sm:mb-6">
-            Peer-to-peer agricultural trade
+          <Badge variant="primary" className="mb-6">
+            Agro-DeFi · Built on Stellar
           </Badge>
-          <Text variant="h1" as="h1" className="mb-4 sm:mb-6">
-            AgroCylo Global 🌾
+          <Text variant="h1" as="h1" className="mb-6">
+            Fair trade between farmers and buyers — secured by escrow
           </Text>
-          <Text variant="body" muted className="max-w-2xl mx-auto mb-8 sm:mb-10">
-            Welcome to AGROCYLO — secured by Stellar escrow.
+          <Text variant="body" muted className="max-w-2xl mx-auto mb-10 text-lg">
+            AgroCylo lets farmers sell produce directly to buyers, with payments
+            held in a Soroban smart contract until both sides confirm. No middlemen,
+            no chargebacks, no platform lock-in.
           </Text>
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-            <Button variant="primary" size="lg">
-              Get started
-            </Button>
-            <Button variant="outline" size="lg">
-              Learn more
-            </Button>
+            <Link href="/onboarding">
+              <Button variant="primary" size="lg">
+                Get started
+              </Button>
+            </Link>
+            <Link href="/market">
+              <Button variant="outline" size="lg">
+                Browse the market
+              </Button>
+            </Link>
           </div>
         </Container>
       </section>
 
-      {/* Component showcase: responsive grid */}
-      <section className="py-8 sm:py-12 border-t border-border">
+      {/* Features */}
+      <section className="py-12 sm:py-16 border-t border-border">
         <Container size="lg">
-          <Text variant="h2" as="h2" className="mb-6 sm:mb-8 text-center">
-            Reusable UI
-          </Text>
+          <div className="text-center mb-12">
+            <Text variant="h2" as="h2" className="mb-3">
+              Why AgroCylo?
+            </Text>
+            <Text variant="body" muted className="max-w-xl mx-auto">
+              Everything that makes peer-to-peer agricultural trade safer for
+              both sides.
+            </Text>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            <Card variant="elevated" padding="md">
-              <CardHeader>
-                <CardTitle>Card with actions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                Cards use design tokens and scale padding responsively.
-              </CardContent>
-              <CardFooter>
-                <Button variant="primary" size="sm">
-                  Action
-                </Button>
-                <Button variant="ghost" size="sm">
-                  Cancel
-                </Button>
-              </CardFooter>
-            </Card>
-            <Card variant="outlined" padding="md">
-              <CardHeader>
-                <CardTitle>Form field</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Input
-                  label="Email"
-                  type="email"
-                  placeholder="you@example.com"
-                  hint="We'll never share your email."
-                />
-              </CardContent>
-              <CardFooter>
-                <Button variant="secondary" size="sm" fullWidth>
-                  Submit
-                </Button>
-              </CardFooter>
-            </Card>
-            <Card variant="filled" padding="md">
-              <CardHeader>
-                <CardTitle>Badges</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="primary">Primary</Badge>
-                  <Badge variant="secondary">Secondary</Badge>
-                  <Badge variant="success">Success</Badge>
-                  <Badge variant="outline">Outline</Badge>
-                </div>
-              </CardContent>
-            </Card>
+            {features.map((feature) => (
+              <Card key={feature.title} variant="outlined" padding="lg">
+                <CardContent>
+                  <Text variant="h4" as="h3" className="mb-2">
+                    {feature.title}
+                  </Text>
+                  <Text variant="body" muted>
+                    {feature.description}
+                  </Text>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </Container>
-        <ModalExample/>
+      </section>
+
+      {/* How it works */}
+      <section className="py-12 sm:py-16 border-t border-border">
+        <Container size="lg">
+          <div className="text-center mb-12">
+            <Text variant="h2" as="h2" className="mb-3">
+              How it works
+            </Text>
+            <Text variant="body" muted className="max-w-xl mx-auto">
+              Four steps from listing to settlement.
+            </Text>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+            {flow.map((item) => (
+              <Card key={item.step} variant="elevated" padding="lg">
+                <CardContent>
+                  <Text variant="caption" muted className="font-mono mb-2">
+                    {item.step}
+                  </Text>
+                  <Text variant="h4" as="h3" className="mb-2">
+                    {item.title}
+                  </Text>
+                  <Text variant="body" muted>
+                    {item.description}
+                  </Text>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </Container>
+      </section>
+
+      {/* CTA */}
+      <section className="py-16 sm:py-24 border-t border-border">
+        <Container size="md" className="text-center">
+          <Text variant="h2" as="h2" className="mb-4">
+            Ready to trade on your terms?
+          </Text>
+          <Text variant="body" muted className="mb-8">
+            Onboarding takes a minute. Bring a Freighter wallet — that&apos;s it.
+          </Text>
+          <Link href="/onboarding">
+            <Button variant="primary" size="lg">
+              Get started
+            </Button>
+          </Link>
+        </Container>
       </section>
     </main>
   );

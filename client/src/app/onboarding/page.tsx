@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
-import { createProfile, registerLocation } from "@/lib/profileApi";
+import { useProfile } from "@/context/ProfileContext";
+import { createProfile, registerLocation } from "@/services/profileService";
 import StepProgress from "@/components/onboarding/StepProgress";
 import ConnectWallet from "@/components/onboarding/ConnectWallet";
 import SelectRole from "@/components/onboarding/SelectRole";
@@ -14,6 +15,7 @@ import Complete from "@/components/onboarding/Complete";
 export default function OnboardingPage() {
   const router = useRouter();
   const { address } = useWallet();
+  const { setProfile } = useProfile();
 
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<"farmer" | "buyer" | null>(null);
@@ -36,7 +38,7 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
-      await createProfile(
+      const created = await createProfile(
         {
           role,
           display_name: displayName.trim(),
@@ -44,6 +46,9 @@ export default function OnboardingPage() {
         },
         address
       );
+      // Seed the profile cache so AuthGuard sees the user as onboarded immediately,
+      // without waiting for a refetch round-trip.
+      setProfile(created);
 
       if (location) {
         await registerLocation(

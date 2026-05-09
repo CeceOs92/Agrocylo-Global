@@ -19,7 +19,7 @@ export default function BarterPage() {
     <Container size="lg" className="py-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Text variant="heading" className="text-2xl font-bold">
+          <Text variant="h2" className="text-2xl font-bold">
             Barter Trades
           </Text>
           <Text variant="body" muted className="mt-1">
@@ -42,7 +42,7 @@ export default function BarterPage() {
       )}
 
       {!connected && (
-        <Card variant="default" padding="lg">
+        <Card variant="outlined" padding="lg">
           <CardContent className="text-center py-12">
             <Text variant="body" muted className="text-lg">
               Connect your wallet to propose or view barter trades.
@@ -52,7 +52,7 @@ export default function BarterPage() {
       )}
 
       {connected && (
-        <Card variant="default" padding="lg">
+        <Card variant="outlined" padding="lg">
           <CardContent className="text-center py-12">
             <Text variant="body" muted>
               No active barter offers yet. Click &quot;New Barter Offer&quot; to

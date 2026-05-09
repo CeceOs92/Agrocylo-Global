@@ -1,7 +1,5 @@
 import type { CartState } from "@/types/cart";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:5000";
+import { API_BASE_URL } from "@/lib/apiConfig";
 
 async function requestJson<T>(
   input: RequestInfo | URL,

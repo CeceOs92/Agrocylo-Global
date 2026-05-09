@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { API_BASE_URL } from "@/lib/apiConfig";
 
 export function useSocket() {
   const [isConnected, setIsConnected] = useState(false);
@@ -8,22 +9,19 @@ export function useSocket() {
   const [listeners, setListeners] = useState<Map<string, Set<(data: any) => void>>>(new Map());
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // Fallback to localhost:3001 if backend URL is not set
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
-    const wsUrl = backendUrl.replace(/^http/, "ws") + "/ws";
+    // Derive WebSocket URL from the same backend base URL used for REST,
+    // so a single NEXT_PUBLIC_API_URL configures the entire backend connection.
+    const wsUrl = API_BASE_URL.replace(/^http/, "ws") + "/ws";
     
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
 
     socket.onopen = () => {
       setIsConnected(true);
-      console.log("[useSocket] Connected to WebSocket");
     };
 
     socket.onclose = () => {
       setIsConnected(false);
-      console.log("[useSocket] Disconnected from WebSocket");
     };
 
     socket.onmessage = (event) => {
