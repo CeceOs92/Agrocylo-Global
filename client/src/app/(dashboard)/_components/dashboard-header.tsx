@@ -4,7 +4,7 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import WalletButton from "@/components/WalletButton";
+import ConnectWallet from "@/components/shared/connect-wallet";
 import { DashboardSidebar } from "./dashboard-sidebar";
 
 export function DashboardHeader() {
@@ -23,7 +23,7 @@ export function DashboardHeader() {
 
       <div className="flex-1" />
       <ThemeToggle />
-      <WalletButton />
+      <ConnectWallet />
     </header>
   );
 }
