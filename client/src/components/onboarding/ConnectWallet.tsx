@@ -1,8 +1,8 @@
 "use client";
 
 import { useWallet } from "@/hooks/useWallet";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 interface ConnectWalletProps {
   onNext: () => void;
@@ -16,7 +16,7 @@ export default function ConnectWallet({ onNext }: ConnectWalletProps) {
   const { address, connected, connect } = useWallet();
 
   return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto text-center">
+    <Card className="max-w-md mx-auto text-center">
       <h2 className="text-2xl font-bold text-foreground mb-2">
         Connect Your Wallet
       </h2>
@@ -32,12 +32,12 @@ export default function ConnectWallet({ onNext }: ConnectWalletProps) {
               {truncateAddress(address!)}
             </p>
           </div>
-          <Button variant="primary" fullWidth onClick={onNext}>
+          <Button onClick={onNext}>
             Continue
           </Button>
         </div>
       ) : (
-        <Button variant="primary" fullWidth onClick={connect}>
+        <Button onClick={connect}>
           Connect Freighter Wallet
         </Button>
       )}

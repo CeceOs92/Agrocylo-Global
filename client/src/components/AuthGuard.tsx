@@ -46,7 +46,7 @@ export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
 
   if (!isLoaded || !connected || !profile) {
     return (
-      <Container size="md" className="py-24 text-center">
+      <Container className="py-24 text-center">
         <Spinner />
         <Text variant="body" muted className="mt-4">
           Checking access…

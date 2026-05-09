@@ -30,7 +30,7 @@ function RecenterMap({ points }: { points: HeatMapPoint[] }) {
 
 export default function RegionalHeatMap({ data }: RegionalHeatMapProps) {
   return (
-    <Card variant="elevated" className="overflow-hidden">
+    <Card className="overflow-hidden">
       <CardHeader className="pb-2">
         <CardTitle>Regional Demand Heat Map</CardTitle>
       </CardHeader>

@@ -2,9 +2,9 @@
 
 import React, { useContext, useCallback, useState } from "react";
 import { TransactionFeedbackContext } from "@/context/TransactionFeedbackContext";
-import { Button } from "@/components/ui/Button";
-import { Card, CardContent } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Text } from "@/components/ui/Text";
 import type { TransactionState } from "@/types/transaction";
 
@@ -62,7 +62,7 @@ export interface TransactionFeedbackPanelProps {
 interface StateConfig {
   label: string;
   badge: string;
-  badgeVariant: "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline";
+  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
   icon: React.ReactNode;
   showSpinner: boolean;
 }
@@ -78,7 +78,7 @@ const stateConfigs: Record<TransactionState, StateConfig> = {
   pending: {
     label: "Processing transaction...",
     badge: "pending",
-    badgeVariant: "primary",
+    badgeVariant: "default",
     icon: <div className="size-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />,
     showSpinner: true,
   },
@@ -113,7 +113,7 @@ const stateConfigs: Record<TransactionState, StateConfig> = {
   failure: {
     label: "Transaction failed",
     badge: "failure",
-    badgeVariant: "error",
+    badgeVariant: "destructive",
     icon: (
       <svg
         className="size-10 text-error"
@@ -293,8 +293,8 @@ export function TransactionFeedbackPanel({
           aria-hidden="true"
         />
         <Card
-          variant="elevated"
-          padding="lg"
+         
+         
           className="relative w-full max-w-md"
           role="dialog"
           aria-modal="true"
@@ -307,9 +307,9 @@ export function TransactionFeedbackPanel({
             {isTerminal && (
               <Button
                 onClick={handleClose}
-                variant="primary"
-                fullWidth
-                size="md"
+               
+               
+               
               >
                 Close
               </Button>
@@ -323,8 +323,8 @@ export function TransactionFeedbackPanel({
   // Inline variant
   return (
     <Card
-      variant="elevated"
-      padding="lg"
+     
+     
       className="w-full"
       role="status"
       aria-live="polite"
@@ -338,8 +338,8 @@ export function TransactionFeedbackPanel({
           <Button
             onClick={handleClose}
             variant="outline"
-            fullWidth
-            size="md"
+           
+           
           >
             Dismiss
           </Button>

@@ -1,8 +1,8 @@
 "use client";
 
 import type { Order } from "@/services/stellar/contractService";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import CountdownTimer from "./CountdownTimer";
 
 interface OrderCardProps {
@@ -77,7 +77,7 @@ export default function OrderCard({
           <CountdownTimer createdAt={order.createdAt} />
           {isBuyer && onConfirm && (
             <Button
-              variant="primary"
+             
               size="sm"
               isLoading={isConfirming}
               onClick={() => onConfirm(order.orderId)}

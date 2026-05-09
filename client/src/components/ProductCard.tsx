@@ -19,7 +19,7 @@ export function ProductCard({ product, children }: ProductCardProps) {
 
   return (
     <Card
-      variant="elevated"
+     
       className="h-full flex flex-col hover:shadow-md transition-shadow"
     >
       <div className="relative aspect-video w-full overflow-hidden rounded-t-lg bg-border/20">
@@ -96,7 +96,7 @@ export function ProductCard({ product, children }: ProductCardProps) {
 
 export function ProductCardSkeleton() {
   return (
-    <Card variant="outlined" className="h-full animate-pulse">
+    <Card className="h-full animate-pulse">
       <div className="aspect-video w-full bg-border/30" />
       <CardContent className="p-4 space-y-4">
         <div className="h-5 bg-border/30 rounded w-3/4" />

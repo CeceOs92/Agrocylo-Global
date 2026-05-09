@@ -9,11 +9,11 @@ interface BuyerIntentsProps {
 
 export function BuyerIntents({ intents }: BuyerIntentsProps) {
   return (
-    <Card variant="elevated">
+    <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Open Buyer Intents</CardTitle>
-          <Badge variant="primary">{intents.length} active</Badge>
+          <Badge>{intents.length} active</Badge>
         </div>
       </CardHeader>
       <CardContent>
