@@ -30,19 +30,22 @@ export async function getProfile(wallet: string): Promise<Profile | null> {
     };
   }
 
-  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(wallet)}`);
+  const res = await fetch(`${API_BASE}/profiles/${encodeURIComponent(wallet)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to fetch profile: ${res.status}`);
   return res.json();
 }
 
-export async function createProfile(data: {
-  role: "farmer" | "buyer";
-  display_name: string;
-  bio?: string;
-  avatar_url?: string;
-}, walletAddress: string): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/profile`, {
+export async function createProfile(
+  data: {
+    role: "farmer" | "buyer";
+    display_name: string;
+    bio?: string;
+    avatar_url?: string;
+  },
+  walletAddress: string,
+): Promise<Profile> {
+  const res = await fetch(`${API_BASE}/profiles`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -56,9 +59,9 @@ export async function createProfile(data: {
 
 export async function registerLocation(
   data: LocationData,
-  walletAddress: string
+  walletAddress: string,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/location`, {
+  const res = await fetch(`${API_BASE}/locations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

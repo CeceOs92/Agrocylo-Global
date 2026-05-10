@@ -1,18 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui/card";
+import { MapPin, Loader2 } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 interface LocationConsentProps {
-  onComplete: (location: {
-    latitude: number;
-    longitude: number;
-    city: string;
-    country: string;
-    isPublic: boolean;
-  } | null) => void;
+  onComplete: (
+    location: {
+      latitude: number;
+      longitude: number;
+      city: string;
+      country: string;
+      isPublic: boolean;
+    } | null,
+  ) => void;
   onBack: () => void;
   isSubmitting: boolean;
 }
@@ -44,13 +55,13 @@ export default function LocationConsent({
         });
       },
       () => setMode("manual"),
-      { enableHighAccuracy: true, timeout: 10_000 }
+      { enableHighAccuracy: true, timeout: 10_000 },
     );
   }
 
   function handleManualSubmit() {
     if (!city.trim() || !country.trim()) return;
-    // For manual entry, use 0,0 as coordinates — backend can geocode later
+    // Manual entry: backend can geocode 0,0 sentinel later if needed.
     onComplete({
       latitude: 0,
       longitude: 0,
@@ -62,131 +73,130 @@ export default function LocationConsent({
 
   if (mode === "ask") {
     return (
-      <Card className="max-w-md mx-auto">
-        <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
-          Share Your Location
-        </h2>
+      <Card className="mx-auto max-w-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Share Your Location</CardTitle>
+          <CardDescription>
+            Help buyers and farmers find you nearby.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="bg-primary/5 border-primary/20 rounded-2xl border p-4">
+            <p className="text-sm">
+              Share your location so buyers and farmers can find you.{" "}
+              <strong>Your exact coordinates are never shown publicly</strong>{" "}
+              — only your city and approximate distance.
+            </p>
+          </div>
 
-        <div className="rounded-lg bg-primary-50 border border-primary-200 p-4 mb-6">
-          <p className="text-sm text-primary-800">
-            Share your location so buyers and farmers can find you.
-            <strong> Your exact coordinates are never shown publicly</strong> —
-            only your city and approximate distance.
-          </p>
-        </div>
+          <div className="flex items-center gap-3">
+            <Checkbox
+              id="loc-public"
+              checked={isPublic}
+              onCheckedChange={(v) => setIsPublic(Boolean(v))}
+            />
+            <Label htmlFor="loc-public" className="cursor-pointer">
+              Show my location on the map
+            </Label>
+          </div>
 
-        <label className="flex items-center gap-3 mb-6 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isPublic}
-            onChange={(e) => setIsPublic(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-          />
-          <span className="text-sm text-foreground">
-            Show my location on the map
-          </span>
-        </label>
+          <div className="space-y-2">
+            <Button
+              onClick={handleShareLocation}
+              isLoading={isSubmitting}
+              className="w-full"
+            >
+              <MapPin className="size-4" />
+              Allow Location Access
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setMode("manual")}
+              className="w-full"
+            >
+              Enter Manually Instead
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => onComplete(null)}
+              disabled={isSubmitting}
+              className="w-full"
+            >
+              Skip for Now
+            </Button>
+          </div>
 
-        <div className="space-y-3">
-          <Button
-           
-           
-            onClick={handleShareLocation}
-            isLoading={isSubmitting}
-          >
-            Allow Location Access
-          </Button>
-          <Button
-            variant="outline"
-           
-            onClick={() => setMode("manual")}
-          >
-            Enter Manually Instead
-          </Button>
-          <Button
-            variant="ghost"
-           
-            onClick={() => onComplete(null)}
-            disabled={isSubmitting}
-          >
-            Skip for Now
-          </Button>
-        </div>
-
-        <div className="mt-4">
           <Button variant="outline" onClick={onBack}>
             Back
           </Button>
-        </div>
+        </CardContent>
       </Card>
     );
   }
 
   if (mode === "detecting") {
     return (
-      <Card className="max-w-md mx-auto text-center">
-        <div className="animate-pulse">
-          <div className="h-12 w-12 mx-auto rounded-full bg-primary-100 mb-4" />
-          <p className="text-foreground font-medium">Detecting location...</p>
-          <p className="text-sm text-muted mt-1">
+      <Card className="mx-auto max-w-md">
+        <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+          <Loader2 className="text-primary size-10 animate-spin" />
+          <p className="font-medium">Detecting your location…</p>
+          <p className="text-muted-foreground text-sm">
             Please allow location access in your browser.
           </p>
-        </div>
+        </CardContent>
       </Card>
     );
   }
 
-  // Manual entry
   return (
-    <Card className="max-w-md mx-auto">
-      <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
-        Enter Your Location
-      </h2>
-      <p className="text-muted text-sm mb-6 text-center">
-        We&apos;ll use this to show your approximate area on the map.
-      </p>
-
-      <div className="space-y-4 mb-6">
-        <Input
-          label="City"
-          placeholder="e.g. Lagos"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-        />
-        <Input
-          label="Country"
-          placeholder="e.g. Nigeria"
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-        />
-
-        <label className="flex items-center gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isPublic}
-            onChange={(e) => setIsPublic(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+    <Card className="mx-auto max-w-md">
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">Enter Your Location</CardTitle>
+        <CardDescription>
+          We&apos;ll show your approximate area on the map.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <Input
+            label="City"
+            placeholder="e.g. Lagos"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
           />
-          <span className="text-sm text-foreground">
-            Show my location on the map
-          </span>
-        </label>
-      </div>
+          <Input
+            label="Country"
+            placeholder="e.g. Nigeria"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+          />
 
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={onBack}>
-          Back
-        </Button>
-        <Button
-         
-         
-          disabled={!city.trim() || !country.trim()}
-          onClick={handleManualSubmit}
-          isLoading={isSubmitting}
-        >
-          Save Location
-        </Button>
-      </div>
+          <div className="flex items-center gap-3">
+            <Checkbox
+              id="loc-manual-public"
+              checked={isPublic}
+              onCheckedChange={(v) => setIsPublic(Boolean(v))}
+            />
+            <Label htmlFor="loc-manual-public" className="cursor-pointer">
+              Show my location on the map
+            </Label>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onBack} className="flex-1">
+            Back
+          </Button>
+          <Button
+            disabled={!city.trim() || !country.trim()}
+            onClick={handleManualSubmit}
+            isLoading={isSubmitting}
+            className="flex-[2]"
+          >
+            Save Location
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }
