@@ -5,10 +5,17 @@ import { test, expect, BrowserContext, Page } from "@playwright/test";
  * Issue: #28  [Frontend] End-to-end testing
  *
  * Flows:
- *  1. Connect Wallet   → WalletButton.tsx / onboarding/ConnectWallet.tsx
+ *  1. Connect Wallet   → modals/wallet-modal.tsx + modals/account-modal.tsx
+ *                        and onboarding/ConnectWallet.tsx
  *  2. Create Listing   → ProductFormModal.tsx  (/dashboard/products)
  *  3. Purchase Item    → CreateOrderForm.tsx   (/orders/new)
  *  4. Confirm Delivery → OrderCard.tsx         (/orders)
+ *
+ * "Wallet connected" signal in the navbar is the AccountModal trigger
+ * showing a truncated G-prefix Stellar address (`GDQP2K…4W37`). The actual
+ * Disconnect button lives inside a Radix dropdown portal that only mounts
+ * when the trigger is clicked, so we assert on the always-visible truncated
+ * address instead.
  */
 
 // ---------------------------------------------------------------------------
@@ -34,9 +41,19 @@ const freighterMock = `
 let context: BrowserContext;
 let page: Page;
 
+/** First 6 chars of the Stellar address — what `formatTruncatedAddress` shows. */
+const ADDRESS_PREFIX = FARMER_ADDRESS.slice(0, 6);
+
 async function ensureWalletConnected(currentPage: Page) {
-  const disconnectBtn = currentPage.getByRole("button", { name: "Disconnect" });
-  if (await disconnectBtn.isVisible().catch(() => false)) {
+  // The AccountModal trigger renders the truncated address (`GDQP2K…4W37`)
+  // next to the avatar whenever WalletContext.connected is true. Use that as
+  // the "connected" signal — `.first()` because the same prefix can also
+  // appear inside an open dropdown or in onboarding's mono <p>.
+  const connectedIndicator = currentPage
+    .getByText(ADDRESS_PREFIX, { exact: false })
+    .first();
+
+  if (await connectedIndicator.isVisible().catch(() => false)) {
     return;
   }
 
@@ -47,7 +64,7 @@ async function ensureWalletConnected(currentPage: Page) {
 
   await currentPage.reload();
 
-  await expect(disconnectBtn).toBeVisible({ timeout: 10_000 });
+  await expect(connectedIndicator).toBeVisible({ timeout: 10_000 });
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -62,17 +79,17 @@ test.afterAll(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1a. Connect Wallet — Navbar (WalletButton.tsx)
-// "Connect Wallet" → click → button becomes "Disconnect"
+// 1a. Connect Wallet — Navbar (modals/wallet-modal.tsx → modals/account-modal.tsx)
+// "Connect Wallet" → click → AccountModal trigger renders truncated address
 // ---------------------------------------------------------------------------
-test("1a – navbar WalletButton should connect Freighter wallet", async () => {
+test("1a – navbar should connect Freighter wallet", async () => {
   const navConnectBtn = page.getByRole("button", { name: "Connect Wallet" });
   await expect(navConnectBtn).toBeVisible({ timeout: 10_000 });
   await navConnectBtn.click();
 
-  // Connected state: button label switches to "Disconnect"
+  // Connected state: AccountModal trigger renders the truncated address
   await expect(
-    page.getByRole("button", { name: "Disconnect" })
+    page.getByText(ADDRESS_PREFIX, { exact: false }).first()
   ).toBeVisible({ timeout: 10_000 });
 });
 
