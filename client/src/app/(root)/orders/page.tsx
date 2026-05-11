@@ -1,145 +1,168 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import type { Order } from "@/services/stellar/contractService";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, ShoppingBag } from "lucide-react";
+
+import Wrapper from "@/components/shared/wrapper";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWallet } from "@/hooks/useWallet";
 import { listOrdersAsBuyer } from "@/services/orderService";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
 import OrderCard from "@/components/orders/OrderCard";
-import CreateOrderForm from "@/components/orders/CreateOrderForm";
-import { Card, CardContent, CardHeader, CardTitle, Text } from "@/components/ui";
+import type { Order } from "@/services/stellar/contractService";
 
-function OrdersList() {
-  const { address } = useWallet();
+const STATUS_TABS = [
+  { value: "all", label: "All" },
+  { value: "Pending", label: "Pending" },
+  { value: "Completed", label: "Completed" },
+  { value: "Disputed", label: "Disputed" },
+  { value: "Refunded", label: "Refunded" },
+] as const;
+type TabValue = (typeof STATUS_TABS)[number]["value"];
+
+export default function OrdersPage() {
+  const { address, connected } = useWallet();
   const { confirmReceipt, confirmState } = useEscrowContract();
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabValue>("all");
 
   useEffect(() => {
-    async function loadOrders() {
-      if (!address) {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const result = await listOrdersAsBuyer(address);
-        setOrders(result);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load orders");
-      } finally {
-        setLoading(false);
-      }
+    if (!address) {
+      setLoading(false);
+      return;
     }
-    loadOrders();
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await listOrdersAsBuyer(address);
+        if (!cancelled) setOrders(result);
+      } catch (err) {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Failed to load orders");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [address]);
 
-  const handleConfirm = async (orderId: string) => {
+  async function handleConfirm(orderId: string) {
     try {
       await confirmReceipt(orderId);
       setOrders((prev) =>
-        prev.map((order) =>
-          order.orderId === orderId
-            ? { ...order, status: "Completed" }
-            : order,
+        prev.map((o) =>
+          o.orderId === orderId ? { ...o, status: "Completed" } : o,
         ),
       );
     } catch (err) {
       console.error("Failed to confirm receipt:", err);
     }
-  };
-
-  if (loading) {
-    return <div className="text-center text-muted py-12">Loading orders...</div>;
   }
 
-  if (!address) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>My Orders</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Text variant="body" muted>
-            Connect your wallet to view your orders.
-          </Text>
-        </CardContent>
-      </Card>
-    );
-  }
+  const filtered = useMemo(() => {
+    if (tab === "all") return orders;
+    return orders.filter((o) => o.status === tab);
+  }, [orders, tab]);
 
-  if (error) {
-    return (
-      <Card className="border-red-200">
-        <CardHeader>
-          <CardTitle>Error</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Text variant="body" className="text-red-600">
-            {error}
-          </Text>
-        </CardContent>
-      </Card>
-    );
-  }
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const o of orders) map.set(o.status, (map.get(o.status) ?? 0) + 1);
+    return map;
+  }, [orders]);
 
   return (
-    <div className="space-y-6">
-      {orders.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No Orders Yet</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Text variant="body" muted>
-              Create your first order below to get started.
-            </Text>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {orders.map((order) => (
-            <OrderCard
-              key={order.orderId}
-              order={order}
-              isBuyer={true}
-              onConfirm={handleConfirm}
-              isConfirming={confirmState.isLoading}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+    <Wrapper className="pt-32 pb-20 md:pt-40">
+      <PageHeader
+        title="My Orders"
+        description="Escrow-backed orders you've placed on the Stellar network."
+      >
+        <Button asChild>
+          <Link href="/orders/new">
+            <Plus className="size-4" />
+            New Order
+          </Link>
+        </Button>
+      </PageHeader>
 
-export default function OrdersPage() {
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white py-12 px-4">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-foreground mb-2 text-center">
-          Orders
-        </h1>
-        <p className="text-muted text-center mb-8">
-          Create escrow-backed orders with farmers on the Stellar network.
-        </p>
-
-        <div className="space-y-8">
-          <Suspense fallback={<div className="text-center text-muted">Loading...</div>}>
-            <OrdersList />
-          </Suspense>
-
-          <div className="border-t pt-8">
-            <h2 className="text-2xl font-bold text-foreground mb-4">Create New Order</h2>
-            <Suspense fallback={<div className="text-center text-muted">Loading...</div>}>
-              <CreateOrderForm />
-            </Suspense>
-          </div>
-        </div>
+      <div className="mt-8">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
+          <TabsList>
+            {STATUS_TABS.map((t) => {
+              const count =
+                t.value === "all" ? orders.length : (counts.get(t.value) ?? 0);
+              return (
+                <TabsTrigger key={t.value} value={t.value} className="gap-2">
+                  {t.label}
+                  <span className="bg-muted text-muted-foreground rounded-full px-1.5 text-[10px] font-medium">
+                    {count}
+                  </span>
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
       </div>
-    </div>
+
+      <div className="mt-6">
+        {!connected || !address ? (
+          <EmptyState
+            icon={ShoppingBag}
+            title="Connect your wallet"
+            description="Sign in with Freighter to see your escrow orders."
+          />
+        ) : loading ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-44 rounded-xl" />
+            ))}
+          </div>
+        ) : error ? (
+          <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-2xl border p-6 text-sm">
+            {error}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={ShoppingBag}
+            title={tab === "all" ? "No orders yet" : `No ${tab.toLowerCase()} orders`}
+            description={
+              tab === "all"
+                ? "Place your first order from the marketplace."
+                : "Switch tabs to see orders in other states."
+            }
+            action={
+              tab === "all" ? (
+                <Button asChild>
+                  <Link href="/market">Browse Market</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {filtered.map((order) => (
+              <OrderCard
+                key={order.orderId}
+                order={order}
+                isBuyer
+                onConfirm={handleConfirm}
+                isConfirming={confirmState.isLoading}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </Wrapper>
   );
 }
-
