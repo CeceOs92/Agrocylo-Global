@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ShieldAlert } from "lucide-react";
 import type { Order } from "@/services/stellar/contractService";
@@ -36,7 +37,9 @@ export default function OrderCard({
   const netXlm = totalXlm - feeXlm;
 
   const expirySeconds = order.createdAt + EXPIRY_HOURS * 3600;
-  const isExpired = Math.floor(Date.now() / 1000) >= expirySeconds;
+  const [isExpired] = useState(
+    () => Math.floor(Date.now() / 1000) >= expirySeconds,
+  );
   const isPending = order.status === "Pending";
 
   return (

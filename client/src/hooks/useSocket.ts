@@ -6,7 +6,9 @@ import { API_BASE_URL } from "@/lib/apiConfig";
 export function useSocket() {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const [listeners, setListeners] = useState<Map<string, Set<(data: any) => void>>>(new Map());
+  const [listeners, setListeners] = useState<
+    Map<string, Set<(data: unknown) => void>>
+  >(new Map());
 
   useEffect(() => {
     // Derive WebSocket URL from the same backend base URL used for REST,
@@ -43,7 +45,7 @@ export function useSocket() {
     };
   }, [listeners]);
 
-  const on = useCallback((event: string, callback: (data: any) => void) => {
+  const on = useCallback((event: string, callback: (data: unknown) => void) => {
     setListeners((prev) => {
       const next = new Map(prev);
       const eventListeners = next.get(event) || new Set();
@@ -67,7 +69,7 @@ export function useSocket() {
     };
   }, []);
 
-  const emit = useCallback((type: string, payload: any) => {
+  const emit = useCallback((type: string, payload: Record<string, unknown>) => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type, ...payload }));
     }

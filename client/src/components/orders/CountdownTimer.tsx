@@ -39,8 +39,7 @@ export default function CountdownTimer({
     return () => clearInterval(id);
   }, [createdAt]);
 
-  const expiryTime = createdAt + EXPIRY_HOURS * 3600;
-  const isExpired = Math.floor(Date.now() / 1000) >= expiryTime;
+  const isExpired = remaining === "Expired";
 
   return (
     <span
