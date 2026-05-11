@@ -1,18 +1,50 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, Container, Text, Button, Badge } from "@/components/ui";
-import { getOrder, type Order } from "@/services/stellar/contractService";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ShieldAlert,
+  Wallet,
+  Clock,
+  Hash,
+  RefreshCcw,
+} from "lucide-react";
+
+import Wrapper from "@/components/shared/wrapper";
+import { PageHeader } from "@/components/shared/page-header";
+import { StatusBadge } from "@/components/shared/status-badge";
+import CopyButton from "@/components/shared/copy-button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useWallet } from "@/hooks/useWallet";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
 import { useSocket } from "@/hooks/useSocket";
-import DisputeForm from "@/components/orders/DisputeForm";
+import { getOrder, type Order } from "@/services/stellar/contractService";
+import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import CountdownTimer from "@/components/orders/CountdownTimer";
+import DisputeForm from "@/components/orders/DisputeForm";
+
+const EXPIRY_HOURS = 96;
 
 export default function OrderDetailsPage() {
   const params = useParams<{ orderId: string }>();
-  const router = useRouter();
   const orderId = params?.orderId;
 
   const { address, connected } = useWallet();
@@ -24,24 +56,22 @@ export default function OrderDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [refundTxHash, setRefundTxHash] = useState<string | null>(null);
   const [confirmTxHash, setConfirmTxHash] = useState<string | null>(null);
+  const [showDisputeDialog, setShowDisputeDialog] = useState(false);
 
-  // The on-chain contract treats an order as expired after 96 hours from creation.
-  const EXPIRY_HOURS = 96;
   const [isExpired, setIsExpired] = useState(false);
 
-  // Keep expiry state updated outside render (avoid impure Date.now() during render).
+  // Tick expiry state outside render to keep it pure.
   useEffect(() => {
     if (!order?.createdAt) return;
-
-    const expiryTimeSeconds = order.createdAt + EXPIRY_HOURS * 3600;
+    const expirySeconds = order.createdAt + EXPIRY_HOURS * 3600;
     let cancelled = false;
-
     const tick = () => {
-      if (cancelled) return;
-      setIsExpired(Math.floor(Date.now() / 1000) >= expiryTimeSeconds);
+      if (!cancelled) {
+        setIsExpired(Math.floor(Date.now() / 1000) >= expirySeconds);
+      }
     };
-
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => {
@@ -49,9 +79,6 @@ export default function OrderDetailsPage() {
       window.clearInterval(id);
     };
   }, [order?.createdAt]);
-
-  const [refundTxHash, setRefundTxHash] = useState<string | null>(null);
-  const [showDisputeForm, setShowDisputeForm] = useState(false);
 
   const fetchOrder = useCallback(async () => {
     if (!orderId) return;
@@ -74,223 +101,380 @@ export default function OrderDetailsPage() {
     void fetchOrder();
   }, [fetchOrder]);
 
-  // Real-time updates
+  // Real-time refresh when the backend's indexer reports a status change.
   useEffect(() => {
     if (!orderId) return;
-    
-    const cleanup = onSocket("order:status_changed", (payload: any) => {
-      if (String(payload.orderId) === String(orderId)) {
+    const cleanup = onSocket("order:status_changed", (payload: unknown) => {
+      const p = payload as { orderId?: string | number };
+      if (String(p?.orderId) === String(orderId)) {
         void fetchOrder();
       }
     });
-
     return cleanup;
   }, [orderId, onSocket, fetchOrder]);
 
-  const deliveryExpiryTsSeconds = useMemo(() => {
-    if (!order || order.createdAt == null) return null;
-    const createdAtSeconds = Number(order.createdAt);
-    if (!Number.isFinite(createdAtSeconds)) return null;
-    return createdAtSeconds + EXPIRY_HOURS * 3600;
-  }, [order]);
-
-  const isBuyer = useMemo(() => {
-    if (!connected || !address) return false;
-    if (!order?.buyer) return false;
-    return address === order.buyer;
-  }, [connected, address, order?.buyer]);
-
-  const canRefund = useMemo(() => {
-    return (
-      !!orderId &&
-      isBuyer &&
-      order?.status === "Pending" &&
-      isExpired &&
-      !refundState.isLoading
-    );
-  }, [orderId, isBuyer, order?.status, isExpired, refundState.isLoading]);
-
-  const canDispute = useMemo(() => {
-    return (
-      !!orderId &&
-      connected &&
-      (order?.status === "Pending" || order?.status === "Delivered") &&
-      !disputeState.isLoading
-    );
-  }, [orderId, connected, order?.status, disputeState.isLoading]);
-
-  const onOpenDispute = useCallback(
-    async (reason: string, evidence: string) => {
-      if (!orderId) return;
-      try {
-        await openDispute(orderId, reason, evidence);
-        setShowDisputeForm(false);
-        await fetchOrder();
-      } catch {
-        // disputeState.error is already set by the hook
-      }
-    },
-    [orderId, openDispute, fetchOrder]
+  const isBuyer = useMemo(
+    () =>
+      Boolean(connected && address && order?.buyer && address === order.buyer),
+    [connected, address, order?.buyer],
   );
+  const isFarmer = useMemo(
+    () =>
+      Boolean(
+        connected && address && order?.seller && address === order.seller,
+      ),
+    [connected, address, order?.seller],
+  );
+
+  const isPending = order?.status === "Pending";
+  const canConfirm = isPending && isBuyer && !isExpired;
+  const canRefund = isPending && isBuyer && isExpired;
+  const canDispute = isPending && (isBuyer || isFarmer);
+
+  const onConfirmReceipt = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      const result = await confirmReceipt(orderId);
+      if (result.success && result.txHash) setConfirmTxHash(result.txHash);
+      await fetchOrder();
+    } catch {
+      // confirmState.error already set
+    }
+  }, [orderId, confirmReceipt, fetchOrder]);
 
   const onRequestRefund = useCallback(async () => {
     if (!orderId) return;
     setRefundTxHash(null);
     try {
       const result = await requestRefund(orderId);
-      if (result.success && result.txHash) {
-        setRefundTxHash(result.txHash);
-      }
-      // Refresh to update `order.status` to `Refunded`.
+      if (result.success && result.txHash) setRefundTxHash(result.txHash);
       await fetchOrder();
     } catch {
-      // `refundState.error` is already set by the hook.
+      // refundState.error already set
     }
-  }, [fetchOrder, orderId, requestRefund]);
+  }, [orderId, requestRefund, fetchOrder]);
 
-  const renderStatus = () => {
-    if (!order) return "-";
-    const status = order.status;
-    
-    switch (status) {
-      case "Pending":
-        return <Badge variant="warning">Pending</Badge>;
-      case "Delivered":
-        return <Badge>Delivered</Badge>;
-      case "Completed":
-        return <Badge variant="success">Completed</Badge>;
-      case "Refunded":
-        return <Badge variant="destructive">Refunded</Badge>;
-      case "Disputed":
-        return <Badge variant="destructive">Disputed</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
+  const onOpenDispute = useCallback(
+    async (reason: string, evidence: string) => {
+      if (!orderId) return;
+      try {
+        await openDispute(orderId, reason, evidence);
+        setShowDisputeDialog(false);
+        await fetchOrder();
+      } catch {
+        // disputeState.error already set
+      }
+    },
+    [orderId, openDispute, fetchOrder],
+  );
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <Wrapper className="pt-32 pb-20 md:pt-40">
+        <div className="grid gap-6 md:grid-cols-[2fr_1fr]">
+          <Skeleton className="h-96 rounded-2xl" />
+          <Skeleton className="h-64 rounded-2xl" />
+        </div>
+      </Wrapper>
+    );
+  }
+
+  if (error || !order) {
+    return (
+      <Wrapper className="pt-32 pb-20 md:pt-40">
+        <Card>
+          <CardContent className="py-10 text-center">
+            <h2 className="text-lg font-semibold">Order not found</h2>
+            <p className="text-muted-foreground mt-1 text-sm">
+              {error ?? "We couldn't find this order."}
+            </p>
+            <Link
+              href="/orders"
+              className={buttonVariants({
+                variant: "outline",
+                className: "mt-4",
+              })}
+            >
+              <ArrowLeft className="size-4" />
+              Back to orders
+            </Link>
+          </CardContent>
+        </Card>
+      </Wrapper>
+    );
+  }
+
+  const totalXlm = (Number(order.amount) / 1e7).toFixed(2);
+  const createdAtLabel = order.createdAt
+    ? new Date(order.createdAt * 1000).toLocaleString()
+    : "—";
 
   return (
-    <Container size="lg" className="py-8">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-bold">Order #{orderId}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <Text variant="body" muted>Loading order...</Text>
-          ) : error ? (
-            <Text variant="body" className="text-error font-medium">{error}</Text>
-          ) : order ? (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Text variant="body" muted className="font-semibold">Buyer</Text>
-                  <Text variant="body" className="block font-mono text-xs break-all bg-muted/30 p-1 rounded mt-1">{order.buyer ?? "-"}</Text>
-                </div>
-                <div>
-                  <Text variant="body" muted className="font-semibold">Seller</Text>
-                  <Text variant="body" className="block font-mono text-xs break-all bg-muted/30 p-1 rounded mt-1">{order.seller ?? "-"}</Text>
-                </div>
+    <Wrapper className="pt-32 pb-20 md:pt-40">
+      <nav className="text-muted-foreground mb-6 flex items-center gap-2 text-sm">
+        <Link href="/orders" className="hover:text-foreground">
+          Orders
+        </Link>
+        <span>/</span>
+        <span className="text-foreground">#{order.orderId}</span>
+      </nav>
+
+      <PageHeader title={`Order #${order.orderId}`}>
+        <StatusBadge status={order.status} />
+      </PageHeader>
+
+      <div className="mt-8 grid gap-6 md:grid-cols-[2fr_1fr]">
+        {/* Left: order info */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Parties</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <AddressBlock label="Buyer" address={order.buyer} />
+              <AddressBlock label="Farmer" address={order.seller} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Escrow</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Metric
+                  label="Amount locked"
+                  value={`${totalXlm} XLM`}
+                  highlight
+                />
+                <Metric label="Created" value={createdAtLabel} />
+                <Metric
+                  label="Expiry"
+                  value={
+                    isPending ? (
+                      <CountdownTimer createdAt={order.createdAt} />
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
               </div>
 
-              <div className="flex flex-wrap gap-6 pt-2">
-                <div>
-                  <Text variant="body" muted className="font-semibold">Amount</Text>
-                  <Text variant="body" className="block font-bold text-lg">{String(order.amount ?? "-")} XLM</Text>
-                </div>
-                <div>
-                  <Text variant="body" muted className="font-semibold">Status</Text>
-                  <div className="mt-1">{renderStatus()}</div>
-                </div>
-                <div>
-                  <Text variant="body" muted className="font-semibold">Created</Text>
-                  <Text variant="body" className="block mt-1">
-                    {order.createdAt ? new Date(Number(order.createdAt) * 1000).toLocaleString() : "-"}
-                  </Text>
-                </div>
-              </div>
+              {(confirmTxHash || refundTxHash) && (
+                <>
+                  <Separator />
+                  <div className="grid gap-3 text-xs">
+                    {confirmTxHash && (
+                      <TxRow label="Confirm tx" hash={confirmTxHash} />
+                    )}
+                    {refundTxHash && (
+                      <TxRow label="Refund tx" hash={refundTxHash} />
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
 
-              {order.status === "Pending" && (
-                <div className="pt-3 border-t border-border/60">
-                  <Text variant="body" muted className="font-semibold">Delivery deadline</Text>
-                  {order.createdAt != null ? (
-                    <div className="mt-1">
-                      <CountdownTimer createdAt={Number(order.createdAt)} />
-                    </div>
-                  ) : (
-                    <Text variant="body" className="block">-</Text>
+          {order.status === "Disputed" && (
+            <Card className="border-destructive/30">
+              <CardContent className="flex items-start gap-3 py-4">
+                <ShieldAlert className="text-destructive mt-0.5 size-5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Dispute opened</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    An admin is reviewing this dispute and will resolve it via
+                    Refund, Release, or Split.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Right: actions */}
+        <div className="space-y-4 md:sticky md:top-32 md:self-start">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!connected ? (
+                <div className="bg-secondary/50 flex items-start gap-2 rounded-lg p-3 text-sm">
+                  <Wallet className="mt-0.5 size-4 shrink-0" />
+                  <span>Connect your wallet to act on this order.</span>
+                </div>
+              ) : !isBuyer && !isFarmer ? (
+                <p className="text-muted-foreground text-sm">
+                  You&apos;re not a party on this order, so no actions are
+                  available.
+                </p>
+              ) : (
+                <>
+                  {canConfirm && (
+                    <Button
+                      onClick={() => void onConfirmReceipt()}
+                      isLoading={confirmState.isLoading}
+                      className="w-full"
+                    >
+                      <CheckCircle2 className="size-4" />
+                      Confirm Receipt
+                    </Button>
                   )}
-                </div>
-              )}
 
-              {order.status === "Pending" && isExpired && isBuyer && (
-                <div className="pt-2 space-y-2">
-                  <Button
-                    variant="destructive"
-                    size="lg"
-                    onClick={() => void onRequestRefund()}
-                    disabled={!canRefund}
-                    isLoading={refundState.isLoading}
-                    className="w-full font-bold"
-                  >
-                    Request Refund (Expired)
-                  </Button>
+                  {canRefund && (
+                    <Button
+                      variant="destructive"
+                      onClick={() => void onRequestRefund()}
+                      isLoading={refundState.isLoading}
+                      className="w-full"
+                    >
+                      <RefreshCcw className="size-4" />
+                      Refund (Expired)
+                    </Button>
+                  )}
 
-                  {refundState.error ? (
-                    <Text variant="body" className="text-error text-xs italic">
-                      {refundState.error}
-                    </Text>
-                  ) : null}
-
-                  {refundTxHash ? (
-                    <Text variant="body" muted className="break-all text-[10px] font-mono bg-muted/20 p-2 rounded">
-                      Refund tx: {refundTxHash}
-                    </Text>
-                  ) : null}
-                </div>
-              )}
-
-              {canDispute && (
-                <div className="pt-2 space-y-2 border-t border-border/60 mt-4">
-                  {!showDisputeForm ? (
+                  {canDispute && (
                     <Button
                       variant="outline"
-                      size="lg"
-                      onClick={() => setShowDisputeForm(true)}
-                      className="w-full border-danger/40 text-danger hover:bg-danger/5"
+                      onClick={() => setShowDisputeDialog(true)}
+                      className="w-full"
                     >
+                      <ShieldAlert className="size-4" />
                       Open Dispute
                     </Button>
-                  ) : (
-                    <div className="bg-muted/10 p-3 rounded-lg border border-border/40">
-                      <Text variant="body" className="font-bold text-danger mb-2">Dispute Order</Text>
-                      <DisputeForm
-                        isLoading={disputeState.isLoading}
-                        error={disputeState.error}
-                        onSubmit={onOpenDispute}
-                        onCancel={() => setShowDisputeForm(false)}
-                      />
-                    </div>
                   )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <Text variant="body" muted>No order found.</Text>
-          )}
 
-          <div className="pt-4 flex justify-between items-center border-t border-border/40">
-            <Button variant="outline" size="sm" onClick={() => router.back()}>
-              ← Go Back
-            </Button>
-            {order?.status === "Disputed" && (
-              <Text variant="body" className="text-xs italic text-muted-foreground">
-                An admin will review this dispute shortly.
-              </Text>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </Container>
+                  {!isPending && (
+                    <p className="text-muted-foreground text-sm">
+                      This order is{" "}
+                      <span className="font-medium">{order.status}</span>. No
+                      further on-chain actions are available.
+                    </p>
+                  )}
+
+                  {confirmState.error && (
+                    <p className="text-destructive text-xs">
+                      {confirmState.error}
+                    </p>
+                  )}
+                  {refundState.error && (
+                    <p className="text-destructive text-xs">
+                      {refundState.error}
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="space-y-2 py-4 text-xs">
+              <p className="text-muted-foreground flex items-center gap-1.5">
+                <Clock className="size-3.5" />
+                Orders expire {EXPIRY_HOURS}h after creation. If not confirmed,
+                buyers can refund the escrow.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <Dialog open={showDisputeDialog} onOpenChange={setShowDisputeDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Open Dispute</DialogTitle>
+            <DialogDescription>
+              Describe the problem. An admin will review and resolve as Refund,
+              Release, or Split.
+            </DialogDescription>
+          </DialogHeader>
+          <DisputeForm
+            isLoading={disputeState.isLoading}
+            error={disputeState.error}
+            onSubmit={onOpenDispute}
+            onCancel={() => setShowDisputeDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
+    </Wrapper>
   );
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────
+
+function AddressBlock({
+  label,
+  address,
+}: {
+  label: string;
+  address: string | null | undefined;
+}) {
+  if (!address) {
+    return (
+      <div>
+        <p className="text-muted-foreground text-xs">{label}</p>
+        <p className="text-sm">—</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <div className="flex items-center gap-2">
+        <p className="font-mono text-sm">{formatTruncatedAddress(address)}</p>
+        <CopyButton
+          text={address}
+          className="text-muted-foreground hover:text-foreground inline-flex items-center"
+          iconClassName="!size-3.5"
+        />
+      </div>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: React.ReactNode;
+  highlight?: boolean;
+}) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <div
+        className={
+          highlight
+            ? "mt-0.5 text-lg font-semibold"
+            : "mt-0.5 text-sm font-medium"
+        }
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function TxRow({ label, hash }: { label: string; hash: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground flex items-center gap-1">
+        <Hash className="size-3" />
+        {label}
+      </p>
+      <div className="flex items-center gap-2">
+        <p className="font-mono break-all">{hash}</p>
+        <CopyButton
+          text={hash}
+          className="text-muted-foreground hover:text-foreground inline-flex shrink-0 items-center"
+          iconClassName="!size-3.5"
+        />
+      </div>
+    </div>
+  );
+}

@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
-import { Button, Text } from "@/components/ui";
+import { useCallback, useRef, useState } from "react";
+import { Upload, X, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export interface EvidenceFile {
   name: string;
@@ -26,28 +28,35 @@ async function sha256(file: File): Promise<string> {
     .join("");
 }
 
-export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadProps) {
+export default function EvidenceUpload({
+  onChange,
+  disabled,
+}: EvidenceUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [evidence, setEvidence] = useState<EvidenceFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hashing, setHashing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const processFile = useCallback(
     async (file: File) => {
       setError(null);
-
       if (file.size > MAX_BYTES) {
         setError("File exceeds 10 MB limit.");
         return;
       }
-
       setHashing(true);
       try {
         const hash = await sha256(file);
-        const isImage = file.type.startsWith("image/");
-        const previewUrl = isImage ? URL.createObjectURL(file) : null;
-
-        const ev: EvidenceFile = { name: file.name, size: file.size, previewUrl, hash };
+        const previewUrl = file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : null;
+        const ev: EvidenceFile = {
+          name: file.name,
+          size: file.size,
+          previewUrl,
+          hash,
+        };
         setEvidence(ev);
         onChange(ev);
       } catch {
@@ -56,7 +65,7 @@ export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadPro
         setHashing(false);
       }
     },
-    [onChange]
+    [onChange],
   );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,6 +75,7 @@ export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadPro
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    setDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file) void processFile(file);
   };
@@ -77,6 +87,8 @@ export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadPro
     if (inputRef.current) inputRef.current.value = "";
   };
 
+  const interactable = !disabled && !hashing;
+
   return (
     <div className="space-y-2">
       <input
@@ -85,41 +97,58 @@ export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadPro
         accept={ACCEPTED}
         className="hidden"
         onChange={handleChange}
-        disabled={disabled || hashing}
+        disabled={!interactable}
       />
 
       {!evidence ? (
         <div
           onDrop={handleDrop}
-          onDragOver={(e) => e.preventDefault()}
-          onClick={() => !disabled && !hashing && inputRef.current?.click()}
-          className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!dragOver) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onClick={() => interactable && inputRef.current?.click()}
+          className={cn(
+            "bg-secondary/40 hover:bg-secondary flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition-colors",
+            dragOver ? "border-primary bg-primary/5" : "border-border",
+            !interactable && "cursor-not-allowed opacity-60",
+          )}
         >
-          <svg className="size-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-          </svg>
-          <Text variant="body" muted className="text-sm">
+          <div className="bg-background grid size-10 place-content-center rounded-full border">
+            <Upload className="text-muted-foreground size-4" />
+          </div>
+          <p className="text-sm font-medium">
             {hashing ? "Generating hash…" : "Drag & drop or click to upload"}
-          </Text>
-          <Text variant="body" muted className="text-xs">
+          </p>
+          <p className="text-muted-foreground text-xs">
             JPG, PNG, WEBP, GIF, PDF · max 10 MB
-          </Text>
+          </p>
         </div>
       ) : (
-        <div className="rounded-lg border border-gray-200 p-3 space-y-2">
-          {evidence.previewUrl && (
+        <div className="bg-card space-y-3 rounded-2xl border p-3">
+          {evidence.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={evidence.previewUrl}
               alt="evidence preview"
-              className="max-h-48 w-full rounded object-contain bg-gray-50"
+              className="bg-secondary max-h-48 w-full rounded-xl object-contain"
             />
+          ) : (
+            <div className="bg-secondary flex items-center gap-3 rounded-xl p-4">
+              <FileText className="text-muted-foreground size-6" />
+              <span className="text-sm font-medium">PDF document</span>
+            </div>
           )}
 
-          <div className="text-xs space-y-0.5">
-            <p className="font-medium truncate">{evidence.name}</p>
-            <p className="text-gray-500">{(evidence.size / 1024).toFixed(1)} KB</p>
-            <p className="text-gray-400 break-all font-mono">SHA-256: {evidence.hash}</p>
+          <div className="space-y-0.5 text-xs">
+            <p className="truncate font-medium">{evidence.name}</p>
+            <p className="text-muted-foreground">
+              {(evidence.size / 1024).toFixed(1)} KB
+            </p>
+            <p className="text-muted-foreground/80 font-mono break-all">
+              SHA-256: {evidence.hash}
+            </p>
           </div>
 
           <Button
@@ -129,14 +158,13 @@ export default function EvidenceUpload({ onChange, disabled }: EvidenceUploadPro
             onClick={handleRemove}
             disabled={disabled}
           >
+            <X className="size-3.5" />
             Remove
           </Button>
         </div>
       )}
 
-      {error && (
-        <Text variant="body" className="text-error text-xs">{error}</Text>
-      )}
+      {error && <p className="text-destructive text-xs">{error}</p>}
     </div>
   );
 }
