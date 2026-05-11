@@ -9,7 +9,7 @@ import type {
 import { API_BASE_URL } from "@/lib/apiConfig";
 import { isTestMode } from "@/lib/testMode";
 
-function productFromJson(json: any): Product {
+function productFromJson(json: unknown): Product {
   return json as Product;
 }
 
@@ -98,7 +98,7 @@ export async function createProduct(
     stock_quantity: input.stock_quantity ?? null,
   };
 
-  const json = await requestJson<any>(`${API_BASE_URL}/products`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -126,7 +126,7 @@ export async function updateProduct(
     // leave as-is
   }
 
-  const json = await requestJson<any>(`${API_BASE_URL}/products/${productId}`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -142,7 +142,7 @@ export async function softDeleteProduct(
   walletAddress: string,
   productId: string,
 ): Promise<Product> {
-  const json = await requestJson<any>(`${API_BASE_URL}/products/${productId}`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`, {
     method: "DELETE",
     headers: {
       "x-wallet-address": walletAddress,
