@@ -36,9 +36,27 @@ export default function HomeHeroSection() {
           <Link
             href="https://stellar.org/"
             target="_blank"
-            className="bg-background/80 mt-6 inline-flex items-center gap-3 rounded-full border px-3.5 py-1.5 backdrop-blur-sm"
+            className="bg-background/80 mt-6 inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 backdrop-blur-sm"
           >
             <span className="text-[13px] font-medium">Powered by</span>
+            <Image
+              src="/assets/stellar-dark.svg"
+              alt="Stellar"
+              width={16}
+              height={16}
+              priority
+              quality={100}
+              className="dark:hidden"
+            />
+            <Image
+              src="/assets/stellar-light.svg"
+              alt="Stellar"
+              width={16}
+              height={16}
+              priority
+              quality={100}
+              className="hidden dark:block"
+            />
             <span className="text-[13px] font-bold tracking-wide">Stellar</span>
           </Link>
 

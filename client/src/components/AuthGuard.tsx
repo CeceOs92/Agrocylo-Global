@@ -2,30 +2,18 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
+
 import { useWallet } from "@/hooks/useWallet";
 import { useProfile } from "@/context/ProfileContext";
-import { Container, Spinner, Text } from "@/components/ui";
 
 type Role = "farmer" | "buyer";
 
 interface AuthGuardProps {
   children: ReactNode;
-  /** Restrict access to a specific role; omit to allow any onboarded user. */
   requiredRole?: Role;
 }
 
-/**
- * Client-side route guard.
- *
- * Behaviour:
- *  - Wallet not connected     → redirect to `/onboarding`
- *  - Connected but no profile → redirect to `/onboarding`
- *  - Wrong role               → redirect to the role's home (`/dashboard/products` for farmers, `/market` for buyers)
- *  - All checks pass          → render children
- *
- * While the profile is loading, a spinner is shown so the page never flashes
- * its protected content before the redirect fires.
- */
 export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
   const router = useRouter();
   const { connected } = useWallet();
@@ -40,18 +28,18 @@ export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {
     }
 
     if (requiredRole && profile.role !== requiredRole) {
-      router.replace(profile.role === "farmer" ? "/dashboard/products" : "/market");
+      router.replace(
+        profile.role === "farmer" ? "/dashboard/products" : "/market",
+      );
     }
   }, [connected, profile, isLoaded, requiredRole, router]);
 
   if (!isLoaded || !connected || !profile) {
     return (
-      <Container className="py-24 text-center">
-        <Spinner />
-        <Text variant="body" muted className="mt-4">
-          Checking access…
-        </Text>
-      </Container>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center">
+        <Loader2 className="text-primary size-6 animate-spin" />
+        <p className="text-muted-foreground text-sm">Checking access…</p>
+      </div>
     );
   }
 

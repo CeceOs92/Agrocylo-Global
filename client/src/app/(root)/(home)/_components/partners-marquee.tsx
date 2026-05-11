@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import Wrapper from "@/components/shared/wrapper";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -34,11 +36,34 @@ export default function WorkWith() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-white">
-          <span className="text-sm font-medium opacity-90">Settled on</span>
-          <span className="font-display text-lg font-bold tracking-wide">
-            Stellar
-          </span>
+        <div className="flex items-center gap-6 text-white">
+          <div className="flex items-center gap-2">
+            <Image
+              src="/assets/stellar-light.svg"
+              alt="Stellar"
+              width={24}
+              height={24}
+              priority
+              quality={100}
+            />
+            <span className="text-base font-semibold tracking-wide">
+              Stellar
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Image
+              src="/assets/freighter.png"
+              alt="Freighter"
+              width={24}
+              height={24}
+              priority
+              quality={100}
+              className="rounded-md"
+            />
+            <span className="text-base font-semibold tracking-wide">
+              Freighter
+            </span>
+          </div>
         </div>
       </Wrapper>
     </div>

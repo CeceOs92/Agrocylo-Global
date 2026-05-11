@@ -10,7 +10,12 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Card, CardHeader, CardTitle, CardContent, Text } from "@/components/ui";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card";
 import { HeatMapPoint } from "@/types/demand";
 
 interface RegionalHeatMapProps {
@@ -61,13 +66,13 @@ export default function RegionalHeatMap({ data }: RegionalHeatMapProps) {
               }}
             >
               <Popup>
-                <div className="p-1">
-                  <Text variant="label" className="block mb-1">
+                <div className="space-y-0.5 p-1">
+                  <p className="text-foreground text-sm font-semibold">
                     {point.label}
-                  </Text>
-                  <Text variant="bodySmall" muted>
+                  </p>
+                  <p className="text-muted-foreground text-xs">
                     Demand Intensity: {Math.round(point.intensity * 100)}%
-                  </Text>
+                  </p>
                 </div>
               </Popup>
             </Circle>

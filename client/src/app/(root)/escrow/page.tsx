@@ -1,45 +1,73 @@
 "use client";
 
-import { Container, Card, CardHeader, CardTitle, CardContent } from "@/components/ui";
+import { ShieldCheck, Lock, BadgeCheck } from "lucide-react";
+
+import Wrapper from "@/components/shared/wrapper";
+import { PageHeader } from "@/components/shared/page-header";
 import EscrowTransaction from "@/components/EscrowTransaction";
-import WalletProviderWrapper from "@/components/WalletProviderWrapper";
 
-export default function EscrowDemo() {
-  // Demo data
-  const demoProduct = {
-    farmerAddress: "GD5DJQJ7P5DLYX6LXZJ2J5LYXZJ2J5LYXZJ2J5LYXZJ2J5LYXZJ2",
-    // Soroban token contract address for the asset escrowed (e.g. XLM/USDC asset contract).
-    // Configure via env so on-chain contract calls don't fail.
-    tokenAddress:
-      process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ID ?? "",
-    pricePerUnit: 10.5, // 10.5 XLM per unit
-    productName: "Organic Tomatoes",
-  };
+// Demo / sandbox flow — a fixed product against which to test the
+// Soroban create_order pipeline. Wire to a real product page later.
+const demoProduct = {
+  farmerAddress: "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37",
+  // XLM SAC contract for the active network. Configure via env.
+  tokenAddress: process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID ?? "",
+  pricePerUnit: 10.5,
+  productName: "Organic Tomatoes (Sandbox)",
+};
 
+const features = [
+  {
+    Icon: Lock,
+    title: "Funds locked",
+    blurb:
+      "Your XLM is held by the Soroban escrow contract, not by AgroCylo or the farmer.",
+  },
+  {
+    Icon: BadgeCheck,
+    title: "Released on confirmation",
+    blurb:
+      "When you confirm delivery, the contract pays the farmer minus a 3% platform fee.",
+  },
+  {
+    Icon: ShieldCheck,
+    title: "Refundable on expiry",
+    blurb:
+      "If the farmer doesn't deliver by your chosen deadline, you can refund the escrow.",
+  },
+];
+
+export default function EscrowDemoPage() {
   return (
-    <WalletProviderWrapper>
-      <main className="min-h-screen bg-background text-foreground">
-        <Container size="lg" className="py-8">
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Escrow Transaction Demo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">
-                This is a demonstration of the escrow transaction functionality. 
-                Connect your wallet and fill in the form to create a secure escrow order.
-              </p>
-            </CardContent>
-          </Card>
+    <Wrapper className="pt-32 pb-20 md:pt-40">
+      <PageHeader
+        title="Escrow Sandbox"
+        description="Try the on-chain escrow flow against a sandbox product before using it for a real order."
+      />
 
-          <EscrowTransaction
-            farmerAddress={demoProduct.farmerAddress}
-            tokenAddress={demoProduct.tokenAddress}
-            pricePerUnit={demoProduct.pricePerUnit}
-            productName={demoProduct.productName}
-          />
-        </Container>
-      </main>
-    </WalletProviderWrapper>
+      <div className="mt-8 grid gap-6 md:grid-cols-3">
+        {features.map(({ Icon, title, blurb }) => (
+          <div
+            key={title}
+            className="bg-card flex flex-col gap-2 rounded-2xl border p-5"
+          >
+            <div className="bg-primary/10 text-primary grid size-10 place-content-center rounded-full">
+              <Icon className="size-5" />
+            </div>
+            <h3 className="font-semibold">{title}</h3>
+            <p className="text-muted-foreground text-sm">{blurb}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-10">
+        <EscrowTransaction
+          farmerAddress={demoProduct.farmerAddress}
+          tokenAddress={demoProduct.tokenAddress}
+          pricePerUnit={demoProduct.pricePerUnit}
+          productName={demoProduct.productName}
+        />
+      </div>
+    </Wrapper>
   );
 }

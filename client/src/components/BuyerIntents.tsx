@@ -1,7 +1,15 @@
 "use client";
 
-import { Card, CardHeader, CardTitle, CardContent, Text, Badge } from "@/components/ui";
-import { BuyerIntent } from "@/types/demand";
+import { MapPin } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import type { BuyerIntent } from "@/types/demand";
 
 interface BuyerIntentsProps {
   intents: BuyerIntent[];
@@ -12,47 +20,54 @@ export function BuyerIntents({ intents }: BuyerIntentsProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Open Buyer Intents</CardTitle>
-          <Badge>{intents.length} active</Badge>
+          <CardTitle className="text-base">Open Buyer Intents</CardTitle>
+          <Badge variant="secondary">{intents.length} active</Badge>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {intents.map((intent) => (
+      <CardContent className="space-y-3">
+        {intents.length === 0 ? (
+          <p className="text-muted-foreground py-6 text-center text-sm">
+            No open buyer intents in your area.
+          </p>
+        ) : (
+          intents.map((intent) => (
             <div
               key={intent.id}
-              className="group p-4 rounded-xl border border-border bg-surface transition-colors hover:border-primary-300"
+              className="bg-secondary/40 hover:border-primary/40 rounded-xl border p-4 transition-colors"
             >
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <Text variant="h4" className="mb-0.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">
                     {intent.product_name}
-                  </Text>
-                  <Text variant="bodySmall" muted>
+                  </h3>
+                  <p className="text-muted-foreground mt-0.5 text-xs">
                     Buyer: {intent.buyer_name}
-                  </Text>
+                  </p>
                 </div>
-                <Badge variant="outline">
+                <Badge variant="outline" className="shrink-0 text-xs">
                   {intent.category}
                 </Badge>
               </div>
 
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                <div className="flex items-center gap-2">
-                  <Text variant="label" className="text-primary-700">
+              <Separator className="my-3" />
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-primary font-medium">
                     {intent.quantity} {intent.unit}
-                  </Text>
-                  <Text variant="caption" muted>
-                    · {intent.location.region}
-                  </Text>
+                  </span>
+                  <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                    <MapPin className="size-3" />
+                    {intent.location.region}
+                  </span>
                 </div>
-                <Text variant="caption" muted>
+                <p className="text-muted-foreground text-xs">
                   {new Date(intent.created_at).toLocaleDateString()}
-                </Text>
+                </p>
               </div>
             </div>
-          ))}
-        </div>
+          ))
+        )}
       </CardContent>
     </Card>
   );

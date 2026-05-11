@@ -1,8 +1,28 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, Badge, Text, Button } from "@/components/ui";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Banknote,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  RefreshCcw,
+  Undo2,
+} from "lucide-react";
+
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import CopyButton from "@/components/shared/copy-button";
 import { getOrder, type Order } from "@/services/stellar/contractService";
+import { formatTruncatedAddress } from "@/lib/helpers/format-address";
+import { cn } from "@/lib/utils";
 
 export type EscrowStatus = "pending" | "funded" | "delivered" | "refunded";
 
@@ -17,93 +37,81 @@ export interface TransactionStatusTrackerProps {
 interface StatusConfig {
   label: string;
   description: string;
-  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
-  color: string;
-  icon: React.ReactNode;
+  badge:
+    | "default"
+    | "secondary"
+    | "destructive"
+    | "outline"
+    | "success"
+    | "warning";
+  Icon: typeof Clock;
 }
 
 const statusConfig: Record<EscrowStatus, StatusConfig> = {
   pending: {
     label: "Pending",
-    description: "Transaction is waiting for funding",
-    badgeVariant: "warning",
-    color: "text-yellow-600",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    description: "Transaction is waiting for funding.",
+    badge: "warning",
+    Icon: Clock,
   },
   funded: {
     label: "Funded",
-    description: "Escrow has been funded successfully",
-    badgeVariant: "default",
-    color: "text-blue-600",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ),
+    description: "Escrow has been funded successfully.",
+    badge: "default",
+    Icon: Banknote,
   },
   delivered: {
     label: "Delivered",
-    description: "Goods have been delivered and confirmed",
-    badgeVariant: "success",
-    color: "text-green-600",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    description: "Goods have been delivered and confirmed.",
+    badge: "success",
+    Icon: CheckCircle2,
   },
   refunded: {
     label: "Refunded",
-    description: "Transaction has been refunded",
-    badgeVariant: "destructive",
-    color: "text-red-600",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-      </svg>
-    ),
+    description: "Funds have been returned to the buyer.",
+    badge: "destructive",
+    Icon: Undo2,
   },
 };
+
+const ORDER = ["pending", "funded", "delivered", "refunded"] as const;
+
+function mapOrderStatusToEscrowStatus(orderStatus: string): EscrowStatus {
+  switch (orderStatus.toLowerCase()) {
+    case "created":
+    case "pending":
+      return "pending";
+    case "funded":
+    case "active":
+      return "funded";
+    case "delivered":
+    case "completed":
+      return "delivered";
+    case "refunded":
+    case "cancelled":
+      return "refunded";
+    default:
+      return "pending";
+  }
+}
 
 export function TransactionStatusTracker({
   orderId,
   initialStatus,
   onStatusChange,
   pollInterval = 5000,
-  className = "",
+  className,
 }: TransactionStatusTrackerProps) {
-  const [status, setStatus] = useState<EscrowStatus>(initialStatus || "pending");
+  const [status, setStatus] = useState<EscrowStatus>(
+    initialStatus ?? "pending",
+  );
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  const mapOrderStatusToEscrowStatus = (orderStatus: string): EscrowStatus => {
-    switch (orderStatus.toLowerCase()) {
-      case "created":
-      case "pending":
-        return "pending";
-      case "funded":
-      case "active":
-        return "funded";
-      case "delivered":
-      case "completed":
-        return "delivered";
-      case "refunded":
-      case "cancelled":
-        return "refunded";
-      default:
-        return "pending";
-    }
-  };
-
   const fetchOrderStatus = useCallback(async () => {
     if (!orderId) return;
-
     setIsLoading(true);
     setError(null);
 
@@ -112,180 +120,184 @@ export function TransactionStatusTracker({
       if (!result.success || !result.data) {
         throw new Error(result.error || "Failed to fetch order status");
       }
-
       const orderData = result.data;
       const newStatus = mapOrderStatusToEscrowStatus(orderData.status);
-      
       setOrder(orderData);
       setLastUpdated(new Date());
-
       if (newStatus !== status) {
         setStatus(newStatus);
         onStatusChange?.(newStatus, orderData);
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      setError(errorMessage);
-      console.error("Error fetching order status:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setIsLoading(false);
     }
   }, [orderId, status, onStatusChange]);
 
   useEffect(() => {
-    fetchOrderStatus();
-
-    const interval = setInterval(fetchOrderStatus, pollInterval);
-    return () => clearInterval(interval);
+    void fetchOrderStatus();
+    const id = setInterval(fetchOrderStatus, pollInterval);
+    return () => clearInterval(id);
   }, [fetchOrderStatus, pollInterval]);
 
-  const currentConfig = statusConfig[status];
-
-  const formatTimestamp = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
-  };
-
-  const formatLastUpdated = (date: Date) => {
-    return date.toLocaleTimeString();
-  };
+  const current = statusConfig[status];
+  const currentIdx = ORDER.indexOf(status);
 
   return (
     <Card className={className}>
-      <CardContent className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <Text variant="h4" as="h4">
-            Transaction Status
-          </Text>
-          <Badge variant={currentConfig.badgeVariant} className="flex items-center gap-2">
-            {currentConfig.icon}
-            {currentConfig.label}
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base">Transaction Status</CardTitle>
+          <Badge variant={current.badge} className="gap-1.5">
+            <current.Icon className="size-3.5" />
+            {current.label}
           </Badge>
         </div>
+        <p className="text-muted-foreground text-sm">{current.description}</p>
+      </CardHeader>
 
-        {/* Status Description */}
-        <div className={`${currentConfig.color}`}>
-          <Text variant="body" className="flex items-center gap-2">
-            {currentConfig.icon}
-            {currentConfig.description}
-          </Text>
+      <CardContent className="space-y-5">
+        {/* Status timeline */}
+        <div className="flex items-center gap-1">
+          {ORDER.map((s, i) => {
+            const cfg = statusConfig[s];
+            const isActive = i === currentIdx;
+            const isPast = i < currentIdx;
+            return (
+              <div key={s} className="flex flex-1 items-center gap-1">
+                <div
+                  className={cn(
+                    "grid size-8 shrink-0 place-content-center rounded-full text-xs transition-colors",
+                    isActive && "bg-primary text-primary-foreground",
+                    isPast && "bg-primary/30 text-primary",
+                    !isActive &&
+                      !isPast &&
+                      "bg-muted text-muted-foreground",
+                  )}
+                >
+                  <cfg.Icon className="size-4" />
+                </div>
+                {i < ORDER.length - 1 && (
+                  <div
+                    className={cn(
+                      "h-px flex-1",
+                      isPast || isActive ? "bg-primary/40" : "bg-border",
+                    )}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-muted-foreground grid grid-cols-4 text-center text-[10px]">
+          {ORDER.map((s) => (
+            <span key={s}>{statusConfig[s].label}</span>
+          ))}
         </div>
 
-        {/* Order Details */}
+        {/* Order details */}
         {order && (
-          <div className="bg-muted/50 p-4 rounded-lg space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <Text variant="caption" muted className="block mb-1">
-                  Order ID
-                </Text>
-                <Text variant="bodySmall" className="font-mono">
-                  {order.orderId}
-                </Text>
-              </div>
-              <div>
-                <Text variant="caption" muted className="block mb-1">
-                  Amount
-                </Text>
-                <Text variant="bodySmall" className="font-medium">
-                  {(Number(order.amount) / 10_000_000).toFixed(2)} XLM
-                </Text>
-              </div>
-              <div>
-                <Text variant="caption" muted className="block mb-1">
-                  Buyer
-                </Text>
-                <Text variant="bodySmall" className="font-mono text-xs">
-                  {order.buyer.slice(0, 8)}...{order.buyer.slice(-8)}
-                </Text>
-              </div>
-              <div>
-                <Text variant="caption" muted className="block mb-1">
-                  Seller
-                </Text>
-                <Text variant="bodySmall" className="font-mono text-xs">
-                  {order.seller.slice(0, 8)}...{order.seller.slice(-8)}
-                </Text>
-              </div>
+          <>
+            <Separator />
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <KV label="Order ID" value={order.orderId} mono />
+              <KV
+                label="Amount"
+                value={`${(Number(order.amount) / 10_000_000).toFixed(2)} XLM`}
+                bold
+              />
+              <KV
+                label="Buyer"
+                value={formatTruncatedAddress(order.buyer)}
+                mono
+                copyValue={order.buyer}
+              />
+              <KV
+                label="Seller"
+                value={formatTruncatedAddress(order.seller)}
+                mono
+                copyValue={order.seller}
+              />
+              <KV
+                label="Created"
+                value={new Date(order.createdAt * 1000).toLocaleString()}
+              />
             </div>
-            
-            <div>
-              <Text variant="caption" muted className="block mb-1">
-                Created
-              </Text>
-              <Text variant="bodySmall">
-                {formatTimestamp(order.createdAt)}
-              </Text>
-            </div>
-          </div>
+          </>
         )}
 
-        {/* Status Timeline */}
-        <div className="space-y-2">
-          <Text variant="h3" as="h3">
-            Status Timeline
-          </Text>
-          <div className="flex items-center gap-2">
-            {Object.entries(statusConfig).map(([key, config]) => {
-              const isActive = status === key;
-              const isPast = Object.keys(statusConfig).indexOf(key) < Object.keys(statusConfig).indexOf(status);
-              
-              return (
-                <div key={key} className="flex items-center">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : isPast
-                        ? "bg-muted text-muted-foreground"
-                        : "bg-muted/30 text-muted/50"
-                    }`}
-                  >
-                    {config.icon}
-                  </div>
-                  <div
-                    className={`h-1 w-12 ${
-                      isActive || isPast ? "bg-primary" : "bg-muted/30"
-                    }`}
-                  />
-                </div>
-              );
-            })}
+        {error && (
+          <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-lg border p-3 text-sm">
+            {error}
           </div>
-          <div className="flex justify-between text-xs text-muted-foreground">
-            {Object.values(statusConfig).map((config, index) => (
-              <div key={index} className="text-center">
-                {config.label}
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-2 border-t">
-          <div className="flex items-center gap-2">
-            {isLoading && (
-              <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+        <Separator />
+        <div className="flex items-center justify-between text-xs">
+          <div className="text-muted-foreground flex items-center gap-2">
+            {isLoading ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <span className="bg-primary size-1.5 rounded-full" />
             )}
-            <Text variant="caption" muted>
-              Last updated: {formatLastUpdated(lastUpdated)}
-            </Text>
+            Last updated {lastUpdated.toLocaleTimeString()}
           </div>
-          <Button variant="outline" size="sm" onClick={fetchOrderStatus} disabled={isLoading}>
-            {isLoading ? "Refreshing..." : "Refresh"}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchOrderStatus()}
+            disabled={isLoading}
+          >
+            <RefreshCcw
+              className={cn("size-3.5", isLoading && "animate-spin")}
+            />
+            Refresh
           </Button>
         </div>
-
-        {/* Error Display */}
-        {error && (
-          <div className="bg-error/10 border border-error/20 p-3 rounded-lg">
-            <Text variant="bodySmall">
-              Error: {error}
-            </Text>
-          </div>
-        )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function KV({
+  label,
+  value,
+  mono,
+  bold,
+  copyValue,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  bold?: boolean;
+  copyValue?: string;
+}) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <div className="mt-0.5 flex items-center gap-2">
+        <span
+          className={cn(
+            "truncate text-sm",
+            mono && "font-mono text-xs",
+            bold && "font-semibold",
+          )}
+        >
+          {value}
+        </span>
+        {copyValue && (
+          <CopyButton
+            text={copyValue}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center"
+            iconClassName="!size-3"
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

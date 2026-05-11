@@ -32,7 +32,7 @@ const footerLinks = {
     {
       title: "Contact",
       routes: [
-        { label: "About AgroCylo", path: "/" },
+        { label: "About AgroCylo", path: "/about" },
         { label: "FAQ", path: "/" },
         { label: "Support", path: "/" },
       ],
@@ -123,8 +123,16 @@ export default function Footer() {
             <Link
               href="https://stellar.org/"
               target="_blank"
-              className="font-semibold hover:text-primary"
+              className="hover:text-primary inline-flex items-center gap-1.5 font-semibold"
             >
+              <Image
+                src="/assets/stellar-light.svg"
+                alt="Stellar"
+                width={18}
+                height={18}
+                priority
+                quality={100}
+              />
               Stellar
             </Link>
           </p>

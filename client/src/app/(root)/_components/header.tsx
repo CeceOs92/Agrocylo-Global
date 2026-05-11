@@ -17,6 +17,7 @@ const navItems = [
   { title: "Marketplace", href: "/market" },
   { title: "Map", href: "/map" },
   { title: "Orders", href: "/orders" },
+  { title: "About", href: "/about" },
 ];
 
 export default function Header() {
