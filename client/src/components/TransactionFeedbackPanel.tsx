@@ -1,136 +1,94 @@
 "use client";
 
-import React, { useContext, useCallback, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
+import {
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Loader2,
+  XCircle,
+} from "lucide-react";
+
 import { TransactionFeedbackContext } from "@/context/TransactionFeedbackContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Text } from "@/components/ui/Text";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import type { TransactionState } from "@/types/transaction";
 
 export interface TransactionFeedbackPanelProps {
-  /**
-   * Show as inline card (stacked with other content) vs. modal-like overlay
-   * @default "inline"
-   */
+  /** Inline card (stacked with other content) vs modal dialog. */
   variant?: "inline" | "modal";
-
-  /**
-   * Show the component. If false, nothing is rendered.
-   * @default true
-   */
   isOpen?: boolean;
-
-  /**
-   * Callback when user dismisses the feedback (success/failure states)
-   */
   onClose?: () => void;
-
-  /**
-   * Auto-dismiss success state after N milliseconds. 0 = never auto-dismiss
-   * @default 0
-   */
+  /** Auto-dismiss success state after N milliseconds. 0 = never. */
   autoDismissMs?: number;
-
-  /**
-   * Show explorer link config
-   * @default undefined
-   */
-  explorerConfig?: {
-    baseUrl: string;
-    txPath: string; // e.g., "/tx/%s" where %s is replaced with txHash
-  };
-
-  /**
-   * Custom block explorer URL builder
-   */
   getTxUrl?: (txHash: string) => string;
-
-  /**
-   * Show copy-to-clipboard button for txHash
-   * @default true
-   */
   showCopyButton?: boolean;
-
-  /**
-   * Show explorer link button
-   * @default true
-   */
   showExplorerLink?: boolean;
 }
 
+type Tone = "neutral" | "primary" | "warning" | "success" | "destructive";
+
 interface StateConfig {
   label: string;
-  badge: string;
-  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
-  icon: React.ReactNode;
+  tone: Tone;
+  badge:
+    | "default"
+    | "secondary"
+    | "destructive"
+    | "outline"
+    | "success"
+    | "warning";
   showSpinner: boolean;
 }
 
 const stateConfigs: Record<TransactionState, StateConfig> = {
   idle: {
     label: "Ready",
-    badge: "idle",
-    badgeVariant: "default",
-    icon: null,
+    tone: "neutral",
+    badge: "default",
     showSpinner: false,
   },
   pending: {
-    label: "Processing transaction...",
-    badge: "pending",
-    badgeVariant: "default",
-    icon: <div className="size-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />,
+    label: "Processing transaction…",
+    tone: "primary",
+    badge: "default",
     showSpinner: true,
   },
   confirming: {
-    label: "Awaiting blockchain confirmation...",
-    badge: "confirming",
-    badgeVariant: "warning",
-    icon: <div className="size-10 rounded-full border-4 border-warning/20 border-t-warning animate-spin" />,
+    label: "Awaiting blockchain confirmation…",
+    tone: "warning",
+    badge: "warning",
     showSpinner: true,
   },
   success: {
     label: "Transaction confirmed",
+    tone: "success",
     badge: "success",
-    badgeVariant: "success",
-    icon: (
-      <svg
-        className="size-10 text-success"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M5 13l4 4L19 7"
-        />
-      </svg>
-    ),
     showSpinner: false,
   },
   failure: {
     label: "Transaction failed",
-    badge: "failure",
-    badgeVariant: "destructive",
-    icon: (
-      <svg
-        className="size-10 text-error"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M6 18L18 6M6 6l12 12"
-        />
-      </svg>
-    ),
+    tone: "destructive",
+    badge: "destructive",
     showSpinner: false,
   },
+};
+
+const toneRing: Record<Tone, string> = {
+  neutral: "bg-muted text-muted-foreground",
+  primary: "bg-primary/10 text-primary",
+  warning:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  success:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  destructive: "bg-destructive/10 text-destructive",
 };
 
 export function TransactionFeedbackPanel({
@@ -138,7 +96,6 @@ export function TransactionFeedbackPanel({
   isOpen = true,
   onClose,
   autoDismissMs = 0,
-  explorerConfig,
   getTxUrl,
   showCopyButton = true,
   showExplorerLink = true,
@@ -146,15 +103,13 @@ export function TransactionFeedbackPanel({
   const context = useContext(TransactionFeedbackContext);
   const [copied, setCopied] = useState(false);
 
-  // 1. Safely extract variables from context (avoids errors if context is undefined)
-  const state = context?.feedback?.state || "idle";
+  const state = context?.feedback?.state ?? "idle";
   const txHash = context?.feedback?.txHash;
   const errorMessage = context?.feedback?.errorMessage;
   const message = context?.feedback?.message;
   const reset = context?.reset;
 
-  // 2. Unconditionally call useEffect
-  React.useEffect(() => {
+  useEffect(() => {
     if (state === "success" && autoDismissMs > 0) {
       const timer = setTimeout(() => {
         reset?.();
@@ -164,8 +119,7 @@ export function TransactionFeedbackPanel({
     }
   }, [state, autoDismissMs, reset, onClose]);
 
-  // 3. Unconditionally call useCallbacks
-  const handleCopyTxHash = useCallback(async () => {
+  const handleCopy = useCallback(async () => {
     if (!txHash) return;
     try {
       await navigator.clipboard.writeText(txHash);
@@ -181,102 +135,92 @@ export function TransactionFeedbackPanel({
     onClose?.();
   }, [reset, onClose]);
 
-  // 4. Place your early returns AFTER all hooks have executed
   if (!context) {
-    console.warn("TransactionFeedbackPanel must be used within TransactionFeedbackProvider");
+    console.warn(
+      "TransactionFeedbackPanel must be used within TransactionFeedbackProvider",
+    );
     return null;
   }
 
   const isTerminal = state === "success" || state === "failure";
-  const isVisible = isOpen && state !== "idle";
+  if (!isOpen || state === "idle") return null;
 
-  if (!isVisible) {
-    return null;
-  }
+  const cfg = stateConfigs[state];
+  const explorerUrl = txHash && getTxUrl ? getTxUrl(txHash) : null;
 
-  // The rest of your component rendering logic remains exactly the same
-  const config = stateConfigs[state];
-
-  const blockExplorerUrl = getTxUrl ? getTxUrl(txHash || "") : null;
-
-  const panelContent = (
-    <div className="space-y-6">
-      {/* Icon Section */}
-      <div className="flex justify-center">
-        <div className={`size-16 rounded-full flex items-center justify-center ${
-          state === "pending" || state === "confirming" ? "bg-primary/10" :
-          state === "success" ? "bg-success/10" :
-          state === "failure" ? "bg-error/10" : "bg-neutral/10"
-        }`}>
-          {config.icon}
+  const body = (
+    <div className="space-y-5">
+      <div className="flex flex-col items-center text-center">
+        <div
+          className={cn(
+            "grid size-16 place-content-center rounded-full",
+            toneRing[cfg.tone],
+          )}
+        >
+          {cfg.showSpinner ? (
+            <Loader2 className="size-8 animate-spin" />
+          ) : state === "success" ? (
+            <CheckCircle2 className="size-8" />
+          ) : (
+            <XCircle className="size-8" />
+          )}
         </div>
-      </div>
-
-      {/* Title and Badge */}
-      <div className="text-center space-y-2">
-        <Text variant="h3" as="h3">
-          {config.label}
-        </Text>
-        <Badge variant={config.badgeVariant}>
-          {state.replace(/_/g, " ")}
+        <h3 className="mt-4 text-lg font-semibold">{cfg.label}</h3>
+        <Badge variant={cfg.badge} className="mt-2 capitalize">
+          {state}
         </Badge>
+        {message && message !== cfg.label && (
+          <p className="text-muted-foreground mt-3 max-w-sm text-sm">
+            {message}
+          </p>
+        )}
       </div>
 
-      {/* Status Message */}
-      {message && message !== config.label && (
-        <div className="text-center">
-          <Text variant="body" muted>
-            {message}
-          </Text>
-        </div>
-      )}
-
-      {/* Error Message */}
       {errorMessage && (
-        <div className="bg-error/10 border border-error/20 rounded-lg p-3">
-          <Text variant="bodySmall" className="text-error">
-            {errorMessage}
-          </Text>
+        <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-lg border p-3 text-sm">
+          {errorMessage}
         </div>
       )}
 
-      {/* Transaction Hash Display */}
       {txHash && (
-        <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+        <div className="bg-secondary/50 space-y-3 rounded-lg border p-3">
           <div>
-            <Text variant="caption" muted className="block mb-2">
-              Transaction Hash
-            </Text>
-            <Text
-              variant="bodySmall"
-              className="font-mono text-xs break-all leading-relaxed bg-surface rounded px-2 py-2"
-            >
-              {txHash}
-            </Text>
+            <p className="text-muted-foreground text-xs">Transaction hash</p>
+            <p className="font-mono mt-1 break-all text-xs">{txHash}</p>
           </div>
-
-          {/* Transaction Hash Actions */}
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex gap-2">
             {showCopyButton && (
               <Button
-                size="sm"
                 variant="outline"
-                onClick={handleCopyTxHash}
+                size="sm"
+                onClick={handleCopy}
                 className="flex-1"
               >
-                {copied ? "✓ Copied" : "Copy Hash"}
+                {copied ? (
+                  <>
+                    <CheckCircle2 className="size-3.5" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-3.5" />
+                    Copy Hash
+                  </>
+                )}
               </Button>
             )}
-
-            {showExplorerLink && blockExplorerUrl && (
-              <Button
-                size="sm"
-                variant="outline"
+            {showExplorerLink && explorerUrl && (
+              <a
+                href={explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex-1"
-                onClick={() => window.open(blockExplorerUrl, "_blank")}
               >
-                View Explorer ↗
-              </Button>
+                <Button variant="outline" size="sm" className="w-full">
+                  <ExternalLink className="size-3.5" />
+                  Explorer
+                </Button>
+              </a>
             )}
           </div>
         </div>
@@ -286,61 +230,32 @@ export function TransactionFeedbackPanel({
 
   if (variant === "modal") {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div
-          className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-          onClick={isTerminal ? handleClose : undefined}
-          aria-hidden="true"
-        />
-        <Card
-         
-         
-          className="relative w-full max-w-md"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="tx-feedback-title"
-        >
-          <CardContent className="space-y-6">
-            {panelContent}
-
-            {/* Close Button */}
-            {isTerminal && (
-              <Button
-                onClick={handleClose}
-               
-               
-               
-              >
+      <Dialog
+        open
+        onOpenChange={(next) => {
+          if (!next && isTerminal) handleClose();
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          {body}
+          {isTerminal && (
+            <DialogFooter>
+              <Button onClick={handleClose} className="w-full">
                 Close
               </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
     );
   }
 
-  // Inline variant
   return (
-    <Card
-     
-     
-      className="w-full"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-    >
-      <CardContent className="space-y-6">
-        {panelContent}
-
-        {/* Close Button for inline */}
+    <Card role="status" aria-live="polite" aria-atomic="true">
+      <CardContent className="space-y-5">
+        {body}
         {isTerminal && onClose && (
-          <Button
-            onClick={handleClose}
-            variant="outline"
-           
-           
-          >
+          <Button variant="outline" onClick={handleClose} className="w-full">
             Dismiss
           </Button>
         )}

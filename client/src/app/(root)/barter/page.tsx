@@ -1,7 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
-import { Button, Card, CardContent, Container, Text } from "@/components/ui";
+import { useState } from "react";
+import { Plus, ArrowLeftRight, Wallet } from "lucide-react";
+
+import Wrapper from "@/components/shared/wrapper";
+import { PageHeader } from "@/components/shared/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
 import BarterOfferForm from "@/components/BarterOfferForm";
 import { useWallet } from "@/hooks/useWallet";
 
@@ -16,51 +21,48 @@ export default function BarterPage() {
   }
 
   return (
-    <Container size="lg" className="py-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <Text variant="h2" className="text-2xl font-bold">
-            Barter Trades
-          </Text>
-          <Text variant="body" muted className="mt-1">
-            Propose goods-for-goods trades with other farmers.
-          </Text>
-        </div>
+    <Wrapper className="pt-32 pb-20 md:pt-40">
+      <PageHeader
+        title="Barter Trades"
+        description="Propose goods-for-goods trades with other farmers. The chain settles only the optional collateral; the goods exchange is coordinated off-chain."
+      >
         {connected && (
           <Button onClick={() => setShowForm(true)}>
+            <Plus className="size-4" />
             New Barter Offer
           </Button>
         )}
-      </div>
+      </PageHeader>
 
       {successMessage && (
-        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-          <Text variant="body" className="text-primary-700">
-            {successMessage}
-          </Text>
+        <div className="bg-primary/10 border-primary/30 mt-6 rounded-2xl border p-4 text-sm">
+          {successMessage}
         </div>
       )}
 
-      {!connected && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Text variant="body" muted className="text-lg">
-              Connect your wallet to propose or view barter trades.
-            </Text>
-          </CardContent>
-        </Card>
-      )}
-
-      {connected && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Text variant="body" muted>
-              No active barter offers yet. Click &quot;New Barter Offer&quot; to
-              propose a trade.
-            </Text>
-          </CardContent>
-        </Card>
-      )}
+      <div className="mt-8">
+        {!connected ? (
+          <EmptyState
+            icon={Wallet}
+            title="Connect your wallet"
+            description="Sign in with Freighter to propose or view barter trades."
+          />
+        ) : (
+          // No backend endpoint yet — the form just validates and resolves locally.
+          // When /barter is wired up on the server, replace this with a fetched list.
+          <EmptyState
+            icon={ArrowLeftRight}
+            title="No active barter offers yet"
+            description={'Click "New Barter Offer" to propose a goods-for-goods trade.'}
+            action={
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="size-4" />
+                New Barter Offer
+              </Button>
+            }
+          />
+        )}
+      </div>
 
       {address && (
         <BarterOfferForm
@@ -70,6 +72,6 @@ export default function BarterPage() {
           onSuccess={handleSuccess}
         />
       )}
-    </Container>
+    </Wrapper>
   );
 }

@@ -1,94 +1,94 @@
-import React from "react";
+"use client";
+
+import { ReactNode } from "react";
 import type { Product } from "@/types/product";
 import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
-  Text,
-  Badge,
-} from "@/components/ui";
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 
 interface ProductCardProps {
   product: Product;
-  children?: React.ReactNode; // For action buttons like Edit/Delete
+  /** Action slot — usually Edit/Delete buttons rendered by the dashboard. */
+  children?: ReactNode;
 }
 
 export function ProductCard({ product, children }: ProductCardProps) {
-  const priceDisplay = `${Number(product.price_per_unit).toLocaleString()} ${product.currency}`;
+  const priceDisplay = `${Number(product.price_per_unit).toLocaleString()} ${
+    product.currency
+  }`;
 
   return (
-    <Card
-     
-      className="h-full flex flex-col hover:shadow-md transition-shadow"
-    >
-      <div className="relative aspect-video w-full overflow-hidden rounded-t-lg bg-border/20">
+    <Card className="flex h-full flex-col gap-0 overflow-hidden p-0 transition-shadow hover:shadow-md">
+      <div className="bg-secondary relative aspect-video w-full overflow-hidden">
         {product.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={product.image_url}
             alt={product.name}
             className="h-full w-full object-cover transition-transform hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground bg-secondary/10">
-            <Text variant="body" muted>
-              No Image
-            </Text>
+          <div className="grid h-full w-full place-content-center text-5xl">
+            🌱
           </div>
         )}
+        <Badge
+          variant={product.is_available ? "success" : "outline"}
+          className="bg-background/90 absolute right-2 top-2 backdrop-blur-sm"
+        >
+          {product.is_available ? "Listed" : "Hidden"}
+        </Badge>
       </div>
 
-      <CardHeader className="p-4 pb-0">
-        <div className="flex justify-between items-start gap-2">
-          <div>
-            <CardTitle className="text-lg font-semibold line-clamp-1">
-              {product.name}
-            </CardTitle>
-            <Text variant="body" muted className="text-xs">
-              {product.category || "Uncategorized"}
-            </Text>
-          </div>
-          <Badge variant={product.is_available ? "success" : "outline"}>
-            {product.is_available ? "Listed" : "Unlisted"}
-          </Badge>
+      <CardHeader className="px-4 pt-4">
+        <div className="space-y-1">
+          <h3 className="line-clamp-1 text-base font-semibold">
+            {product.name}
+          </h3>
+          <p className="text-muted-foreground text-xs">
+            {product.category || "Uncategorized"} · {product.location}
+          </p>
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 pt-4 space-y-4 grow">
-        <div className="flex justify-between items-end">
+      <CardContent className="flex grow flex-col gap-3 px-4 pb-4">
+        <div className="flex items-end justify-between">
           <div>
-            <Text variant="body" className="text-xl font-bold text-primary">
-              {priceDisplay}
-            </Text>
-            <Text variant="body" muted className="text-xs">
+            <p className="text-primary text-xl font-bold">{priceDisplay}</p>
+            <p className="text-muted-foreground text-xs">
               per {product.unit}
-            </Text>
+            </p>
           </div>
           <div className="text-right">
-            <Text variant="body" muted className="text-[10px] uppercase">
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wide">
               Stock
-            </Text>
-            <Text variant="body" className="text-sm font-medium">
+            </p>
+            <p className="text-sm font-medium">
               {product.stock_quantity ?? "Unlimited"}
-            </Text>
+            </p>
           </div>
         </div>
 
-        <div className="pt-2 border-t border-border/40">
-          <Text
-            variant="body"
-            muted
-            className="text-[10px] uppercase tracking-wider block"
-          >
-            Farmer Wallet
-          </Text>
-          <Text variant="body" className="text-xs font-mono truncate">
-            {product.farmer_wallet}
-          </Text>
+        <Separator />
+
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide">
+            Farmer
+          </p>
+          <p className="font-mono mt-0.5 text-xs">
+            {formatTruncatedAddress(product.farmer_wallet)}
+          </p>
         </div>
 
-        {/* Slot for Dashboard Actions (Edit/Delete) */}
-        {children && <div className="pt-2">{children}</div>}
+        {children && (
+          <div className="mt-auto pt-2">{children}</div>
+        )}
       </CardContent>
     </Card>
   );
@@ -96,12 +96,13 @@ export function ProductCard({ product, children }: ProductCardProps) {
 
 export function ProductCardSkeleton() {
   return (
-    <Card className="h-full animate-pulse">
-      <div className="aspect-video w-full bg-border/30" />
-      <CardContent className="p-4 space-y-4">
-        <div className="h-5 bg-border/30 rounded w-3/4" />
-        <div className="h-8 bg-border/30 rounded w-1/2" />
-        <div className="h-10 bg-border/20 rounded w-full" />
+    <Card className="flex h-full flex-col gap-0 overflow-hidden p-0">
+      <Skeleton className="aspect-video w-full rounded-none" />
+      <CardContent className="space-y-3 p-4">
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-8 w-1/2" />
+        <Separator />
+        <Skeleton className="h-4 w-full" />
       </CardContent>
     </Card>
   );

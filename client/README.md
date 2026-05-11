@@ -99,7 +99,7 @@ src/
     productService.ts       # /products CRUD
     orderService.ts         # /orders queries
     cartService.ts          # /cart CRUD
-    profileService.ts       # /profile + /location
+    profileService.ts       # /profiles + /locations
     notification/api.ts     # /notifications + showOrderEventToast
     stellar/                # contractService (Soroban escrow), networkConfig
 
@@ -201,9 +201,9 @@ identity; signed-transaction proofs handle the on-chain side).
 | POST | `/cart/items` | Add to cart |
 | PATCH | `/cart/items/:id` | Update qty |
 | DELETE | `/cart/items/:id` | Remove from cart |
-| POST | `/profile` | Onboarding step |
-| POST | `/location` | Onboarding step |
-| GET | `/profile/:addr` | ProfileContext hydration |
+| POST | `/profiles` | Onboarding step |
+| POST | `/locations` | Onboarding step |
+| GET | `/profiles/:addr` | ProfileContext hydration |
 | GET | `/notifications` | NotificationPoller |
 | GET | `/admin/disputes` | Admin disputes page |
 
