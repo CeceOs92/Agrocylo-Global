@@ -61,7 +61,7 @@ export default function Testimonies() {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-2xl bg-card p-6">
-              <div className="text-3xl font-bold text-primary md:text-4xl">
+              <div className="text-2xl font-bold tracking-tight text-primary sm:text-3xl md:text-4xl">
                 3-5s
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -69,7 +69,7 @@ export default function Testimonies() {
               </p>
             </div>
             <div className="rounded-2xl bg-card p-6">
-              <div className="text-3xl font-bold text-primary md:text-4xl">
+              <div className="text-2xl font-bold tracking-tight text-primary sm:text-3xl md:text-4xl">
                 ~$0.00001
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -77,7 +77,7 @@ export default function Testimonies() {
               </p>
             </div>
             <div className="rounded-2xl bg-card p-6">
-              <div className="text-3xl font-bold text-primary md:text-4xl">
+              <div className="text-2xl font-bold tracking-tight text-primary sm:text-3xl md:text-4xl">
                 3%
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -85,7 +85,7 @@ export default function Testimonies() {
               </p>
             </div>
             <div className="rounded-2xl bg-card p-6">
-              <div className="text-3xl font-bold text-primary md:text-4xl">
+              <div className="text-2xl font-bold tracking-tight text-primary sm:text-3xl md:text-4xl">
                 100%
               </div>
               <p className="mt-2 text-sm text-muted-foreground">

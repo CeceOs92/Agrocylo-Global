@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import Blockies from "react-blockies";
+import { useMemo } from "react";
+import { minidenticon } from "minidenticons";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { HiMiniArrowUpRight } from "react-icons/hi2";
@@ -22,6 +23,15 @@ import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { cn } from "@/lib/utils";
 import { useWallet } from "@/hooks/useWallet";
 import { useProfile } from "@/context/ProfileContext";
+
+function Identicon({ seed, className }: { seed: string; className?: string }) {
+  const src = useMemo(() => {
+    const svg = minidenticon(seed, 75, 50);
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }, [seed]);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className={className} />;
+}
 
 /**
  * Network → Stellar Expert URL prefix.
@@ -61,27 +71,20 @@ export default function AccountModal() {
       router.push("/");
     } catch (error) {
       console.error("Disconnect failed:", error);
-      toast.error(
-        error instanceof Error ? error.message : "Disconnect failed",
-      );
+      toast.error(error instanceof Error ? error.message : "Disconnect failed");
     }
   };
 
   const explorerUrl = address ? explorerForNetwork(network, address) : "#";
-  const balanceDisplay = balance
-    ? `${Number(balance).toFixed(4)} XLM`
-    : "—";
+  const balanceDisplay = balance ? `${Number(balance).toFixed(4)} XLM` : "—";
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <div
-          role="button"
-          className="flex cursor-pointer items-center gap-2"
-        >
+        <div role="button" className="flex cursor-pointer items-center gap-2">
           <div className="grid size-10 place-content-center rounded-full border">
             <div className="bg-secondary size-8 overflow-hidden rounded-full">
-              <Blockies
+              <Identicon
                 seed={address ?? ""}
                 className="!size-full rounded-full object-cover"
               />
@@ -105,14 +108,14 @@ export default function AccountModal() {
 
       <DropdownMenuContent
         align={isMobile ? "center" : "end"}
-        className="mr-6 mt-2 sm:mr-0 md:w-[320px]"
+        className="mr-6 mt-2 sm:mr-0 md:w-[380px]"
       >
         {/* Header */}
         <div className="flex items-center justify-between gap-4 px-4 py-2">
           <div className="flex items-center gap-2">
             <div className="grid size-12 place-content-center rounded-full border">
               <div className="bg-secondary size-10 overflow-hidden rounded-full">
-                <Blockies
+                <Identicon
                   seed={address ?? ""}
                   className="!size-full rounded-full object-cover"
                 />
@@ -138,7 +141,11 @@ export default function AccountModal() {
                   iconClassName="!size-4"
                   text={address}
                 />
-                <Link href={explorerUrl} target="_blank" rel="noopener noreferrer">
+                <Link
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <Button
                     size="icon"
                     variant="secondary"
