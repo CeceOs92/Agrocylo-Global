@@ -26,6 +26,9 @@ pub enum EscrowError {
     NotOrderParticipant = 15,
     InvalidSplitRatio = 16,
     ArithmeticError = 17,
+    BuyerCannotEqualFarmer = 18,
+    TokenWhitelistEmpty = 19,
+    FeeRateTooHigh = 20,
 }
 
 #[contracttype]
@@ -172,6 +175,9 @@ impl EscrowContract {
         if supported_tokens.len() < 2 {
             return Err(EscrowError::MustSupportTwoTokens);
         }
+        if supported_tokens.is_empty() {
+            return Err(EscrowError::TokenWhitelistEmpty);
+        }
         storage.set(&DataKey::Admin, &admin);
         storage.set(&DataKey::SupportedTokens, &supported_tokens);
         env.storage()
@@ -188,6 +194,10 @@ impl EscrowContract {
         amount: i128,
     ) -> Result<u64, EscrowError> {
         buyer.require_auth();
+
+        if buyer == farmer {
+            return Err(EscrowError::BuyerCannotEqualFarmer);
+        }
 
         if amount <= 0 {
             return Err(EscrowError::AmountMustBePositive);
@@ -210,8 +220,9 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::FeeCollector)
             .ok_or(EscrowError::ContractNotInitialized)?;
-        let fee = amount * 3 / 100;
-        let net_amount = amount - fee;
+        
+        let fee = amount.checked_mul(3).ok_or(EscrowError::ArithmeticError)? / 100;
+        let net_amount = amount.checked_sub(fee).ok_or(EscrowError::ArithmeticError)?;
 
         token_client.transfer(&buyer, &fee_collector, &fee);
         token_client.transfer(&buyer, &env.current_contract_address(), &net_amount);
@@ -470,7 +481,7 @@ impl EscrowContract {
                     .checked_mul(buyer_share_bps as i128)
                     .ok_or(EscrowError::ArithmeticError)?
                     / 10_000;
-                let release_amount = order.amount - refund_amount;
+                let release_amount = order.amount.checked_sub(refund_amount).ok_or(EscrowError::ArithmeticError)?;
 
                 if refund_amount > 0 {
                     token_client.transfer(

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { MapPin, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { MapPin, Loader2, AlertCircle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+
+type LocationState =
+  | "idle"
+  | "requesting_location"
+  | "reverse_geocoding"
+  | "success"
+  | "error"
+  | "manual_fallback";
 
 interface LocationConsentProps {
   onComplete: (
@@ -33,35 +41,80 @@ export default function LocationConsent({
   onBack,
   isSubmitting,
 }: LocationConsentProps) {
-  const [mode, setMode] = useState<"ask" | "detecting" | "manual">("ask");
+  const [state, setState] = useState<LocationState>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("");
   const [isPublic, setIsPublic] = useState(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  function handleShareLocation() {
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  async function handleShareLocation() {
     if (!navigator.geolocation) {
-      setMode("manual");
+      setErrorMsg("Geolocation is not supported by your browser");
+      setState("error");
       return;
     }
-    setMode("detecting");
+    setState("requesting_location");
+    
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        onComplete({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-          city: "",
-          country: "",
-          isPublic,
-        });
+      async (pos) => {
+        setState("reverse_geocoding");
+        try {
+          abortControllerRef.current = new AbortController();
+          const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), 10000);
+          
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`,
+            { signal: abortControllerRef.current.signal }
+          );
+          
+          clearTimeout(timeoutId);
+          
+          if (!res.ok) {
+            throw new Error(`Fetch failed with status ${res.status}`);
+          }
+          
+          const data = await res.json();
+          const detectedCity = data.address?.city || data.address?.town || data.address?.village || "";
+          const detectedCountry = data.address?.country || "";
+          
+          setState("success");
+          onComplete({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            city: detectedCity,
+            country: detectedCountry,
+            isPublic,
+          });
+        } catch (err: any) {
+          console.error("Reverse geocoding failed", err);
+          if (err.name === 'AbortError') {
+            setErrorMsg("Request timed out");
+          } else {
+            setErrorMsg("Failed to detect city/country automatically");
+          }
+          setState("error");
+        }
       },
-      () => setMode("manual"),
+      (err) => {
+        console.error("Geolocation failed", err);
+        setErrorMsg(err.message || "Permission denied or location unavailable");
+        setState("error");
+      },
       { enableHighAccuracy: true, timeout: 10_000 },
     );
   }
 
   function handleManualSubmit() {
     if (!city.trim() || !country.trim()) return;
-    // Manual entry: backend can geocode 0,0 sentinel later if needed.
     onComplete({
       latitude: 0,
       longitude: 0,
@@ -71,7 +124,7 @@ export default function LocationConsent({
     });
   }
 
-  if (mode === "ask") {
+  if (state === "idle") {
     return (
       <Card className="mx-auto max-w-md">
         <CardHeader className="text-center">
@@ -106,12 +159,12 @@ export default function LocationConsent({
               isLoading={isSubmitting}
               className="w-full"
             >
-              <MapPin className="size-4" />
+              <MapPin className="size-4 mr-2" />
               Allow Location Access
             </Button>
             <Button
               variant="outline"
-              onClick={() => setMode("manual")}
+              onClick={() => setState("manual_fallback")}
               className="w-full"
             >
               Enter Manually Instead
@@ -126,7 +179,7 @@ export default function LocationConsent({
             </Button>
           </div>
 
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={onBack} className="w-full">
             Back
           </Button>
         </CardContent>
@@ -134,15 +187,39 @@ export default function LocationConsent({
     );
   }
 
-  if (mode === "detecting") {
+  if (state === "requesting_location" || state === "reverse_geocoding" || state === "success") {
     return (
       <Card className="mx-auto max-w-md">
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
           <Loader2 className="text-primary size-10 animate-spin" />
-          <p className="font-medium">Detecting your location…</p>
-          <p className="text-muted-foreground text-sm">
-            Please allow location access in your browser.
+          <p className="font-medium">
+            {state === "requesting_location" ? "Detecting your location…" : "Processing location data…"}
           </p>
+          <p className="text-muted-foreground text-sm">
+            {state === "requesting_location" ? "Please allow location access in your browser." : "Just a moment."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (state === "error") {
+    return (
+      <Card className="mx-auto max-w-md">
+        <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+          <AlertCircle className="text-destructive size-10" />
+          <div className="space-y-1">
+            <p className="font-medium text-destructive">Location Error</p>
+            <p className="text-muted-foreground text-sm">{errorMsg}</p>
+          </div>
+          <div className="flex w-full flex-col gap-2 pt-4">
+            <Button onClick={handleShareLocation} className="w-full">
+              Retry location detection
+            </Button>
+            <Button variant="outline" onClick={() => setState("manual_fallback")} className="w-full">
+              Enter your location manually
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -158,18 +235,26 @@ export default function LocationConsent({
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-4">
-          <Input
-            label="City"
-            placeholder="e.g. Lagos"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-          />
-          <Input
-            label="Country"
-            placeholder="e.g. Nigeria"
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="city-input">City</Label>
+            <Input
+              id="city-input"
+              type="text"
+              placeholder="e.g. Lagos"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="country-input">Country</Label>
+            <Input
+              id="country-input"
+              type="text"
+              placeholder="e.g. Nigeria"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+            />
+          </div>
 
           <div className="flex items-center gap-3">
             <Checkbox
@@ -184,7 +269,7 @@ export default function LocationConsent({
         </div>
 
         <div className="flex gap-3">
-          <Button variant="outline" onClick={onBack} className="flex-1">
+          <Button variant="outline" onClick={() => setState("idle")} className="flex-1">
             Back
           </Button>
           <Button
