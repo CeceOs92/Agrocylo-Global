@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { montserratAlternates } from "@/fonts";
 import { siteConfig } from "@/config/site.config";
 import { GlobalProvider } from "@/components/providers/global-provider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -46,7 +47,9 @@ export default function RootLayout({
       <body
         className={`${montserratAlternates.variable} flex min-h-screen flex-col font-sans antialiased`}
       >
-        <GlobalProvider>{children}</GlobalProvider>
+        <ErrorBoundary>
+          <GlobalProvider>{children}</GlobalProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );
