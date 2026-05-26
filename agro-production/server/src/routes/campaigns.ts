@@ -7,9 +7,12 @@ import {
   CreateCampaignSchema,
   InvestSchema,
   ListCampaignsQuerySchema,
+  type CreateCampaignInput,
+  type InvestInput,
+  type ListCampaignsQuery,
 } from "../schemas/campaign.js";
-import type { CampaignStatus } from "@prisma/client";
 import { broadcast } from "../services/wsServer.js";
+import { problemDetail } from "../middleware/errors.js";
 
 const router = Router();
 
@@ -18,12 +21,7 @@ router.get(
   "/campaigns",
   validateQuery(ListCampaignsQuerySchema),
   async (req: Request, res: Response) => {
-    const { status, farmerAddress, page, limit } = req.query as unknown as {
-      status?: CampaignStatus;
-      farmerAddress?: string;
-      page: number;
-      limit: number;
-    };
+    const { status, farmerAddress, page, limit } = req.query as unknown as ListCampaignsQuery;
 
     const where = {
       ...(status ? { status } : {}),
@@ -58,7 +56,7 @@ router.get(
     });
 
     if (!campaign) {
-      res.status(404).json({ error: "Campaign not found" });
+      problemDetail(res, req, 404, "Campaign Not Found", `No campaign with id ${req.params.id}`);
       return;
     }
 
@@ -72,7 +70,8 @@ router.post(
   writeLimiter,
   validateBody(CreateCampaignSchema),
   async (req: Request, res: Response) => {
-    const { farmerAddress, tokenAddress, targetAmount, deadline } = req.body;
+    const { farmerAddress, tokenAddress, targetAmount, deadline } =
+      req.body as CreateCampaignInput;
 
     await prisma.user.upsert({
       where: { walletAddress: farmerAddress },
@@ -110,38 +109,41 @@ router.get(
 );
 
 // GET /investments?investorAddress=... — all investments for a user
-router.get(
-  "/investments",
-  async (req: Request, res: Response) => {
-    const { investorAddress } = req.query;
-    if (!investorAddress || typeof investorAddress !== "string") {
-      res.status(400).json({ error: "investorAddress query param required" });
-      return;
-    }
+router.get("/investments", async (req: Request, res: Response) => {
+  const { investorAddress } = req.query;
+  if (!investorAddress || typeof investorAddress !== "string") {
+    problemDetail(
+      res,
+      req,
+      400,
+      "Missing Query Parameter",
+      "investorAddress query param is required",
+    );
+    return;
+  }
 
-    const investments = await prisma.investment.findMany({
-      where: { investorAddress },
-      orderBy: { createdAt: "desc" },
-      include: {
-        campaign: {
-          select: {
-            id: true,
-            onChainId: true,
-            farmerAddress: true,
-            tokenAddress: true,
-            targetAmount: true,
-            totalRaised: true,
-            totalRevenue: true,
-            status: true,
-            deadline: true,
-          },
+  const investments = await prisma.investment.findMany({
+    where: { investorAddress },
+    orderBy: { createdAt: "desc" },
+    include: {
+      campaign: {
+        select: {
+          id: true,
+          onChainId: true,
+          farmerAddress: true,
+          tokenAddress: true,
+          targetAmount: true,
+          totalRaised: true,
+          totalRevenue: true,
+          status: true,
+          deadline: true,
         },
       },
-    });
+    },
+  });
 
-    res.json(investments);
-  },
-);
+  res.json(investments);
+});
 
 // POST /campaigns/:id/invest — record an investment (indexer shortcut)
 router.post(
@@ -150,15 +152,21 @@ router.post(
   validateParams(CampaignIdParamSchema),
   validateBody(InvestSchema),
   async (req: Request, res: Response) => {
-    const { investorAddress, amount } = req.body;
+    const { investorAddress, amount } = req.body as InvestInput;
 
     const campaign = await prisma.campaign.findUnique({ where: { id: req.params.id } });
     if (!campaign) {
-      res.status(404).json({ error: "Campaign not found" });
+      problemDetail(res, req, 404, "Campaign Not Found", `No campaign with id ${req.params.id}`);
       return;
     }
     if (campaign.status !== "FUNDING") {
-      res.status(409).json({ error: "Campaign is not accepting investments" });
+      problemDetail(
+        res,
+        req,
+        409,
+        "Campaign Not Accepting Investments",
+        `Campaign status is ${campaign.status}`,
+      );
       return;
     }
 
