@@ -14,5 +14,10 @@ export async function createOrder(data: {
   campaignId: string;
   amount: string;
 }): Promise<Order> {
-  return api.post<Order>(`/orders`, data);
+  const sanitized = {
+    buyerAddress: data.buyerAddress.replace(/[<>]/g, "").trim(),
+    campaignId: data.campaignId.replace(/[<>]/g, "").trim(),
+    amount: data.amount.replace(/[^0-9]/g, ""),
+  };
+  return api.post<Order>(`/orders`, sanitized);
 }
