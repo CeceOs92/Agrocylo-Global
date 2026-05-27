@@ -1,16 +1,31 @@
 import { Router, type Request, type Response } from "express";
+import { z } from "zod";
 import { prisma } from "../db/client.js";
-import { validateBody, validateParams, validateQuery } from "../middleware/validate.js";
+import {
+  jsonValidated,
+  validateBody,
+  validateParams,
+  validateQuery,
+  validateResponse,
+} from "../middleware/validate.js";
 import { writeLimiter } from "../middleware/rateLimit.js";
 import {
   CampaignIdParamSchema,
   CreateCampaignSchema,
   InvestSchema,
   ListCampaignsQuerySchema,
+  ListInvestmentsQuerySchema,
   type CreateCampaignInput,
   type InvestInput,
   type ListCampaignsQuery,
+  type ListInvestmentsQuery,
 } from "../schemas/campaign.js";
+import {
+  CampaignDetailSchema,
+  CampaignListResponseSchema,
+  CampaignSchema,
+  InvestmentSchema,
+} from "../schemas/responses.js";
 import { broadcast } from "../services/wsServer.js";
 import { problemDetail } from "../middleware/errors.js";
 
@@ -20,6 +35,7 @@ const router = Router();
 router.get(
   "/campaigns",
   validateQuery(ListCampaignsQuerySchema),
+  validateResponse(CampaignListResponseSchema),
   async (req: Request, res: Response) => {
     const { status, farmerAddress, page, limit } = req.query as unknown as ListCampaignsQuery;
 
@@ -38,7 +54,10 @@ router.get(
       prisma.campaign.count({ where }),
     ]);
 
-    res.json({ data: items, meta: { total, page, limit } });
+    jsonValidated(res, CampaignListResponseSchema, 200, {
+      data: items,
+      meta: { total, page, limit },
+    });
   },
 );
 
@@ -46,6 +65,7 @@ router.get(
 router.get(
   "/campaigns/:id",
   validateParams(CampaignIdParamSchema),
+  validateResponse(CampaignDetailSchema),
   async (req: Request, res: Response) => {
     const campaign = await prisma.campaign.findUnique({
       where: { id: req.params.id },
@@ -60,7 +80,7 @@ router.get(
       return;
     }
 
-    res.json(campaign);
+    jsonValidated(res, CampaignDetailSchema, 200, campaign);
   },
 );
 
@@ -69,6 +89,7 @@ router.post(
   "/campaigns",
   writeLimiter,
   validateBody(CreateCampaignSchema),
+  validateResponse(CampaignSchema),
   async (req: Request, res: Response) => {
     const { farmerAddress, tokenAddress, targetAmount, deadline } =
       req.body as CreateCampaignInput;
@@ -91,7 +112,7 @@ router.post(
 
     broadcast("campaign.created", campaign);
 
-    res.status(201).json(campaign);
+    jsonValidated(res, CampaignSchema, 201, campaign);
   },
 );
 
@@ -99,51 +120,47 @@ router.post(
 router.get(
   "/campaigns/:id/investments",
   validateParams(CampaignIdParamSchema),
+  validateResponse(z.array(InvestmentSchema)),
   async (req: Request, res: Response) => {
     const investments = await prisma.investment.findMany({
       where: { campaignId: req.params.id },
       orderBy: { createdAt: "desc" },
     });
-    res.json(investments);
+    jsonValidated(res, z.array(InvestmentSchema), 200, investments);
   },
 );
 
 // GET /investments?investorAddress=... — all investments for a user
-router.get("/investments", async (req: Request, res: Response) => {
-  const { investorAddress } = req.query;
-  if (!investorAddress || typeof investorAddress !== "string") {
-    problemDetail(
-      res,
-      req,
-      400,
-      "Missing Query Parameter",
-      "investorAddress query param is required",
-    );
-    return;
-  }
+router.get(
+  "/investments",
+  validateQuery(ListInvestmentsQuerySchema),
+  validateResponse(z.array(InvestmentSchema)),
+  async (req: Request, res: Response) => {
+    const { investorAddress } = req.query as unknown as ListInvestmentsQuery;
 
-  const investments = await prisma.investment.findMany({
-    where: { investorAddress },
-    orderBy: { createdAt: "desc" },
-    include: {
-      campaign: {
-        select: {
-          id: true,
-          onChainId: true,
-          farmerAddress: true,
-          tokenAddress: true,
-          targetAmount: true,
-          totalRaised: true,
-          totalRevenue: true,
-          status: true,
-          deadline: true,
+    const investments = await prisma.investment.findMany({
+      where: { investorAddress },
+      orderBy: { createdAt: "desc" },
+      include: {
+        campaign: {
+          select: {
+            id: true,
+            onChainId: true,
+            farmerAddress: true,
+            tokenAddress: true,
+            targetAmount: true,
+            totalRaised: true,
+            totalRevenue: true,
+            status: true,
+            deadline: true,
+          },
         },
       },
-    },
-  });
+    });
 
-  res.json(investments);
-});
+    jsonValidated(res, z.array(InvestmentSchema), 200, investments);
+  },
+);
 
 // POST /campaigns/:id/invest — record an investment (indexer shortcut)
 router.post(
@@ -151,6 +168,7 @@ router.post(
   writeLimiter,
   validateParams(CampaignIdParamSchema),
   validateBody(InvestSchema),
+  validateResponse(InvestmentSchema),
   async (req: Request, res: Response) => {
     const { investorAddress, amount } = req.body as InvestInput;
 
@@ -192,7 +210,7 @@ router.post(
       totalRaised: campaign.totalRaised,
     });
 
-    res.status(201).json(investment);
+    jsonValidated(res, InvestmentSchema, 201, investment);
   },
 );
 
