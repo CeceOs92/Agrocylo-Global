@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useWallet } from "@/context/WalletContext";
 import { fetchOrdersByBuyer, fetchOrdersByFarmer } from "@/services/orderService";
 import { formatAmount } from "@/services/campaignService";
+import { isNetworkError } from "@/lib/apiClient";
 import type { Order, OrderStatus } from "@/types";
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -65,7 +66,7 @@ export default function OrdersPage() {
     const farmerFetch = fetchOrdersByFarmer(address).catch(() => [] as Order[]);
     Promise.all([buyerFetch, farmerFetch])
       .then(([b, f]) => { setBuyerOrders(b); setFarmerOrders(f); })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load orders"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load orders"))
       .finally(() => setLoading(false));
   }, [address]);
 

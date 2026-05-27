@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { fetchProducts, formatPrice } from "@/services/productService";
 import { validateProductFilters, sanitizeString } from "@/lib/validation";
+import { isNetworkError } from "@/lib/apiClient";
 import type { Product, ProductCategory } from "@/types";
 
 const CATEGORIES: { label: string; value: ProductCategory | "" }[] = [
@@ -72,7 +73,7 @@ export default function MarketplacePage() {
       });
       setProducts(res.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
+      setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load products");
       setProducts([]);
     } finally {
       setLoading(false);

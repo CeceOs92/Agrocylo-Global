@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchCampaigns, fundingProgress, formatAmount } from "@/services/campaignService";
+import { isNetworkError } from "@/lib/apiClient";
 import type { Campaign, CampaignStatus } from "@/types";
 
 const STATUS_COLORS: Record<CampaignStatus, string> = {
@@ -76,7 +77,7 @@ export default function CampaignsPage() {
     setLoading(true); setError(null);
     fetchCampaigns({ status: status || undefined, page, limit })
       .then((res) => { if (!cancelled) { setCampaigns(res.data); setTotal(res.meta.total); } })
-      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load campaigns"); })
+      .catch((err: unknown) => { if (!cancelled) setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load campaigns"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [status, page]);

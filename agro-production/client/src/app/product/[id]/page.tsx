@@ -10,6 +10,7 @@ import { useWallet } from "@/context/WalletContext";
 import WalletConnect from "@/components/WalletConnect";
 import { validateQuantity } from "@/lib/validation";
 import { trackProductViewed } from "@/lib/analytics";
+import { isNetworkError } from "@/lib/apiClient";
 import type { Product } from "@/types";
 
 export default function ProductDetailPage() {
@@ -29,7 +30,7 @@ export default function ProductDetailPage() {
         setProduct(p);
         trackProductViewed(id);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load product"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load product"))
       .finally(() => setLoading(false));
   }, [id]);
 

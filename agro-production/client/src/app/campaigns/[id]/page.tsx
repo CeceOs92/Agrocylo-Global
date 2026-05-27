@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCampaign, fundingProgress, formatAmount } from "@/services/campaignService";
 import { trackCampaignViewed } from "@/lib/analytics";
+import { isNetworkError } from "@/lib/apiClient";
 import type { CampaignDetail } from "@/types";
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -29,7 +30,7 @@ export default function CampaignDetailPage() {
         setCampaign(c);
         trackCampaignViewed(id);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load campaign"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load campaign"))
       .finally(() => setLoading(false));
   }, [id]);
 
