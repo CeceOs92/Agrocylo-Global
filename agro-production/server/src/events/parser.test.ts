@@ -160,5 +160,76 @@ describe("ProductionEventParser", () => {
       const event = ProductionEventParser.parse(raw);
       expect(event.timestamp).toBeInstanceOf(Date);
     });
+
+    it("stores rawId from the event id field", () => {
+      const raw = makeRaw("campaign", "settled", [1n, 0n], "777-2", 777);
+      const event = ProductionEventParser.parse(raw);
+      expect(event.rawId).toBe("777-2");
+    });
+
+    it("defaults eventIndex to 0 when id has no hyphen", () => {
+      const raw = makeRaw("campaign", "settled", [1n, 0n], "noindex", 100);
+      const event = ProductionEventParser.parse(raw);
+      expect(event.eventIndex).toBe(0);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("coerces numeric ScVal data to string", () => {
+      const raw = makeRaw("campaign", "created", [999n, "GFARMER", "GTOKEN", 5000n, 8888n]);
+      const event = ProductionEventParser.parse(raw);
+      if (event.action === "campaign.created") {
+        expect(typeof event.campaignId).toBe("string");
+        expect(event.campaignId).toBe("999");
+        expect(event.targetAmount).toBe("5000");
+      }
+    });
+
+    it("handles empty data array for generic events without throwing", () => {
+      const raw = makeRaw("campaign", "produce", [5n]);
+      expect(() => ProductionEventParser.parse(raw)).not.toThrow();
+    });
+
+    it("tryParse returns null for events with malformed value XDR", () => {
+      const raw: RawSorobanEvent = {
+        id: "1-0",
+        type: "contract",
+        ledger: 1,
+        ledgerClosedAt: new Date().toISOString(),
+        contractId: "C",
+        topic: [encodeSymbol("campaign"), encodeSymbol("created")],
+        value: "not-valid-base64-xdr!!!",
+      };
+      // parse throws, tryParse should swallow and return null
+      expect(ProductionEventParser.tryParse(raw)).toBeNull();
+    });
+
+    it("throws for order namespace with unknown verb", () => {
+      const raw = makeRaw("order", "cancelled", []);
+      expect(() => ProductionEventParser.parse(raw)).toThrow(/unknown action/);
+    });
+
+    it("tryParse returns null instead of throwing for order unknown verb", () => {
+      const raw = makeRaw("order", "cancelled", []);
+      expect(ProductionEventParser.tryParse(raw)).toBeNull();
+    });
+
+    it("parses order.created with zero-amount correctly", () => {
+      const raw = makeRaw("order", "created", [1n, "GBUYER", 2n, 0n]);
+      const event = ProductionEventParser.parse(raw);
+      if (event.action === "order.created") {
+        expect(event.amount).toBe("0");
+      }
+    });
+
+    it("parses campaign.invested with large i128 values without precision loss", () => {
+      const large = BigInt("170141183460469231731687303715884105727"); // i128 max
+      const raw = makeRaw("campaign", "invested", [1n, "GINVESTOR", large, large]);
+      const event = ProductionEventParser.parse(raw);
+      if (event.action === "campaign.invested") {
+        expect(event.amount).toBe(large.toString());
+        expect(event.totalRaised).toBe(large.toString());
+      }
+    });
   });
 });

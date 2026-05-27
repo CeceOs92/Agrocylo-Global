@@ -1,4 +1,4 @@
-import express, { type Request, type Response, type NextFunction } from 'express';
+import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import logger from './config/logger.js';
 import { config } from './config/index.js';
@@ -8,6 +8,7 @@ import campaignImageRoutes, {
 } from './routes/campaignImageRoutes.js';
 import campaignRoutes from './routes/campaigns.js';
 import orderRoutes from './routes/orders.js';
+import { globalErrorHandler } from './middleware/errors.js';
 
 const app = express();
 
@@ -38,9 +39,6 @@ app.use((_req: Request, res: Response) => {
 
 app.use(campaignImageErrorHandler);
 
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  logger.error('Unhandled request error', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
+app.use(globalErrorHandler);
 
 export default app;
