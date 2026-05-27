@@ -16,6 +16,18 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
   const modalRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
+  function handleAmountChange(raw: string) {
+    setAmount(raw);
+    if (!raw) {
+      setAmountError(null);
+      return;
+    }
+    const result = validateAmount(raw, 0);
+    setAmountError(result.valid ? null : result.error);
+  }
+
+  const isFormValid = !!amount && !amountError && validateAmount(amount, 0).valid;
+
   const handleInvest = async () => {
     const result = validateAmount(amount, 0);
     if (!result.valid) {
@@ -99,10 +111,10 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
             min="1"
             placeholder="Amount"
             value={amount}
-            onChange={e => { setAmount(e.target.value); setAmountError(null); }}
+            onChange={e => handleAmountChange(e.target.value)}
             aria-invalid={!!amountError}
             aria-describedby={amountError ? "invest-amount-error" : undefined}
-            className="w-full p-2 border border-border rounded mb-1 bg-background text-foreground"
+            className={`w-full p-2 border rounded mb-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 ${amountError ? "border-red-400 focus:ring-red-400" : "border-border"}`}
           />
           {amountError && (
             <p id="invest-amount-error" className="text-xs text-error mb-2" role="alert">{amountError}</p>
@@ -110,8 +122,8 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
         </div>
         <button
           onClick={handleInvest}
-          disabled={loading}
-          aria-label={loading ? "Processing investment" : "Invest"}
+          disabled={loading || !isFormValid}
+          aria-label={loading ? "Processing investment" : !isFormValid ? "Enter a valid amount to invest" : "Invest"}
           className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           {loading && <ButtonSpinner />}
