@@ -1,5 +1,5 @@
 import type { Campaign, Investment } from "@/types";
-import api from "@/lib/apiClient";
+import api from "../lib/apiClient";
 
 export interface InvestmentWithCampaign extends Investment {
   campaign: Pick<

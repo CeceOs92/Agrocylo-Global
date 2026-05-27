@@ -1,5 +1,5 @@
 import type { Product, ProductListResponse, ProductCategory } from "@/types";
-import api from "@/lib/apiClient";
+import api from "../lib/apiClient";
 
 export interface ProductFilters {
   category?: ProductCategory;

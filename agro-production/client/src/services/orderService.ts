@@ -1,5 +1,5 @@
 import type { Order } from "@/types";
-import api from "@/lib/apiClient";
+import api from "../lib/apiClient";
 
 export async function fetchOrdersByBuyer(buyerAddress: string): Promise<Order[]> {
   return api.get<Order[]>(`/orders?buyerAddress=${encodeURIComponent(buyerAddress)}`);

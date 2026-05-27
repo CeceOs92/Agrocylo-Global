@@ -1,5 +1,5 @@
 import type { Campaign, CampaignDetail, CampaignListResponse } from "@/types";
-import api from "@/lib/apiClient";
+import api from "../lib/apiClient";
 
 export async function fetchCampaigns(params?: {
   status?: string;
