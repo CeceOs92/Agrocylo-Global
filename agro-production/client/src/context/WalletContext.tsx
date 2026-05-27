@@ -1,12 +1,18 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import FreighterApi from "@stellar/freighter-api";
+import { getFreighterPublicKey } from "@/lib/walletFreighter";
+import {
+  clearWalletSession,
+  loadWalletSession,
+  saveWalletSession,
+} from "@/lib/walletSession";
 
 interface WalletContextType {
   address: string | null;
   connected: boolean;
   loading: boolean;
+  reconnecting: boolean;
   error: string | null;
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -16,6 +22,7 @@ const defaultCtx: WalletContextType = {
   address: null,
   connected: false,
   loading: false,
+  reconnecting: false,
   error: null,
   connect: async () => {},
   disconnect: () => {},
@@ -27,54 +34,83 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("ap_walletAddress") : null;
-    if (saved) {
-      setAddress(saved);
-      setConnected(true);
-    }
+  const applyConnection = useCallback((pub: string) => {
+    setAddress(pub);
+    setConnected(true);
+    setError(null);
+    saveWalletSession({ address: pub, connectedAt: Date.now() });
   }, []);
+
+  const clearConnection = useCallback(() => {
+    setAddress(null);
+    setConnected(false);
+    setError(null);
+    clearWalletSession();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      const session = loadWalletSession();
+      if (!session) return;
+
+      setReconnecting(true);
+      try {
+        const pub = await getFreighterPublicKey();
+        if (cancelled) return;
+
+        if (!pub) {
+          clearWalletSession();
+          return;
+        }
+
+        if (pub !== session.address) {
+          applyConnection(pub);
+          return;
+        }
+
+        applyConnection(pub);
+      } catch {
+        if (!cancelled) clearWalletSession();
+      } finally {
+        if (!cancelled) setReconnecting(false);
+      }
+    }
+
+    void restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyConnection]);
 
   const connect = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const w = typeof window !== "undefined" ? (window as any) : null;
-      const freighterDirect =
-        (w?.freighter as { getPublicKey?: unknown } | undefined)?.getPublicKey
-          ? (w!.freighter as { getPublicKey: () => Promise<string> })
-          : (w?.freighterApi as { getPublicKey?: unknown } | undefined)?.getPublicKey
-          ? (w!.freighterApi as { getPublicKey: () => Promise<string> })
-          : null;
-
-      const pub = freighterDirect
-        ? await freighterDirect.getPublicKey()
-        : await FreighterApi.getPublicKey();
-
+      const pub = await getFreighterPublicKey();
       if (!pub) throw new Error("Could not get public key from Freighter");
-
-      setAddress(pub);
-      setConnected(true);
-      if (typeof window !== "undefined") localStorage.setItem("ap_walletAddress", pub);
+      applyConnection(pub);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setConnected(false);
+      setAddress(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyConnection]);
 
   const disconnect = useCallback(() => {
-    setAddress(null);
-    setConnected(false);
-    setError(null);
-    if (typeof window !== "undefined") localStorage.removeItem("ap_walletAddress");
-  }, []);
+    clearConnection();
+  }, [clearConnection]);
 
   return (
-    <WalletContext.Provider value={{ address, connected, loading, error, connect, disconnect }}>
+    <WalletContext.Provider
+      value={{ address, connected, loading, reconnecting, error, connect, disconnect }}
+    >
       {children}
     </WalletContext.Provider>
   );

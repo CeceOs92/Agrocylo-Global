@@ -12,7 +12,8 @@ interface WalletConnectProps {
 }
 
 export default function WalletConnect({ className = "" }: WalletConnectProps) {
-  const { address, connected, loading, error, connect, disconnect } = useWallet();
+  const { address, connected, loading, reconnecting, error, connect, disconnect } = useWallet();
+  const busy = loading || reconnecting;
 
   function handleConnect() {
     connect().then(() => {
@@ -50,11 +51,11 @@ export default function WalletConnect({ className = "" }: WalletConnectProps) {
     <div className={`flex flex-col items-start gap-1 ${className}`}>
       <button
         onClick={handleConnect}
-        disabled={loading}
-        aria-label={loading ? "Connecting wallet" : "Connect wallet"}
+        disabled={busy}
+        aria-label={busy ? "Connecting wallet" : "Connect wallet"}
         className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors"
       >
-        {loading ? "Connecting…" : "Connect Wallet"}
+        {reconnecting ? "Reconnecting…" : loading ? "Connecting…" : "Connect Wallet"}
       </button>
       {error && (
         <p className="text-xs text-red-600 max-w-xs" role="alert">{error}</p>
