@@ -27,7 +27,7 @@ export default function ConnectWallet({ onNext }: ConnectWalletProps) {
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Connect Your Wallet</CardTitle>
         <CardDescription>
-          Sign in with Freighter to use AgroCylo. You stay in custody — no
+          Connect your Stellar wallet to use AgroCylo. You stay in custody — no
           seed phrases handed over.
         </CardDescription>
       </CardHeader>
@@ -54,7 +54,7 @@ export default function ConnectWallet({ onNext }: ConnectWalletProps) {
             className="w-full"
           >
             <Wallet className="size-4" />
-            Connect Freighter Wallet
+            Connect Wallet
           </Button>
         )}
       </CardContent>

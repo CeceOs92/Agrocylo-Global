@@ -7,12 +7,14 @@ export interface WalletState {
   loading: boolean;
   error: string | null;
   network: string | null; // Current Stellar network name
+  activeWalletId: string | null; // ID of the currently active wallet adapter
 }
 
 export interface WalletContextType extends WalletState {
-  connect: () => Promise<void>;
+  /** Connect using the specified wallet adapter ID, or the user's saved preference. */
+  connect: (adapterId?: string) => Promise<void>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
-  /** Sign a transaction XDR with Freighter, submit it, and wait for confirmation. */
+  /** Sign a transaction XDR with the active wallet, submit it, and wait for confirmation. */
   signAndSubmit: (transactionXdr: string) => Promise<SignAndSubmitResult>;
 }
