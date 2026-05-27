@@ -1,6 +1,5 @@
 import type { Product, ProductListResponse, ProductCategory } from "@/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+import api from "../lib/apiClient";
 
 export interface ProductFilters {
   category?: ProductCategory;
@@ -22,15 +21,11 @@ export async function fetchProducts(
   if (filters.page) query.set("page", String(filters.page));
   if (filters.limit) query.set("limit", String(filters.limit));
 
-  const res = await fetch(`${API_BASE}/products?${query}`);
-  if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`);
-  return res.json();
+  return api.get<ProductListResponse>(`/products?${query}`);
 }
 
 export async function fetchProduct(id: string): Promise<Product> {
-  const res = await fetch(`${API_BASE}/products/${id}`);
-  if (!res.ok) throw new Error(`Product not found: ${res.status}`);
-  return res.json();
+  return api.get<Product>(`/products/${id}`);
 }
 
 export function formatPrice(raw: string): string {

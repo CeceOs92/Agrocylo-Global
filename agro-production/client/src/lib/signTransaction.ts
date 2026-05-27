@@ -28,7 +28,7 @@ export async function signAndSubmitTransaction(
   try {
     const networkPassphrase = await resolveNetworkPassphrase();
 
-    const w = typeof window !== "undefined" ? (window as unknown as Record<string, unknown>) : null;
+    const w = typeof window !== "undefined" ? (window as any) : null;
     const freighterDirect =
       (w?.freighter as { signTransaction?: unknown } | undefined)?.signTransaction
         ? (w!.freighter as { signTransaction: (xdr: string, opts: { networkPassphrase: string }) => Promise<string> })

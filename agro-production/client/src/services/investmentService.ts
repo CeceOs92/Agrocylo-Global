@@ -1,6 +1,5 @@
 import type { Campaign, Investment } from "@/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+import api from "../lib/apiClient";
 
 export interface InvestmentWithCampaign extends Investment {
   campaign: Pick<
@@ -12,11 +11,7 @@ export interface InvestmentWithCampaign extends Investment {
 export async function fetchUserInvestments(
   investorAddress: string,
 ): Promise<InvestmentWithCampaign[]> {
-  const res = await fetch(
-    `${API_BASE}/investments?investorAddress=${encodeURIComponent(investorAddress)}`,
-  );
-  if (!res.ok) throw new Error(`Failed to fetch investments: ${res.status}`);
-  return res.json();
+  return api.get<InvestmentWithCampaign[]>(`/investments?investorAddress=${encodeURIComponent(investorAddress)}`);
 }
 
 /** Claimable return = proportional share of totalRevenue minus original contribution */

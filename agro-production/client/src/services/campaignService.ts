@@ -1,6 +1,5 @@
 import type { Campaign, CampaignDetail, CampaignListResponse } from "@/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
+import api from "../lib/apiClient";
 
 export async function fetchCampaigns(params?: {
   status?: string;
@@ -14,15 +13,11 @@ export async function fetchCampaigns(params?: {
   if (params?.page) query.set("page", String(params.page));
   if (params?.limit) query.set("limit", String(params.limit));
 
-  const res = await fetch(`${API_BASE}/campaigns?${query}`);
-  if (!res.ok) throw new Error(`Failed to fetch campaigns: ${res.status}`);
-  return res.json();
+  return api.get<CampaignListResponse>(`/campaigns?${query}`);
 }
 
 export async function fetchCampaign(id: string): Promise<CampaignDetail> {
-  const res = await fetch(`${API_BASE}/campaigns/${id}`);
-  if (!res.ok) throw new Error(`Campaign not found: ${res.status}`);
-  return res.json();
+  return api.get<CampaignDetail>(`/campaigns/${id}`);
 }
 
 export function fundingProgress(campaign: Pick<Campaign, "totalRaised" | "targetAmount">): number {

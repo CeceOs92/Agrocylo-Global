@@ -41,7 +41,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const w = typeof window !== "undefined" ? (window as Record<string, unknown>) : null;
+      const w = typeof window !== "undefined" ? (window as any) : null;
       const freighterDirect =
         (w?.freighter as { getPublicKey?: unknown } | undefined)?.getPublicKey
           ? (w!.freighter as { getPublicKey: () => Promise<string> })

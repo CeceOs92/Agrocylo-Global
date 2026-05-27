@@ -263,7 +263,7 @@ export default function CheckoutPage() {
           )}
 
           {/* Submit button */}
-          {(txStatus === "idle" || txStatus === "error") && txStatus !== "success" && (
+          {(txStatus === "idle" || txStatus === "error") && (
             <button
               onClick={handleCheckout}
               disabled={!canSubmit}
