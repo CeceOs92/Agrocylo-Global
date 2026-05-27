@@ -94,9 +94,9 @@ export default function LocationConsent({
             country: detectedCountry,
             isPublic,
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error("Reverse geocoding failed", err);
-          if (err.name === 'AbortError') {
+          if (err instanceof Error && err.name === 'AbortError') {
             setErrorMsg("Request timed out");
           } else {
             setErrorMsg("Failed to detect city/country automatically");
