@@ -54,7 +54,9 @@ export default function ProductDetailPage() {
   async function handleOrder() {
     if (!address || !product) return;
     const campaignId = product.campaignId ?? "0";
-    await tx.execute(() => buildCreateOrder(address!, campaignId, totalPrice));
+    const result = await buildCreateOrder(address, campaignId, totalPrice);
+    if (!result.success) throw new Error(result.error ?? "Failed to build transaction");
+    await tx.execute(async () => result.data!);
   }
 
   return (
