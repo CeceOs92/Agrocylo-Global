@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCampaign, fundingProgress, formatAmount } from "@/services/campaignService";
 import { trackCampaignViewed } from "@/lib/analytics";
+import { isNetworkError } from "@/lib/apiClient";
+import { CampaignDetailSkeleton } from "@/components/Skeletons";
 import type { CampaignDetail } from "@/types";
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -29,19 +31,11 @@ export default function CampaignDetailPage() {
         setCampaign(c);
         trackCampaignViewed(id);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load campaign"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load campaign"))
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) {
-    return (
-      <div className="space-y-4 animate-pulse" aria-label="Loading campaign">
-        <div className="h-8 w-48 bg-neutral-200 rounded" />
-        <div className="h-32 bg-neutral-200 rounded-xl" />
-        <div className="grid grid-cols-2 gap-4">{[1, 2, 3, 4].map((i) => (<div key={i} className="h-20 bg-neutral-200 rounded-xl" aria-hidden="true" />))}</div>
-      </div>
-    );
-  }
+  if (loading) return <CampaignDetailSkeleton />;
 
   if (error) return (<div className="border border-red-200 bg-red-50 rounded-xl p-6 text-red-700 text-sm" role="alert">{error}</div>);
   if (!campaign) return null;

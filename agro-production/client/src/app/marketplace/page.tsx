@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { fetchProducts, formatPrice } from "@/services/productService";
 import { validateProductFilters, sanitizeString } from "@/lib/validation";
+import { isNetworkError } from "@/lib/apiClient";
+import { ProductCardSkeleton } from "@/components/Skeletons";
 import type { Product, ProductCategory } from "@/types";
 
 const CATEGORIES: { label: string; value: ProductCategory | "" }[] = [
@@ -72,7 +74,7 @@ export default function MarketplacePage() {
       });
       setProducts(res.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
+      setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load products");
       setProducts([]);
     } finally {
       setLoading(false);
@@ -115,16 +117,9 @@ export default function MarketplacePage() {
         )}
       </section>
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading products">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading products" aria-busy="true">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-surface border border-border rounded-xl overflow-hidden animate-pulse" aria-hidden="true">
-              <div className="h-36 bg-neutral-200" />
-              <div className="p-4 space-y-2">
-                <div className="h-4 bg-neutral-200 rounded w-3/4" />
-                <div className="h-3 bg-neutral-200 rounded w-full" />
-                <div className="h-3 bg-neutral-200 rounded w-1/2" />
-              </div>
-            </div>
+            <ProductCardSkeleton key={i} />
           ))}
         </div>
       ) : error ? (

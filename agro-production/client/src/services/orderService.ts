@@ -19,5 +19,6 @@ export async function createOrder(data: {
     campaignId: data.campaignId.replace(/[<>]/g, "").trim(),
     amount: data.amount.replace(/[^0-9]/g, ""),
   };
-  return api.post<Order>(`/orders`, sanitized);
+  // retries: 0 prevents double-submission on a non-idempotent POST
+  return api.post<Order>(`/orders`, sanitized, { retries: 0 });
 }

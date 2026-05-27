@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchCampaigns, fundingProgress, formatAmount } from "@/services/campaignService";
+import { isNetworkError } from "@/lib/apiClient";
+import { CampaignCardSkeleton } from "@/components/Skeletons";
 import type { Campaign, CampaignStatus } from "@/types";
 
 const STATUS_COLORS: Record<CampaignStatus, string> = {
@@ -76,7 +78,7 @@ export default function CampaignsPage() {
     setLoading(true); setError(null);
     fetchCampaigns({ status: status || undefined, page, limit })
       .then((res) => { if (!cancelled) { setCampaigns(res.data); setTotal(res.meta.total); } })
-      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load campaigns"); })
+      .catch((err: unknown) => { if (!cancelled) setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load campaigns"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [status, page]);
@@ -94,7 +96,7 @@ export default function CampaignsPage() {
           <button key={f.value} onClick={() => { setStatus(f.value); setPage(1); }} aria-pressed={status === f.value} className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${status === f.value ? "bg-primary-600 text-white border-primary-600" : "border-border text-muted hover:border-primary-400 hover:text-primary-600"}`}>{f.label}</button>
         ))}
       </nav>
-      {loading && (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading campaigns">{Array.from({ length: 6 }).map((_, i) => (<div key={i} className="border border-border rounded-xl p-5 bg-surface animate-pulse h-36" aria-hidden="true" />))}</div>)}
+      {loading && (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading campaigns" aria-busy="true">{Array.from({ length: 6 }).map((_, i) => (<CampaignCardSkeleton key={i} />))}</div>)}
       {!loading && error && (<div className="border border-red-200 bg-red-50 rounded-xl p-6 text-red-700 text-sm" role="alert">{error}</div>)}
       {!loading && !error && campaigns.length === 0 && (<div className="border border-border rounded-xl p-10 text-center text-muted">No campaigns found.</div>)}
       {!loading && !error && campaigns.length > 0 && (

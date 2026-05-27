@@ -10,14 +10,11 @@ import { buildCreateOrder } from "@/lib/contractService";
 import { signAndSubmitTransaction } from "@/lib/signTransaction";
 import { validateAmount, validateStellarAddress, sanitizeString } from "@/lib/validation";
 import { trackOrderPlaced } from "@/lib/analytics";
+import { ButtonSpinner } from "@/components/Skeletons";
+import TransactionProgress from "@/components/TransactionProgress";
+import { idleMachine, advanceMachine } from "@/types/transaction";
+import type { TxMachineState } from "@/types/transaction";
 import type { CampaignDetail, Order } from "@/types";
-
-type TxStatus = "idle" | "creating" | "awaiting_signature" | "submitting" | "success" | "error";
-
-interface StepState {
-  offChain: "idle" | "loading" | "done" | "error";
-  onChain: "idle" | "loading" | "done" | "error";
-}
 
 export default function CheckoutPage() {
   const { campaignId } = useParams<{ campaignId: string }>();
@@ -27,10 +24,7 @@ export default function CheckoutPage() {
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const [amountXlm, setAmountXlm] = useState("");
   const [amountError, setAmountError] = useState<string | null>(null);
-  const [txStatus, setTxStatus] = useState<TxStatus>("idle");
-  const [stepState, setStepState] = useState<StepState>({ offChain: "idle", onChain: "idle" });
-  const [txError, setTxError] = useState<string | null>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const [tx, setTx] = useState<TxMachineState>(idleMachine());
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
 
   useEffect(() => {
@@ -42,17 +36,15 @@ export default function CheckoutPage() {
   }, [campaignId]);
 
   const amountStroops = amountXlm ? BigInt(Math.floor(parseFloat(amountXlm) * 1e7)) : 0n;
-  const canSubmit = connected && campaign && amountXlm && parseFloat(amountXlm) > 0 && txStatus === "idle" && !amountError;
+  const isIdle = tx.phase === "idle" || tx.phase === "failed";
+  const isInFlight = tx.phase === "recording" || tx.phase === "signing" || tx.phase === "submitting" || tx.phase === "confirming";
+  const canSubmit = connected && campaign && amountXlm && parseFloat(amountXlm) > 0 && isIdle && !amountError;
 
   function handleAmountChange(value: string) {
     setAmountXlm(value);
     if (value) {
       const result = validateAmount(value, 0);
-      if (result.valid) {
-        setAmountError(null);
-      } else {
-        setAmountError(result.error);
-      }
+      setAmountError(result.valid ? null : result.error);
     } else {
       setAmountError(null);
     }
@@ -63,14 +55,14 @@ export default function CheckoutPage() {
 
     const addrResult = validateStellarAddress(address);
     if (!addrResult.valid) {
-      setTxError(addrResult.error);
-      setTxStatus("error");
+      setTx(advanceMachine(idleMachine(), "recording"));
+      setTx(advanceMachine(advanceMachine(idleMachine(), "recording"), "failed", { error: addrResult.error }));
       return;
     }
 
-    setTxStatus("creating");
-    setTxError(null);
-    setStepState({ offChain: "loading", onChain: "idle" });
+    // Step 1 — record off-chain
+    let current = advanceMachine(idleMachine(), "recording");
+    setTx(current);
 
     let order: Order;
     try {
@@ -80,44 +72,46 @@ export default function CheckoutPage() {
         amount: String(amountStroops),
       });
       setCreatedOrder(order);
-      setStepState((s) => ({ ...s, offChain: "done" }));
     } catch (err) {
-      setTxError(err instanceof Error ? err.message : "Failed to record order");
-      setStepState((s) => ({ ...s, offChain: "error" }));
-      setTxStatus("error");
+      setTx(advanceMachine(current, "failed", { error: err instanceof Error ? err.message : "Failed to record order" }));
       return;
     }
 
-    setTxStatus("awaiting_signature");
-    setStepState((s) => ({ ...s, onChain: "loading" }));
+    // Step 2 — sign
+    current = advanceMachine(current, "signing");
+    setTx(current);
+
     const builtResult = await buildCreateOrder(addrResult.sanitized, campaign.onChainId, amountStroops);
     if (!builtResult.success || !builtResult.data) {
       const msg = builtResult.error ?? "Failed to build contract transaction";
+      // Contract not configured — treat off-chain-only order as success
       if (msg.includes("NEXT_PUBLIC_PRODUCTION_CONTRACT_ID")) {
-        setTxHash(null);
-        setStepState((s) => ({ ...s, onChain: "done" }));
-        setTxStatus("success");
+        current = advanceMachine(current, "submitting");
+        current = advanceMachine(current, "success");
+        setTx(current);
         trackOrderPlaced(campaign.id, String(amountStroops));
         return;
       }
-      setTxError(msg);
-      setStepState((s) => ({ ...s, onChain: "error" }));
-      setTxStatus("error");
+      setTx(advanceMachine(current, "failed", { error: msg }));
       return;
     }
 
-    setTxStatus("submitting");
+    // Step 3 — submit
+    current = advanceMachine(current, "submitting");
+    setTx(current);
+
     const result = await signAndSubmitTransaction(builtResult.data);
-    if (result.success) {
-      setTxHash(result.txHash ?? null);
-      setStepState((s) => ({ ...s, onChain: "done" }));
-      setTxStatus("success");
-      trackOrderPlaced(campaign.id, String(amountStroops));
-    } else {
-      setTxError(result.error ?? "Transaction failed");
-      setStepState((s) => ({ ...s, onChain: "error" }));
-      setTxStatus("error");
+    if (!result.success) {
+      setTx(advanceMachine(current, "failed", { error: result.error ?? "Transaction failed" }));
+      return;
     }
+
+    // Step 4 — confirm (immediate for Stellar test network)
+    current = advanceMachine(current, "confirming");
+    setTx(current);
+    current = advanceMachine(current, "success", { txHash: result.txHash });
+    setTx(current);
+    trackOrderPlaced(campaign.id, String(amountStroops));
   }
 
   if (campaignLoading) return <div className="animate-pulse h-64 bg-neutral-200 rounded-xl" aria-label="Loading checkout" />;
@@ -130,7 +124,9 @@ export default function CheckoutPage() {
       <nav aria-label="Breadcrumb">
         <Link href={`/campaigns/${campaign.id}`} className="text-sm text-muted hover:text-foreground">← Back to Campaign</Link>
       </nav>
+
       <h1 className="text-2xl font-bold text-foreground">Place Order</h1>
+
       <section aria-label="Campaign summary" className="border border-border rounded-xl p-5 bg-surface space-y-2 text-sm">
         <p className="font-semibold text-foreground mb-3">Campaign Summary</p>
         <div className="flex justify-between"><span className="text-muted">Status</span><span className="font-medium text-foreground">{campaign.status.replace("_", " ")}</span></div>
@@ -138,17 +134,37 @@ export default function CheckoutPage() {
         <div className="flex justify-between"><span className="text-muted">Goal</span><span className="font-medium text-foreground">{formatAmount(campaign.targetAmount)} XLM</span></div>
         <div className="flex justify-between"><span className="text-muted">Raised</span><span className="font-medium text-foreground">{formatAmount(campaign.totalRaised)} XLM</span></div>
       </section>
-      {!canOrder && (<div className="border border-yellow-200 bg-yellow-50 rounded-xl p-4 text-yellow-800 text-sm" role="alert">This campaign is not currently accepting orders (status: {campaign.status}).</div>)}
+
+      {!canOrder && (
+        <div className="border border-yellow-200 bg-yellow-50 rounded-xl p-4 text-yellow-800 text-sm" role="alert">
+          This campaign is not currently accepting orders (status: {campaign.status}).
+        </div>
+      )}
+
       {canOrder && (
         <>
           {!connected ? (
             <div className="border border-border rounded-xl p-5 text-center space-y-3">
               <p className="text-sm text-muted">Connect your wallet to place an order.</p>
-              <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to place order"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50">{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
+              <button
+                onClick={connect}
+                disabled={walletLoading}
+                aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to place order"}
+                className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2"
+              >
+                {walletLoading && <ButtonSpinner />}
+                {walletLoading ? "Connecting…" : "Connect Wallet"}
+              </button>
             </div>
-          ) : (<div className="text-xs text-muted">Ordering as: <span className="font-mono text-foreground">{address}</span></div>)}
+          ) : (
+            <div className="text-xs text-muted">Ordering as: <span className="font-mono text-foreground">{address}</span></div>
+          )}
+
+          {/* Amount input — disabled during transaction */}
           <div>
-            <label htmlFor="order-amount" className="block text-sm font-medium text-foreground mb-1">Order Amount (XLM)</label>
+            <label htmlFor="order-amount" className="block text-sm font-medium text-foreground mb-1">
+              Order Amount (XLM)
+            </label>
             <input
               id="order-amount"
               type="number"
@@ -157,39 +173,56 @@ export default function CheckoutPage() {
               value={amountXlm}
               onChange={(e) => handleAmountChange(e.target.value)}
               placeholder="e.g. 100"
-              disabled={txStatus !== "idle"}
+              disabled={isInFlight || tx.phase === "success"}
               aria-invalid={!!amountError}
               aria-describedby={amountError ? "order-amount-error" : undefined}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
             />
-            {amountError && <p id="order-amount-error" className="text-xs text-error mt-1" role="alert">{amountError}</p>}
-            {amountXlm && parseFloat(amountXlm) > 0 && !amountError && (<p className="text-xs text-muted mt-1">= {amountStroops.toLocaleString()} stroops</p>)}
+            {amountError && (
+              <p id="order-amount-error" className="text-xs text-error mt-1" role="alert">{amountError}</p>
+            )}
+            {amountXlm && parseFloat(amountXlm) > 0 && !amountError && (
+              <p className="text-xs text-muted mt-1">= {amountStroops.toLocaleString()} stroops</p>
+            )}
           </div>
-          {txStatus !== "idle" && (
-            <div className="border border-border rounded-xl p-4 space-y-3" aria-live="polite">
-              <p className="text-sm font-semibold text-foreground">Transaction Progress</p>
-              <Step label="Record order (off-chain)" state={stepState.offChain} />
-              <Step label="Submit to Stellar (on-chain)" state={stepState.onChain} extra={txHash ? (<span className="font-mono text-xs break-all text-muted">{txHash.slice(0, 16)}…{txHash.slice(-8)}</span>) : undefined} />
-            </div>
+
+          {/* 4-step transaction progress — shown once any step begins */}
+          {tx.phase !== "idle" && (
+            <TransactionProgress steps={tx.steps} txHash={tx.txHash} />
           )}
-          {txStatus === "success" && (
+
+          {/* Success banner */}
+          {tx.phase === "success" && (
             <div className="border border-primary-200 bg-primary-50 rounded-xl p-5 space-y-2" role="status">
               <p className="font-semibold text-primary-800">✓ Order Created Successfully</p>
               {createdOrder && <p className="text-sm text-primary-700">Order ID: {createdOrder.id}</p>}
-              {txHash && <p className="text-xs text-primary-700">On-chain TX: <span className="font-mono">{txHash}</span></p>}
-              <Link href="/orders" className="inline-block mt-2 text-sm text-primary-600 underline hover:text-primary-800">View in Order Dashboard →</Link>
+              {tx.txHash && (
+                <p className="text-xs text-primary-700">On-chain TX: <span className="font-mono">{tx.txHash}</span></p>
+              )}
+              <Link href="/orders" className="inline-block mt-2 text-sm text-primary-600 underline hover:text-primary-800">
+                View in Order Dashboard →
+              </Link>
             </div>
           )}
-          {txStatus === "error" && txError && (
+
+          {/* Error banner */}
+          {tx.phase === "failed" && tx.error && (
             <div className="border border-red-200 bg-red-50 rounded-xl p-4 text-red-700 text-sm" role="alert">
               <p className="font-semibold mb-1">Error</p>
-              <p>{txError}</p>
-              <button onClick={() => { setTxStatus("idle"); setTxError(null); setStepState({ offChain: "idle", onChain: "idle" }); }} className="mt-2 text-xs underline text-red-600 hover:text-red-800">Try again</button>
+              <p>{tx.error}</p>
+              <button
+                onClick={() => setTx(idleMachine())}
+                className="mt-2 text-xs underline text-red-600 hover:text-red-800"
+              >
+                Try again
+              </button>
             </div>
           )}
-          {(txStatus === "idle" || txStatus === "error") && txStatus !== "success" && (
+
+          {/* Submit button — visible only when idle or failed */}
+          {isIdle && tx.phase !== "success" && (
             <button
-              onClick={handleCheckout}
+              onClick={() => void handleCheckout()}
               disabled={!canSubmit}
               aria-label={amountError ? `Cannot place order: ${amountError}` : "Place escrow order"}
               className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold text-sm hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -197,29 +230,19 @@ export default function CheckoutPage() {
               Place Escrow Order
             </button>
           )}
-          {(txStatus === "creating" || txStatus === "awaiting_signature" || txStatus === "submitting") && (
-            <div className="w-full bg-primary-100 text-primary-700 py-3 rounded-xl font-semibold text-sm text-center">
-              {txStatus === "creating" && "Recording order…"}
-              {txStatus === "awaiting_signature" && "Waiting for wallet signature…"}
-              {txStatus === "submitting" && "Submitting to Stellar…"}
+
+          {/* In-flight status label */}
+          {isInFlight && (
+            <div className="w-full bg-primary-100 text-primary-700 py-3 rounded-xl font-semibold text-sm text-center inline-flex items-center justify-center gap-2">
+              <ButtonSpinner className="text-primary-600" />
+              {tx.phase === "recording" && "Recording order…"}
+              {tx.phase === "signing" && "Waiting for wallet signature…"}
+              {tx.phase === "submitting" && "Submitting to Stellar…"}
+              {tx.phase === "confirming" && "Confirming on ledger…"}
             </div>
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function Step({ label, state, extra }: { label: string; state: "idle" | "loading" | "done" | "error"; extra?: React.ReactNode }) {
-  const icon = state === "done" ? "✓" : state === "error" ? "✗" : state === "loading" ? "⟳" : "○";
-  const color = state === "done" ? "text-primary-600" : state === "error" ? "text-error" : state === "loading" ? "text-yellow-600 animate-spin inline-block" : "text-muted";
-  return (
-    <div className="flex items-start gap-3 text-sm">
-      <span className={`font-bold mt-0.5 ${color}`} aria-hidden="true">{icon}</span>
-      <div>
-        <span className={state === "idle" ? "text-muted" : "text-foreground"}>{label}</span>
-        {extra && <div className="mt-0.5">{extra}</div>}
-      </div>
     </div>
   );
 }

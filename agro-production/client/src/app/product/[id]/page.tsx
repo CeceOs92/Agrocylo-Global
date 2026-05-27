@@ -10,6 +10,8 @@ import { useWallet } from "@/context/WalletContext";
 import WalletConnect from "@/components/WalletConnect";
 import { validateQuantity } from "@/lib/validation";
 import { trackProductViewed } from "@/lib/analytics";
+import { isNetworkError } from "@/lib/apiClient";
+import { ButtonSpinner } from "@/components/Skeletons";
 import type { Product } from "@/types";
 
 export default function ProductDetailPage() {
@@ -29,7 +31,7 @@ export default function ProductDetailPage() {
         setProduct(p);
         trackProductViewed(id);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load product"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load product"))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -116,8 +118,9 @@ export default function ProductDetailPage() {
                 onClick={() => void handleOrder()}
                 disabled={tx.isPending || tx.isSuccess || !!quantityError}
                 aria-label={`Place order for ${quantity} ${product.unit}(s) of ${product.name}`}
-                className="w-full bg-primary-600 text-white py-2.5 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors text-sm"
+                className="w-full bg-primary-600 text-white py-2.5 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors text-sm inline-flex items-center justify-center gap-2"
               >
+                {tx.isPending && <ButtonSpinner />}
                 {tx.isPending ? "Processing…" : tx.isSuccess ? "Order Placed" : "Place Order"}
               </button>
               {tx.isError && (<button onClick={tx.reset} className="w-full text-sm text-muted hover:text-foreground">Try again</button>)}

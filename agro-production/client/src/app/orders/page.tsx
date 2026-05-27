@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useWallet } from "@/context/WalletContext";
 import { fetchOrdersByBuyer, fetchOrdersByFarmer } from "@/services/orderService";
 import { formatAmount } from "@/services/campaignService";
+import { isNetworkError } from "@/lib/apiClient";
+import { OrderTableSkeleton, ButtonSpinner } from "@/components/Skeletons";
 import type { Order, OrderStatus } from "@/types";
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -65,7 +67,7 @@ export default function OrdersPage() {
     const farmerFetch = fetchOrdersByFarmer(address).catch(() => [] as Order[]);
     Promise.all([buyerFetch, farmerFetch])
       .then(([b, f]) => { setBuyerOrders(b); setFarmerOrders(f); })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load orders"))
+      .catch((err: unknown) => setError(isNetworkError(err) ? "Network error — check your connection and try again" : err instanceof Error ? err.message : "Failed to load orders"))
       .finally(() => setLoading(false));
   }, [address]);
 
@@ -74,7 +76,7 @@ export default function OrdersPage() {
       <div className="border border-border rounded-xl p-10 text-center space-y-4">
         <p className="text-lg font-semibold text-foreground">Connect Your Wallet</p>
         <p className="text-sm text-muted">Connect to view your orders and campaign activity.</p>
-        <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to view orders"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50">{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
+        <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to view orders"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2">{walletLoading && <ButtonSpinner />}{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
       </div>
     );
   }
@@ -99,9 +101,7 @@ export default function OrdersPage() {
           <div className="border border-yellow-200 rounded-lg px-3 py-2 bg-yellow-50"><span className="text-muted">Pending: </span><span className="font-semibold text-yellow-700">{(tab === "buyer" ? buyerOrders : farmerOrders).filter((o) => o.status === "PENDING").length}</span></div>
         </div>
       )}
-      {loading && (
-        <div className="space-y-2 animate-pulse" aria-label="Loading orders">{[1, 2, 3].map((i) => (<div key={i} className="h-12 bg-neutral-200 rounded-lg" aria-hidden="true" />))}</div>
-      )}
+      {loading && <OrderTableSkeleton rows={3} />}
       {!loading && error && (<div className="border border-red-200 bg-red-50 rounded-xl p-4 text-red-700 text-sm" role="alert">{error}</div>)}
       {!loading && !error && tab === "buyer" && (<OrderTable orders={buyerOrders} emptyText="No orders found. Browse campaigns to place your first order." label="Buyer orders" />)}
       {!loading && !error && tab === "farmer" && (<OrderTable orders={farmerOrders} emptyText="No orders on your campaigns yet." label="Farmer orders" />)}

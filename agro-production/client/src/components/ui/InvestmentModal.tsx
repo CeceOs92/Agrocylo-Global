@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useInvest } from '@/hooks/useInvest';
 import { validateAmount } from '@/lib/validation';
+import { ButtonSpinner } from '@/components/Skeletons';
 
 interface InvestmentModalProps {
   open: boolean;
@@ -14,6 +15,18 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
   const { invest, loading, error, success } = useInvest();
   const modalRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+
+  function handleAmountChange(raw: string) {
+    setAmount(raw);
+    if (!raw) {
+      setAmountError(null);
+      return;
+    }
+    const result = validateAmount(raw, 0);
+    setAmountError(result.valid ? null : result.error);
+  }
+
+  const isFormValid = !!amount && !amountError && validateAmount(amount, 0).valid;
 
   const handleInvest = async () => {
     const result = validateAmount(amount, 0);
@@ -84,8 +97,8 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
       aria-label="Invest in product"
       onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
     >
-      <div ref={modalRef} className="bg-[var(--color-background)] text-[var(--color-foreground)] p-6 rounded-lg shadow-xl max-w-sm w-full">
-        <h2 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-primary-600)' }}>
+      <div ref={modalRef} className="bg-background text-foreground p-6 rounded-lg shadow-xl max-w-sm w-full">
+        <h2 className="text-xl font-semibold mb-4 text-primary-600">
           Invest in product
         </h2>
         <div>
@@ -98,10 +111,10 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
             min="1"
             placeholder="Amount"
             value={amount}
-            onChange={e => { setAmount(e.target.value); setAmountError(null); }}
+            onChange={e => handleAmountChange(e.target.value)}
             aria-invalid={!!amountError}
             aria-describedby={amountError ? "invest-amount-error" : undefined}
-            className="w-full p-2 border border-border rounded mb-1 bg-background text-foreground"
+            className={`w-full p-2 border rounded mb-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary-500 ${amountError ? "border-red-400 focus:ring-red-400" : "border-border"}`}
           />
           {amountError && (
             <p id="invest-amount-error" className="text-xs text-error mb-2" role="alert">{amountError}</p>
@@ -109,23 +122,24 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
         </div>
         <button
           onClick={handleInvest}
-          disabled={loading}
-          aria-label={loading ? "Processing investment" : "Invest"}
-          className="w-full py-2 bg-[var(--color-primary-600)] text-white rounded hover:bg-[var(--color-primary-700)] disabled:opacity-50"
+          disabled={loading || !isFormValid}
+          aria-label={loading ? "Processing investment" : !isFormValid ? "Enter a valid amount to invest" : "Invest"}
+          className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
+          {loading && <ButtonSpinner />}
           {loading ? 'Investing…' : 'Invest'}
         </button>
         {error && (
-          <p className="mt-2 text-sm text-[var(--color-error)]" role="alert">{error}</p>
+          <p className="mt-2 text-sm text-error" role="alert">{error}</p>
         )}
         {success && (
-          <p className="mt-2 text-sm text-[var(--color-success)]" role="status">Investment successful!</p>
+          <p className="mt-2 text-sm text-success" role="status">Investment successful!</p>
         )}
         <button
           ref={closeRef}
           onClick={onClose}
           disabled={loading}
-          className="mt-4 text-sm underline text-[var(--color-primary-600)]"
+          className="mt-4 text-sm underline text-primary-600"
           aria-label="Cancel investment"
         >
           Cancel
