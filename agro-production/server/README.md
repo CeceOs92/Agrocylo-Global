@@ -129,6 +129,17 @@ npm run worker:dev
 
 All REST endpoints are served on `http://localhost:<PORT>`.
 
+### OpenAPI (auto-generated from Zod)
+
+Request and response contracts are defined as Zod schemas under `src/schemas/`. The OpenAPI 3 document is generated at runtime from those definitions:
+
+```bash
+# With the server running:
+curl http://localhost:5001/api/docs/openapi.json
+```
+
+Import this URL into Swagger UI, Postman, or any OpenAPI client. Validation failures return `application/problem+json` with per-field `errors` (field path, message, and Zod code).
+
 ### Health
 
 | Method | Path | Description |
