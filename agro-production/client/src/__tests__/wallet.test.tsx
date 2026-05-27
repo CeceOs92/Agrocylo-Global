@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, act } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { WalletProvider, useWallet } from "@/context/WalletContext";
+import { WalletProvider, useWallet } from "../context/WalletContext";
 
 function TestConsumer() {
   const ctx = useWallet();

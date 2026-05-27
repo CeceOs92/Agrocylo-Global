@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { fetchCampaigns } from "@/services/campaignService";
+import { fetchCampaigns } from "../services/campaignService";
 
 const mockCampaigns = { items: [{ id: "c1", title: "Test" }], total: 1 };
 

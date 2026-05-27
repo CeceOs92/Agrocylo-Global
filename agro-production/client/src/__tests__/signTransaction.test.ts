@@ -20,7 +20,7 @@ vi.mock("@stellar/stellar-sdk", () => {
   };
 });
 
-import { signAndSubmitTransaction } from "@/lib/signTransaction";
+import { signAndSubmitTransaction } from "../lib/signTransaction";
 
 describe("signAndSubmitTransaction", () => {
   beforeEach(() => {
