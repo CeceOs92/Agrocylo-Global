@@ -1,150 +1,265 @@
-## Redis (BullMQ)
+# Agrocylo Production Server
 
-This folder contains production-oriented assets for the backend queue system.
+Production backend for the Agrocylo platform. It exposes a REST API, indexes on-chain Stellar/Soroban contract events in real-time, and broadcasts updates to connected clients via WebSocket.
 
-Start Redis:
+---
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Environment Variables](#environment-variables)
+- [Database Setup](#database-setup)
+- [Running the Server](#running-the-server)
+- [Redis / Queue Worker](#redis--queue-worker)
+- [API Reference](#api-reference)
+- [Event Architecture](#event-architecture)
+- [WebSocket](#websocket)
+- [Testing](#testing)
+
+---
+
+## Prerequisites
+
+- Node.js ≥ 20
+- PostgreSQL (local or hosted, e.g. Supabase)
+- Docker & Docker Compose (for the Redis queue)
+- A deployed Stellar/Soroban contract ID
+
+---
+
+## Installation
+
+```bash
+cd agro-production/server
+npm install
+```
+
+---
+
+## Environment Variables
+
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `PORT` | `5001` | No | Port the HTTP server listens on |
+| `NODE_ENV` | `development` | No | `development` or `production` |
+| `LOG_LEVEL` | `debug` | No | Winston log level (`debug`, `info`, `warn`, `error`) |
+| `DATABASE_URL` | — | **Yes** | PostgreSQL connection string (`postgresql://user:pass@host/db`) |
+| `RPC_URL` | `https://soroban-testnet.stellar.org` | No | Stellar Soroban RPC endpoint |
+| `ESCROW_CONTRACT_ID` | — | **Yes** | Contract ID for the primary EscrowContract |
+| `PRODUCTION_ESCROW_CONTRACT_ID` | — | **Yes** | Contract ID for the ProductionEscrowContract |
+| `PRODUCTION_CONTRACT_ID` | — | No | Alias used by the legacy single-contract watcher (falls back to `PRODUCTION_ESCROW_CONTRACT_ID`) |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | No | Rate-limit rolling window in milliseconds |
+| `RATE_LIMIT_MAX_REQUESTS` | `100` | No | Max requests per IP per window |
+| `SUPABASE_URL` | — | For images | Supabase project URL (campaign image uploads) |
+| `SUPABASE_ANON_KEY` | — | For images | Supabase anon/public key |
+| `SUPABASE_SERVICE_ROLE_KEY` | — | For images | Supabase service-role key (bypasses RLS for uploads) |
+| `SUPABASE_CAMPAIGN_IMAGES_BUCKET` | `campaign-images` | No | Supabase storage bucket name |
+| `CAMPAIGN_IMAGE_PLACEHOLDER_URL` | `https://placehold.co/800x800/png?text=No+Image` | No | Fallback URL when no image is stored |
+| `METRICS_API_KEY` | — | No | If set, `/metrics` requires this value as `x-metrics-api-key` or `Authorization: Bearer <key>` |
+
+---
+
+## Database Setup
+
+The server uses Prisma with PostgreSQL.
+
+```bash
+# Apply all pending migrations
+npx prisma migrate deploy
+
+# (Development only) Create and apply a new migration
+npx prisma migrate dev --name <migration-name>
+
+# Open Prisma Studio (visual DB browser)
+npx prisma db studio
+```
+
+The schema lives in `prisma/schema.prisma`. Models: `User`, `Campaign`, `Investment`, `Order`, `Transaction`.
+
+---
+
+## Running the Server
+
+```bash
+# Development (hot-reload via tsx watch)
+npm run dev
+
+# Build TypeScript
+npm run build
+
+# Production (requires npm run build first)
+npm start
+```
+
+On startup the server will:
+
+1. Connect to PostgreSQL via Prisma.
+2. Start the **multi-contract Soroban event listener** (`src/services/sorobanEventListener.ts`) — watches both `ESCROW_CONTRACT_ID` and `PRODUCTION_ESCROW_CONTRACT_ID`.
+3. Start the **single-contract production watcher** (`src/events/watcher.ts`) if `PRODUCTION_CONTRACT_ID` is set — resumes from the last persisted ledger to avoid re-processing events after a restart.
+4. Attach the **WebSocket server** on the same HTTP port.
+5. Serve the HTTP API.
+
+---
+
+## Redis / Queue Worker
+
+A Redis-backed queue (BullMQ) handles async jobs. Start Redis first:
 
 ```bash
 docker compose -f docker-compose.redis.yml up -d
 ```
 
-Then run the backend worker process from the root `server/` package:
+Then run the worker from the root `server/` package:
 
 ```bash
 cd server
 npm run worker:dev
 ```
 
-## Buyer demand & farmer supply APIs
+---
 
-Implemented in the root `server/` app (run migrations from `server/`).
+## API Reference
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/demand` | Buyer expresses demand (stored with `buyer_wallet` from `x-wallet-address`) |
-| `POST` | `/supply` | Farmer declares supply (stored with `farmer_wallet` from `x-wallet-address`) |
+All REST endpoints are served on `http://localhost:<PORT>`.
 
-Headers: `x-wallet-address` (required), `Content-Type: application/json`.
+### Health
 
-Apply DB migration:
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Returns `{ status: "UP", service, env, timestamp }` |
 
-```bash
-cd server
-npx prisma migrate deploy
+### Campaigns
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/campaigns` | List all campaigns |
+| `GET` | `/api/v1/campaigns/:id` | Get a single campaign by ID |
+| `POST` | `/api/v1/campaigns` | Create a campaign (requires `x-wallet-address` header) |
+
+### Orders
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/orders` | List orders |
+| `POST` | `/api/v1/orders` | Create an order (requires `x-wallet-address` header) |
+
+### Campaign Images
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/campaign-images/upload` | Upload a campaign image (multipart/form-data, field: `image`) |
+| `DELETE` | `/campaign-images/:campaignId` | Delete a campaign's image |
+
+### Buyer Demand & Farmer Supply
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/demand` | Buyer expresses demand (wallet from `x-wallet-address`) |
+| `POST` | `/supply` | Farmer declares supply (wallet from `x-wallet-address`) |
+
+### Metrics
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/metrics` | JSON snapshot of platform activity |
+
+**Metrics response fields:**
+
+- `orders_per_day` — count of orders with `createdAt` on the current UTC calendar day
+- `campaigns_created` — count of product/campaign rows created that same UTC day
+- `total_volume` — sum of `orders.amount` for all time (parses as finite number)
+- `active_users` — distinct buyer/seller wallet addresses on any order in the last 30 days
+
+**Auth:** If `METRICS_API_KEY` is set, send `x-metrics-api-key: <key>` or `Authorization: Bearer <key>`.
+
+**Common headers:**
+
+| Header | When required |
+|---|---|
+| `x-wallet-address` | POST /demand, POST /supply, POST /campaigns, POST /orders |
+| `Content-Type: application/json` | All JSON POST requests |
+
+---
+
+## Event Architecture
+
+```
+Stellar / Soroban network
+        │
+        │  RPC polling (every 5 s)
+        ▼
+┌────────────────────────────────────────────────┐
+│           Soroban Event Listener               │
+│  sorobanEventListener.ts                       │
+│  Watches: ESCROW_CONTRACT_ID                   │
+│           PRODUCTION_ESCROW_CONTRACT_ID        │
+└──────────────────┬─────────────────────────────┘
+                   │
+                   │  also
+                   ▼
+┌────────────────────────────────────────────────┐
+│         Production Contract Watcher            │
+│  events/watcher.ts                             │
+│  Watches: PRODUCTION_CONTRACT_ID               │
+│  Resumes from last persisted ledger (Prisma)   │
+│  Filters: campaign.* and order.* topics        │
+└──────────────────┬─────────────────────────────┘
+                   │
+        ┌──────────┼──────────┐
+        ▼          ▼          ▼
+   Parser      Persister   WebSocket
+(events/     (events/     broadcast
+ parser.ts)  persister.ts) (services/
+                           wsServer.ts)
+        │          │
+        └────┬─────┘
+             ▼
+       PostgreSQL (Prisma)
+       campaigns / orders /
+       transactions tables
 ```
 
-## Platform metrics
+**Event flow:**
 
-Implemented in the root `server/` app.
+1. The watcher polls the Soroban RPC for new ledger events matching the contract IDs.
+2. `ProductionEventParser` parses raw Soroban events into typed domain events (`campaign.created`, `order.placed`, etc.).
+3. `EventPersister` writes the parsed event to PostgreSQL via Prisma.
+4. The WebSocket server broadcasts the event to all connected frontend clients.
+5. On restart the watcher reads the highest `ledger` from the `transactions` table and resumes from there — no events are re-processed.
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/metrics` | JSON snapshot: `orders_per_day`, `campaigns_created`, `total_volume`, `active_users` |
+---
 
-Optional auth: set `METRICS_API_KEY` in the server environment, then send the same value as `x-metrics-api-key` or `Authorization: Bearer <METRICS_API_KEY>`.
+## WebSocket
 
-**Field definitions**
+Clients connect to `ws://localhost:<PORT>/ws`. The server pushes JSON messages with the shape:
 
-- **orders_per_day** — Count of `orders` rows with `createdAt` on the current **UTC calendar day**.
-- **campaigns_created** — Count of **product listings** (`products` rows) created that same UTC day (used as farmer/market “campaigns” until a dedicated campaigns feature exists).
-- **total_volume** — Sum of `orders.amount` where the value parses as a finite number (all time).
-- **active_users** — Distinct buyer or seller wallet addresses appearing on any order in the **last 30 days**.
-
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
-
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
-
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ npm install
+```ts
+{
+  event: string;      // e.g. "campaign.created", "order.placed"
+  payload: unknown;   // event-specific data
+  timestamp: string;  // ISO 8601
+}
 ```
 
-## Compile and run the project
+The frontend `useWebSocket` hook (in `agro-production/client/`) handles reconnection with exponential backoff and queues outbound messages while disconnected.
+
+---
+
+## Testing
 
 ```bash
-# development
-$ npm run start
+# Run all unit tests (vitest)
+npm test
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+# Run a single test file
+npx vitest run src/events/parser.test.ts
 ```
 
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Test files live alongside their source files (`*.test.ts`). Integration tests in `src/test/api.test.ts` require a running database — set `DATABASE_URL` before running them.
