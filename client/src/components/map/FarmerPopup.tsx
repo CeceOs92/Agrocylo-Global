@@ -1,5 +1,9 @@
 "use client";
 
+import { MapPin } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { buttonVariants } from "@/components/ui/button";
+import { getInitials } from "@/lib/utils";
 import type { FarmerLocation } from "@/hooks/useFarmerLocations";
 
 interface FarmerPopupProps {
@@ -12,7 +16,7 @@ function haversineKm(
   lat1: number,
   lon1: number,
   lat2: number,
-  lon2: number
+  lon2: number,
 ): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -38,51 +42,60 @@ export default function FarmerPopup({
   const location = [farmer.city, farmer.country].filter(Boolean).join(", ");
 
   return (
-    <div className="min-w-[220px] font-sans">
-      <div className="flex items-center gap-3 mb-2">
-        {farmer.avatar_url ? (
-          <img
-            src={farmer.avatar_url}
-            alt={farmer.display_name}
-            className="w-10 h-10 rounded-full object-cover"
-          />
-        ) : (
-          <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold text-lg">
-            {farmer.display_name.charAt(0).toUpperCase()}
-          </div>
-        )}
-        <div>
-          <p className="font-semibold text-neutral-900 text-sm">
+    <div className="font-sans min-w-[240px] space-y-3">
+      <div className="flex items-start gap-3">
+        <Avatar className="size-10 shrink-0">
+          {farmer.avatar_url ? (
+            <AvatarImage
+              src={farmer.avatar_url}
+              alt={farmer.display_name}
+            />
+          ) : null}
+          <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+            {getInitials(farmer.display_name)}
+          </AvatarFallback>
+        </Avatar>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold leading-tight">
             {farmer.display_name}
           </p>
-          <p className="text-xs text-neutral-500">
+          <p className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
+            <MapPin className="size-3" />
             {distance != null && (
               <span>
-                📍 {distance < 1 ? "<1" : Math.round(distance)}km away
+                {distance < 1 ? "<1" : Math.round(distance)}km
+                {location ? " ·" : ""}
               </span>
             )}
-            {distance != null && location && " · "}
-            {location}
+            {location && <span>{location}</span>}
           </p>
         </div>
       </div>
 
       {farmer.bio && (
-        <p className="text-xs text-neutral-600 mb-3 line-clamp-2">
+        <p className="text-foreground/80 line-clamp-2 text-xs italic">
           &ldquo;{farmer.bio}&rdquo;
         </p>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 pt-1">
         <a
-          href={`/profile/${farmer.wallet_address}`}
-          className="flex-1 rounded-md bg-neutral-100 px-3 py-1.5 text-center text-xs font-medium text-neutral-700 hover:bg-neutral-200 transition-colors"
+          href={`/profiles/${farmer.wallet_address}`}
+          className={buttonVariants({
+            variant: "outline",
+            size: "sm",
+            className: "flex-1",
+          })}
         >
           View Profile
         </a>
         <a
           href={`/orders/new?farmer=${farmer.wallet_address}`}
-          className="flex-1 rounded-md bg-primary-600 px-3 py-1.5 text-center text-xs font-medium text-white hover:bg-primary-700 transition-colors"
+          className={buttonVariants({
+            size: "sm",
+            className: "flex-1",
+          })}
         >
           Create Order
         </a>

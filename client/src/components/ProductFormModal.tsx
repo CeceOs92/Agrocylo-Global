@@ -1,28 +1,51 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { Upload, X } from "lucide-react";
+
 import {
-  Button,
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  Container,
-  Input,
-  Text,
-} from "@/components/ui";
-import type { Product, ProductCategory, ProductCurrency, ProductUnit } from "@/types/product";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import type {
+  Product,
+  ProductCategory,
+  ProductCurrency,
+  ProductUnit,
+} from "@/types/product";
 import {
   normalizeProductWriteInput,
   createProduct,
   updateProduct,
   uploadProductImage,
 } from "@/services/productService";
+import { isTestMode } from "@/lib/testMode";
 
 type Mode = "add" | "edit";
 
-type FormErrors = Partial<Record<"name" | "category" | "pricePerUnit" | "currency" | "unit" | "description", string>>;
+type FormErrors = Partial<
+  Record<
+    | "name"
+    | "category"
+    | "pricePerUnit"
+    | "currency"
+    | "unit"
+    | "description"
+    | "location"
+    | "deliveryWindow",
+    string
+  >
+>;
 
 const CATEGORIES: ProductCategory[] = [
   "Vegetables",
@@ -32,10 +55,21 @@ const CATEGORIES: ProductCategory[] = [
   "Livestock",
   "Other",
 ];
-
 const CURRENCIES: ProductCurrency[] = ["STRK", "USDC"];
-
 const UNITS: ProductUnit[] = ["kg", "bag", "crate", "piece", "litre", "dozen"];
+const MAX_IMAGES = 8;
+
+const SELECT_CLASSES =
+  "border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none";
+
+interface ProductFormModalProps {
+  open: boolean;
+  mode: Mode;
+  walletAddress: string;
+  initialProduct?: Product | null;
+  onClose: () => void;
+  onSuccess: () => Promise<void> | void;
+}
 
 export default function ProductFormModal({
   open,
@@ -44,40 +78,28 @@ export default function ProductFormModal({
   initialProduct,
   onClose,
   onSuccess,
-}: {
-  open: boolean;
-  mode: Mode;
-  walletAddress: string;
-  initialProduct?: Product | null;
-  onClose: () => void;
-  onSuccess: () => Promise<void> | void;
-}) {
-  const existingImageUrl = initialProduct?.image_url ?? null;
-
+}: ProductFormModalProps) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState<ProductCategory | null>(null);
   const [pricePerUnit, setPricePerUnit] = useState("");
   const [currency, setCurrency] = useState<ProductCurrency>("STRK");
   const [unit, setUnit] = useState<ProductUnit>("kg");
-  const [stockQuantity, setStockQuantity] = useState<string>(""); // blank => unlimited
+  const [stockQuantity, setStockQuantity] = useState<string>("");
   const [description, setDescription] = useState<string>("");
+  const [location, setLocation] = useState("");
+  const [deliveryWindow, setDeliveryWindow] = useState("");
   const [isAvailable, setIsAvailable] = useState(true);
 
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const activePreviewUrl = imagePreviewUrl ?? existingImageUrl;
-
+  // Reset form when reopening / switching products
   useEffect(() => {
     if (!open) return;
-
     setErrors({});
     setSaveError(null);
-    setSaving(false);
-
     setName(initialProduct?.name ?? "");
     setCategory(initialProduct?.category ?? null);
     setPricePerUnit(initialProduct?.price_per_unit ?? "");
@@ -85,310 +107,303 @@ export default function ProductFormModal({
     setUnit((initialProduct?.unit as ProductUnit) ?? "kg");
     setStockQuantity(initialProduct?.stock_quantity ?? "");
     setDescription(initialProduct?.description ?? "");
+    setLocation(initialProduct?.location ?? "");
+    setDeliveryWindow(initialProduct?.delivery_window ?? "");
     setIsAvailable(initialProduct?.is_available ?? true);
-
-    setImageFile(null);
-    setImagePreviewUrl(null);
+    setImageFiles([]);
   }, [open, initialProduct]);
 
-  // Object URL cleanup
-  useEffect(() => {
-    return () => {
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    };
-  }, [imagePreviewUrl]);
-
-  const accepts = useMemo(
-    () => ["image/png", "image/jpeg", "image/webp"],
-    [],
-  );
-
-  function setFile(file: File | null) {
-    if (!file) {
-      setImageFile(null);
-      setImagePreviewUrl(null);
+  function handleFileChange(files: FileList | null) {
+    if (!files) return;
+    const next = Array.from(files);
+    if (imageFiles.length + next.length > MAX_IMAGES) {
+      setSaveError(`Maximum ${MAX_IMAGES} images allowed.`);
       return;
     }
-    if (!accepts.includes(file.type)) {
-      setErrors((prev) => ({
-        ...prev,
-        description: "Unsupported image type. Use JPG/PNG/WebP.",
-      }));
-      return;
-    }
-    setImageFile(file);
-    setImagePreviewUrl(URL.createObjectURL(file));
+    setImageFiles((prev) => [...prev, ...next]);
   }
 
   function validate(): boolean {
     const next: FormErrors = {};
     if (!name.trim()) next.name = "Product name is required.";
-    if (!category) next.category = "Please select a category.";
-    if (!pricePerUnit || Number(pricePerUnit) <= 0) next.pricePerUnit = "Price must be a positive number.";
-    if (!currency) next.currency = "Please select a currency.";
-    if (!unit) next.unit = "Please select a unit.";
-    if (description && description.length > 500) next.description = "Description must be 500 characters or less.";
-
+    if (!category) next.category = "Select a category.";
+    if (!pricePerUnit || Number(pricePerUnit) <= 0)
+      next.pricePerUnit = "Invalid price.";
+    // In test mode location and deliveryWindow are optional
+    if (!isTestMode()) {
+      if (!location.trim()) next.location = "Location is required.";
+      if (!deliveryWindow.trim())
+        next.deliveryWindow = "Delivery window is required.";
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!walletAddress) {
-      setSaveError("Wallet is not connected.");
-      return;
-    }
     if (!validate()) return;
-
     setSaving(true);
     setSaveError(null);
     try {
-      const normalized = normalizeProductWriteInput({
+      const payload = normalizeProductWriteInput({
         name: name.trim(),
         category,
-        pricePerUnit: pricePerUnit.trim(),
+        pricePerUnit,
         currency,
         unit,
-        stockQuantity: stockQuantity.trim() === "" ? null : stockQuantity.trim(),
-        description: description.trim() === "" ? null : description.trim(),
+        stockQuantity,
+        description,
         isAvailable,
+        location,
+        deliveryWindow,
       });
 
-      if (mode === "add") {
-        const created = await createProduct(walletAddress, normalized);
-        if (imageFile) {
-          await uploadProductImage(walletAddress, created.id, imageFile);
-        }
-      } else {
-        if (!initialProduct?.id) throw new Error("Missing product to update.");
-        await updateProduct(walletAddress, initialProduct.id, normalized);
-        if (imageFile) {
-          await uploadProductImage(walletAddress, initialProduct.id, imageFile);
-        }
+      const product =
+        mode === "add"
+          ? await createProduct(walletAddress, payload)
+          : await updateProduct(walletAddress, initialProduct!.id, payload);
+
+      if (imageFiles.length > 0) {
+        await Promise.all(
+          imageFiles.map((file) =>
+            uploadProductImage(walletAddress, product.id, file),
+          ),
+        );
       }
 
       await onSuccess();
       onClose();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save product.");
+      setSaveError(err instanceof Error ? err.message : "Failed to save.");
     } finally {
       setSaving(false);
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl">
-        <Card variant="elevated" padding="lg">
-          <CardHeader>
-            <CardTitle>{mode === "add" ? "Add Product" : "Edit Product"}</CardTitle>
-          </CardHeader>
-          <form onSubmit={onSubmit}>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Input
-                  label="Product Name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Organic Tomatoes"
-                  error={errors.name}
-                  required
-                />
-              </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {mode === "add" ? "Add Product" : "Edit Listing"}
+          </DialogTitle>
+          <DialogDescription>
+            Listings on AgroCylo can be priced in STRK or USDC and are
+            settled by the Soroban escrow when a buyer confirms receipt.
+          </DialogDescription>
+        </DialogHeader>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Category</label>
-                  <select
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-                    value={category ?? ""}
-                    onChange={(e) => setCategory((e.target.value || null) as ProductCategory | null)}
-                  >
-                    <option value="" disabled>
-                      Select a category
-                    </option>
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.category && <Text variant="body" className="text-error">{errors.category}</Text>}
-                </div>
-
-                <div className="space-y-2">
-                  <Input
-                    label="Price per unit"
-                    type="number"
-                    value={pricePerUnit}
-                    min={0}
-                    step={0.01}
-                    onChange={(e) => setPricePerUnit(e.target.value)}
-                    placeholder="e.g. 10.5"
-                    error={errors.pricePerUnit}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Currency</label>
-                  <select
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value as ProductCurrency)}
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.currency && <Text variant="body" className="text-error">{errors.currency}</Text>}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Unit</label>
-                  <select
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value as ProductUnit)}
-                  >
-                    {UNITS.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.unit && <Text variant="body" className="text-error">{errors.unit}</Text>}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Input
-                  label="Stock quantity (optional)"
-                  type="number"
-                  value={stockQuantity}
-                  min={0}
-                  step={1}
-                  onChange={(e) => setStockQuantity(e.target.value)}
-                  placeholder="Leave blank for unlimited"
-                  hint="Quantity at the farm right now"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description (max 500 chars)</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Short description..."
-                  className={[
-                    "w-full rounded-lg border bg-background px-4 py-2.5 text-foreground text-base transition-colors placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed min-h-24 sm:py-3",
-                    errors.description ? "border-error focus:ring-error" : "border-border",
-                  ].join(" ")}
-                  aria-invalid={!!errors.description}
-                />
-                {errors.description && (
-                  <Text variant="body" className="text-error text-sm">
-                    {errors.description}
-                  </Text>
-                )}
-                <Text variant="body" muted className="text-xs">
-                  {description.length}/500
-                </Text>
-              </div>
-
-              <div className="space-y-2">
-                <Text variant="body" muted className="text-sm">
-                  Product Image (optional)
-                </Text>
-
-                <div
-                  className="border-2 border-dashed border-border rounded-xl p-4 flex flex-col items-center justify-center gap-3"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const file = e.dataTransfer.files?.[0];
-                    if (file) setFile(file);
-                  }}
-                >
-                  {activePreviewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={activePreviewUrl} alt="Product preview" className="w-32 h-32 object-cover rounded-lg" />
-                  ) : (
-                    <Container size="sm" className="text-center">
-                      <Text variant="body" muted>
-                        Drag & drop an image here
-                      </Text>
-                    </Container>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" onClick={() => document.getElementById("product-image-input")?.click()}>
-                      Choose image
-                    </Button>
-                    <input
-                      id="product-image-input"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                    />
-                    {imageFile && (
-                      <Button type="button" variant="ghost" onClick={() => setFile(null)}>
-                        Remove
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-4">
-                <Text variant="body" className="font-medium">
-                  Availability
-                </Text>
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={isAvailable}
-                    onChange={(e) => setIsAvailable(e.target.checked)}
-                  />
-                  <Text variant="body" muted>
-                    {isAvailable ? "Listed" : "Unlisted"}
-                  </Text>
-                </label>
-              </div>
-
-              {saveError && (
-                <div className="bg-error/10 border border-error/30 rounded-lg p-3">
-                  <Text variant="body" className="text-error">
-                    {saveError}
-                  </Text>
-                </div>
-              )}
-            </CardContent>
-            <CardFooter className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                type="button"
-                onClick={onClose}
-                disabled={saving}
+        <form onSubmit={onSubmit} className="space-y-6">
+          {/* Basic info */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Product Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              error={errors.name}
+              required
+            />
+            <div className="grid gap-1.5">
+              <Label>Category</Label>
+              <select
+                className={SELECT_CLASSES}
+                value={category ?? ""}
+                onChange={(e) =>
+                  setCategory((e.target.value || null) as ProductCategory)
+                }
               >
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" disabled={saving}>
-                {saving ? "Saving..." : mode === "add" ? "Create Product" : "Save Changes"}
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
-      </div>
-    </div>
+                <option value="" disabled>
+                  Select category
+                </option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              {errors.category && (
+                <p className="text-destructive text-xs">{errors.category}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Pricing & units */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Input
+              label="Price"
+              type="number"
+              min={0}
+              step={0.01}
+              value={pricePerUnit}
+              onChange={(e) => setPricePerUnit(e.target.value)}
+              error={errors.pricePerUnit}
+              required
+            />
+            <div className="grid gap-1.5">
+              <Label>Currency</Label>
+              <select
+                className={SELECT_CLASSES}
+                value={currency}
+                onChange={(e) =>
+                  setCurrency(e.target.value as ProductCurrency)
+                }
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Unit</Label>
+              <select
+                className={SELECT_CLASSES}
+                value={unit}
+                onChange={(e) => setUnit(e.target.value as ProductUnit)}
+              >
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Stock + availability */}
+          <div className="grid gap-4 sm:grid-cols-[2fr_1fr] sm:items-end">
+            <Input
+              label="Stock quantity"
+              hint="Leave blank for unlimited."
+              type="number"
+              min={0}
+              step={1}
+              value={stockQuantity}
+              onChange={(e) => setStockQuantity(e.target.value)}
+            />
+            <div className="bg-secondary/40 flex h-12 items-center justify-between gap-3 rounded-md border px-4">
+              <Label htmlFor="prod-available" className="cursor-pointer">
+                Listed
+              </Label>
+              <Switch
+                id="prod-available"
+                checked={isAvailable}
+                onCheckedChange={setIsAvailable}
+              />
+            </div>
+          </div>
+
+          {/* Logistics */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="Farm Location (Region)"
+              placeholder="e.g. Kumasi, Ghana"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              error={errors.location}
+              required
+            />
+            <Input
+              label="Delivery Window"
+              placeholder="e.g. 2-3 days"
+              value={deliveryWindow}
+              onChange={(e) => setDeliveryWindow(e.target.value)}
+              error={errors.deliveryWindow}
+              required
+            />
+          </div>
+
+          {/* Description */}
+          <div className="grid gap-1.5">
+            <Label htmlFor="prod-description">
+              Description &amp; Health Benefits
+            </Label>
+            <Textarea
+              id="prod-description"
+              rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Tell buyers about origin, organic status, or health benefits..."
+            />
+          </div>
+
+          {/* Images */}
+          <div className="grid gap-2">
+            <Label>Product images</Label>
+            <p className="text-muted-foreground text-xs">
+              Up to {MAX_IMAGES} images. First image is the cover.
+            </p>
+            <label
+              htmlFor="prod-image-upload"
+              className="bg-secondary/40 hover:bg-secondary border-border hover:border-primary/40 flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition-colors"
+            >
+              <div className="bg-background grid size-10 place-content-center rounded-full border">
+                <Upload className="text-muted-foreground size-4" />
+              </div>
+              <p className="text-sm font-medium">Click or drop images here</p>
+              <p className="text-muted-foreground text-xs">
+                PNG / JPG / WEBP · up to 2 MB each
+              </p>
+              <input
+                id="prod-image-upload"
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFileChange(e.target.files)}
+              />
+            </label>
+
+            {imageFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {imageFiles.map((f, i) => (
+                  <span
+                    key={i}
+                    className="bg-secondary inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"
+                  >
+                    {f.name}
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setImageFiles((prev) =>
+                          prev.filter((_, idx) => idx !== i),
+                        )
+                      }
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {saveError && (
+            <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-lg border p-3 text-sm">
+              {saveError}
+            </div>
+          )}
+
+          <Separator />
+
+          <DialogFooter className="flex-row justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={saving} disabled={saving}>
+              {mode === "add" ? "List Product" : "Update Listing"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
-

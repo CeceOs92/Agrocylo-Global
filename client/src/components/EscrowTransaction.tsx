@@ -1,27 +1,36 @@
 "use client";
 
-import React, { useState, useContext } from "react";
+import { useState } from "react";
 import {
-  Container,
-  Button,
+  CheckCircle2,
+  Loader2,
+  ShieldAlert,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+
+import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   CardFooter,
-  Badge,
-  Text,
-  Input,
-} from "@/components/ui";
-import { WalletContext } from "@/context/WalletContext";
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { useWallet } from "@/hooks/useWallet";
+import { mapBlockchainError } from "@/components/errorHandler";
 import { createOrder } from "@/services/stellar/contractService";
 import { signAndSubmitTransaction } from "@/lib/signTransaction";
 import {
   notifyTransactionSubmitted,
   notifyTransactionConfirmed,
-  notifyTransactionFailed,
   notifyTransactionConfirming,
 } from "@/services/notification";
+import { formatTruncatedAddress } from "@/lib/helpers/format-address";
+import { cn } from "@/lib/utils";
 
 interface EscrowTransactionProps {
   farmerAddress: string;
@@ -30,11 +39,14 @@ interface EscrowTransactionProps {
   productName: string;
 }
 
+type Status = "idle" | "pending" | "confirming" | "success" | "error";
 interface TransactionStatus {
-  status: "idle" | "pending" | "confirming" | "success" | "error";
+  status: Status;
   message?: string;
   txHash?: string;
 }
+
+const PLATFORM_FEE_PCT = 3;
 
 export default function EscrowTransaction({
   farmerAddress,
@@ -42,68 +54,37 @@ export default function EscrowTransaction({
   pricePerUnit,
   productName,
 }: EscrowTransactionProps) {
-  const { address, connected, network } = useContext(WalletContext);
+  const { address, connected, network } = useWallet();
   const [quantity, setQuantity] = useState<string>("1");
   const [deliveryDeadline, setDeliveryDeadline] = useState<string>("");
-  const [transactionStatus, setTransactionStatus] = useState<TransactionStatus>({
-    status: "idle",
-  });
+  const [tx, setTx] = useState<TransactionStatus>({ status: "idle" });
 
-  const totalPrice = parseFloat(quantity || "0") * pricePerUnit;
-  const totalAmount = BigInt(Math.floor(totalPrice * 10_000_000));
+  const qtyNum = parseFloat(quantity || "0");
+  const totalPrice = qtyNum * pricePerUnit;
+  const fee = (totalPrice * PLATFORM_FEE_PCT) / 100;
+  const farmerReceives = totalPrice - fee;
+  const totalStroops = BigInt(Math.floor(totalPrice * 10_000_000));
 
-  const validateForm = (): boolean => {
-    if (!farmerAddress) {
-      setTransactionStatus({
-        status: "error",
-        message: "Farmer address is missing.",
-      });
-      return false;
+  const busy = tx.status === "pending" || tx.status === "confirming";
+
+  function validate(): string | null {
+    if (!farmerAddress) return "Farmer address is missing.";
+    if (!tokenAddress) return "Token contract address is missing.";
+    if (!qtyNum || qtyNum <= 0) return "Please enter a valid quantity.";
+    if (!deliveryDeadline) return "Please select a delivery deadline.";
+    if (new Date(deliveryDeadline) <= new Date())
+      return "Delivery deadline must be in the future.";
+    return null;
+  }
+
+  async function callCreateOrder() {
+    const err = validate();
+    if (err) {
+      setTx({ status: "error", message: err });
+      return;
     }
 
-    if (!tokenAddress) {
-      setTransactionStatus({
-        status: "error",
-        message: "Token contract address is missing.",
-      });
-      return false;
-    }
-
-    if (!quantity || parseFloat(quantity) <= 0) {
-      setTransactionStatus({
-        status: "error",
-        message: "Please enter a valid quantity",
-      });
-      return false;
-    }
-
-    if (!deliveryDeadline) {
-      setTransactionStatus({
-        status: "error",
-        message: "Please select a delivery deadline",
-      });
-      return false;
-    }
-
-    const deadline = new Date(deliveryDeadline);
-    if (deadline <= new Date()) {
-      setTransactionStatus({
-        status: "error",
-        message: "Delivery deadline must be in the future",
-      });
-      return false;
-    }
-
-    return true;
-  };
-
-  const callCreateOrder = async () => {
-    if (!validateForm()) return;
-
-    setTransactionStatus({
-      status: "pending",
-      message: "Building escrow order transaction...",
-    });
+    setTx({ status: "pending", message: "Building escrow transaction…" });
 
     try {
       if (!connected || !address) {
@@ -114,17 +95,16 @@ export default function EscrowTransaction({
         address,
         farmerAddress,
         tokenAddress,
-        totalAmount,
+        totalStroops,
         deliveryDeadline,
       );
-
       if (!unsignedXdr.success || !unsignedXdr.data) {
         throw new Error(unsignedXdr.error || "Failed to build escrow transaction");
       }
 
-      setTransactionStatus({
+      setTx({
         status: "confirming",
-        message: "Please confirm the transaction in your wallet...",
+        message: "Please confirm the transaction in your wallet…",
       });
       notifyTransactionConfirming();
 
@@ -134,224 +114,225 @@ export default function EscrowTransaction({
       }
 
       notifyTransactionSubmitted(signed.txHash);
-      setTimeout(() => {
-        notifyTransactionConfirmed(signed.txHash);
-      }, 2000);
+      setTimeout(() => notifyTransactionConfirmed(signed.txHash), 2000);
 
-      setTransactionStatus({
+      setTx({
         status: "success",
         message: "Escrow order created on-chain.",
         txHash: signed.txHash,
       });
     } catch (error) {
-      console.error("Transaction error:", error);
-      const errorMessage = error instanceof Error
-        ? error.message
-        : "Transaction failed. Please try again.";
-      notifyTransactionFailed(errorMessage);
-      setTransactionStatus({
+      const info = mapBlockchainError(error);
+      setTx({
         status: "error",
-        message: errorMessage,
+        message: `${info.title}: ${info.message} ${info.action}`,
       });
     }
-  };
-
-  const getStatusColor = (): "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline" => {
-    switch (transactionStatus.status) {
-      case "pending":
-      case "confirming":
-        return "warning";
-      case "success":
-        return "success";
-      case "error":
-        return "error";
-      default:
-        return "primary";
-    }
-  };
-
-  const getStatusText = () => {
-    switch (transactionStatus.status) {
-      case "pending":
-        return "Preparing...";
-      case "confirming":
-        return "Awaiting Confirmation";
-      case "success":
-        return "Success";
-      case "error":
-        return "Error";
-      default:
-        return "Ready";
-    }
-  };
+  }
 
   if (!connected) {
     return (
-      <Container size="md" className="py-8">
-        <Card variant="elevated" padding="lg">
-          <CardContent className="text-center py-8">
-            <Text variant="h3" as="h3" className="mb-4">
-              Connect Wallet Required
-            </Text>
-            <Text variant="body" muted className="mb-6">
-              Please connect your wallet to create an escrow transaction.
-            </Text>
-          </CardContent>
-        </Card>
-      </Container>
+      <Card className="mx-auto max-w-2xl">
+        <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+          <div className="bg-secondary text-muted-foreground grid size-12 place-content-center rounded-full">
+            <Wallet className="size-5" />
+          </div>
+          <h2 className="text-lg font-semibold">Connect your wallet</h2>
+          <p className="text-muted-foreground text-sm">
+            Sign in with Freighter to fund an escrow.
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <Container size="md" className="py-8">
-      <Card variant="elevated" padding="lg">
-        <CardHeader>
-          <CardTitle>Escrow Transaction</CardTitle>
-          <Text variant="body" muted>
-            Create a secure escrow transaction for {productName}
-          </Text>
-        </CardHeader>
+    <Card className="mx-auto max-w-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="text-primary size-5" />
+          Escrow for {productName}
+        </CardTitle>
+        <p className="text-muted-foreground text-sm">
+          Funds lock in a Soroban escrow until you confirm receipt of goods.
+        </p>
+      </CardHeader>
 
-        <CardContent className="space-y-6">
-          {/* Product Details */}
-          <div className="bg-muted/50 p-4 rounded-lg">
-            <Text variant="h4" as="h4" className="mb-2">
-              Order Details
-            </Text>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Text variant="body" muted className="text-sm">
-                  Product
-                </Text>
-                <Text variant="body" className="font-medium">
-                  {productName}
-                </Text>
-              </div>
-              <div>
-                <Text variant="body" muted className="text-sm">
-                  Price per Unit
-                </Text>
-                <Text variant="body" className="font-medium">
-                  {pricePerUnit} XLM
-                </Text>
-              </div>
-              <div>
-                <Text variant="body" muted className="text-sm">
-                  Farmer Address
-                </Text>
-                <Text variant="body" className="font-mono text-xs break-all">
-                  {farmerAddress}
-                </Text>
-              </div>
-              <div>
-                <Text variant="body" muted className="text-sm">
-                  Network
-                </Text>
-                <Badge variant="outline">{network}</Badge>
-              </div>
-            </div>
+      <CardContent className="space-y-6">
+        {/* Order context */}
+        <div className="bg-secondary/40 grid gap-4 rounded-2xl border p-4 sm:grid-cols-2">
+          <Field label="Product" value={productName} />
+          <Field label="Price per unit" value={`${pricePerUnit} XLM`} />
+          <Field
+            label="Farmer"
+            value={
+              <span className="font-mono">
+                {formatTruncatedAddress(farmerAddress)}
+              </span>
+            }
+          />
+          <Field
+            label="Network"
+            value={
+              <Badge variant="outline" className="capitalize">
+                {network ?? "—"}
+              </Badge>
+            }
+          />
+        </div>
+
+        {/* Quantity */}
+        <Input
+          label="Quantity"
+          type="number"
+          min="1"
+          step="1"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+          hint="Number of units to purchase."
+        />
+
+        {/* Total panel */}
+        <div className="bg-primary/5 border-primary/20 space-y-3 rounded-2xl border p-4">
+          <div className="flex items-baseline justify-between">
+            <span className="font-semibold">Total locked</span>
+            <span className="text-primary text-2xl font-bold">
+              {totalPrice.toFixed(2)} XLM
+            </span>
           </div>
-
-          {/* Quantity Input */}
-          <div>
-            <Input
-              label="Quantity"
-              type="number"
-              min="1"
-              step="1"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="Enter quantity"
-              hint="Number of units you want to purchase"
+          <p className="text-muted-foreground text-xs">
+            {qtyNum > 0 ? `${qtyNum} units × ${pricePerUnit} XLM each` : "—"}
+          </p>
+          <Separator />
+          <div className="space-y-1 text-sm">
+            <Row
+              label={`Platform fee (${PLATFORM_FEE_PCT}%)`}
+              value={`${fee.toFixed(2)} XLM`}
+              muted
+            />
+            <Row
+              label="Farmer receives"
+              value={`${farmerReceives.toFixed(2)} XLM`}
+              bold
             />
           </div>
+        </div>
 
-          {/* Total Price Display */}
-          <div className="bg-primary/10 border border-primary/20 p-4 rounded-lg">
-            <div className="flex justify-between items-center">
-              <Text variant="h4" as="h4">
-                Total Price
-              </Text>
-              <Text variant="h3" as="h3" className="text-primary">
-                {totalPrice.toFixed(2)} XLM
-              </Text>
-            </div>
-            <Text variant="body" muted className="text-sm mt-1">
-              {quantity} units × {pricePerUnit} XLM per unit
-            </Text>
-          </div>
+        {/* Delivery deadline */}
+        <Input
+          label="Delivery deadline"
+          type="datetime-local"
+          value={deliveryDeadline}
+          onChange={(e) => setDeliveryDeadline(e.target.value)}
+          hint="If the farmer doesn't deliver by this time, you can refund."
+        />
 
-          {/* Delivery Deadline */}
-          <div>
-            <Input
-              label="Delivery Deadline"
-              type="datetime-local"
-              value={deliveryDeadline}
-              onChange={(e) => setDeliveryDeadline(e.target.value)}
-              hint="Expected delivery date and time"
-            />
-          </div>
+        {/* Status */}
+        {tx.status !== "idle" && <StatusPanel tx={tx} />}
+      </CardContent>
 
-          {/* Transaction Status */}
-          {transactionStatus.status !== "idle" && (
-            <div className="bg-muted/50 p-4 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Badge variant={getStatusColor()}>
-                  {getStatusText()}
-                </Badge>
-              </div>
-              {transactionStatus.message && (
-                <Text variant="body" className="text-sm">
-                  {transactionStatus.message}
-                </Text>
-              )}
-              {transactionStatus.txHash && (
-                <div className="mt-2">
-                  <Text variant="body" muted className="text-xs">
-                    Transaction Hash:{" "}
-                    <span className="font-mono break-all">
-                      {transactionStatus.txHash}
-                    </span>
-                  </Text>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
+      <CardFooter className="flex gap-3">
+        <Button
+          onClick={() => void callCreateOrder()}
+          isLoading={busy}
+          disabled={busy}
+          size="lg"
+          className="flex-1"
+        >
+          {busy ? "Processing…" : "Create Escrow Order"}
+        </Button>
+        <Button
+          variant="outline"
+          size="lg"
+          onClick={() => {
+            setQuantity("1");
+            setDeliveryDeadline("");
+            setTx({ status: "idle" });
+          }}
+          disabled={busy}
+        >
+          Reset
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
 
-        <CardFooter className="flex gap-3">
-          <Button
-            variant="primary"
-            size="lg"
-            onClick={callCreateOrder}
-            disabled={
-              transactionStatus.status === "pending" ||
-              transactionStatus.status === "confirming"
-            }
-            className="flex-1"
-          >
-            {transactionStatus.status === "pending" ||
-            transactionStatus.status === "confirming"
-              ? "Processing..."
-              : "Create Escrow Order"}
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => {
-              setQuantity("1");
-              setDeliveryDeadline("");
-              setTransactionStatus({ status: "idle" });
-            }}
-            disabled={
-              transactionStatus.status === "pending" ||
-              transactionStatus.status === "confirming"
-            }
-          >
-            Reset
-          </Button>
-        </CardFooter>
-      </Card>
-    </Container>
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-muted-foreground text-xs">{label}</p>
+      <div className="mt-0.5 text-sm font-medium break-words">{value}</div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  muted,
+  bold,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  bold?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex justify-between",
+        muted && "text-muted-foreground",
+        bold && "text-base font-semibold",
+      )}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function StatusPanel({ tx }: { tx: TransactionStatus }) {
+  const tone =
+    tx.status === "success"
+      ? "primary"
+      : tx.status === "error"
+        ? "destructive"
+        : "secondary";
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border p-4 text-sm",
+        tone === "primary" && "bg-primary/5 border-primary/30",
+        tone === "destructive" &&
+          "bg-destructive/10 border-destructive/30 text-destructive",
+        tone === "secondary" && "bg-secondary/50",
+      )}
+    >
+      <div className="flex items-center gap-2 font-semibold">
+        {tx.status === "pending" || tx.status === "confirming" ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : tx.status === "success" ? (
+          <CheckCircle2 className="text-primary size-4" />
+        ) : (
+          <ShieldAlert className="size-4" />
+        )}
+        {tx.status === "pending"
+          ? "Preparing"
+          : tx.status === "confirming"
+            ? "Awaiting signature"
+            : tx.status === "success"
+              ? "Success"
+              : "Error"}
+      </div>
+      {tx.message && <p className="mt-2 text-sm">{tx.message}</p>}
+      {tx.txHash && (
+        <p className="text-muted-foreground font-mono mt-2 text-xs break-all">
+          Tx: {tx.txHash}
+        </p>
+      )}
+    </div>
   );
 }

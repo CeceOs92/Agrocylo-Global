@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { WalletContext } from "./WalletContext";
+import { useWallet } from "@/hooks/useWallet";
 import type { CartState } from "@/types/cart";
 import { getActiveCart, addItemToCart, updateCartItemQuantity, removeCartItem, clearCart } from "@/services/cartService";
 
@@ -24,8 +24,7 @@ type CartContextType = {
 const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const wallet = useContext(WalletContext);
-  const { address, connected } = wallet;
+  const { address, connected } = useWallet();
 
   const [cart, setCart] = useState<CartState>({ cart_id: null, groups: [] });
   const [cartLoading, setCartLoading] = useState(false);

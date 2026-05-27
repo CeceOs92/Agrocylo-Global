@@ -1,22 +1,40 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "sonner";
+import { montserratAlternates } from "@/fonts";
+import { siteConfig } from "@/config/site.config";
+import { GlobalProvider } from "@/components/providers/global-provider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
-import WalletProviderWrapper from "../components/WalletProviderWrapper";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
-  title: "AGROCYLO",
-  description: "Peer-to-peer agricultural trade secured by Stellar escrow",
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: siteConfig.title,
+    template: `%s | ${siteConfig.title}`,
+  },
+  description: siteConfig.description,
+  icons: siteConfig.icons,
+  manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: siteConfig.ogTitle,
+    description: siteConfig.ogDescription,
+    url: siteConfig.url,
+    siteName: siteConfig.title,
+    type: "website",
+    images: [
+      {
+        url: siteConfig.ogImage,
+        width: 1200,
+        height: 630,
+        alt: siteConfig.ogTitle,
+      },
+    ],
+  },
+  twitter: {
+    card: siteConfig.tCard,
+    title: siteConfig.tTitle,
+    description: siteConfig.tDescription,
+    images: [siteConfig.ogImage],
+  },
 };
 
 export default function RootLayout({
@@ -25,12 +43,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${montserratAlternates.variable} flex min-h-screen flex-col font-sans antialiased`}
       >
-        <WalletProviderWrapper>{children}</WalletProviderWrapper>
-        <Toaster position="top-right" richColors closeButton />
+        <ErrorBoundary>
+          <GlobalProvider>{children}</GlobalProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

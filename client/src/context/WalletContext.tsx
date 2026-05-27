@@ -2,10 +2,17 @@
 
 import React, { createContext, useCallback, useEffect, useState } from "react";
 import type { WalletContextType } from "../types/wallet";
-import { getXlmBalance, getCurrentNetworkName } from "../lib/stellar";
+import { getXlmBalance } from "../lib/stellar";
 import { signAndSubmitTransaction } from "../lib/signTransaction";
 import type { SignAndSubmitResult } from "../lib/signTransaction";
-import FreighterApi from "@stellar/freighter-api";
+import {
+  WALLET_ADAPTERS,
+  getPreferredAdapter,
+  savePreferredAdapter,
+  FreighterAdapter,
+} from "../lib/walletAdapters";
+
+const CONNECT_TIMEOUT_MS = 12_000;
 
 const initialState: WalletContextType = {
   address: null,
@@ -14,6 +21,7 @@ const initialState: WalletContextType = {
   loading: false,
   error: null,
   network: null,
+  activeWalletId: null,
   connect: async () => {},
   disconnect: () => {},
   refreshBalance: async () => {},
@@ -31,33 +39,52 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
+  const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Try to restore from localStorage
-    const addr =
-      typeof window !== "undefined"
-        ? localStorage.getItem("walletAddress")
-        : null;
-    const net =
-      typeof window !== "undefined"
-        ? localStorage.getItem("walletNetwork")
-        : null;
-    if (addr) {
-      // attempt to refresh balance but don't auto-connect Freighter
-      setAddress(addr);
-      setConnected(true);
-      if (net) setNetwork(net);
-      // call getXlmBalance directly to avoid referencing refreshBalance in deps
-      (async () => {
-        try {
-          const b = await getXlmBalance(addr);
+    if (typeof window === "undefined") return;
+
+    const cachedAddr = localStorage.getItem("walletAddress");
+    const cachedNet = localStorage.getItem("walletNetwork");
+    const cachedWalletId = localStorage.getItem("activeWalletId");
+    if (!cachedAddr) return;
+
+    setAddress(cachedAddr);
+    setConnected(true);
+    if (cachedNet) setNetwork(cachedNet);
+    if (cachedWalletId) setActiveWalletId(cachedWalletId);
+
+    (async () => {
+      try {
+        const adapter =
+          WALLET_ADAPTERS.find((a) => a.id === cachedWalletId) ??
+          FreighterAdapter;
+        const livePub = await adapter.getPublicKey();
+
+        if (livePub && livePub !== cachedAddr) {
+          setAddress(livePub);
+          localStorage.setItem("walletAddress", livePub);
+          const liveNet = await adapter.getNetwork();
+          setNetwork(liveNet);
+          localStorage.setItem("walletNetwork", liveNet);
+          const b = await getXlmBalance(livePub);
           setBalance(b);
-        } catch {
-          /* ignore */
+          return;
         }
-      })();
-    }
-    // run only on mount
+
+        const b = await getXlmBalance(cachedAddr);
+        setBalance(b);
+      } catch {
+        setAddress(null);
+        setConnected(false);
+        setNetwork(null);
+        setBalance(null);
+        setActiveWalletId(null);
+        localStorage.removeItem("walletAddress");
+        localStorage.removeItem("walletNetwork");
+        localStorage.removeItem("activeWalletId");
+      }
+    })();
   }, []);
 
   const refreshBalance = async (addr?: string) => {
@@ -73,25 +100,57 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const connect = async () => {
+  const connect = async (adapterId?: string) => {
     setLoading(true);
     setError(null);
-    try {
-      // Get current network from Freighter
-      const networkName = await getCurrentNetworkName();
-      setNetwork(networkName);
-      localStorage.setItem("walletNetwork", networkName);
 
-      // Freighter API exposes methods on the default export
-      // getPublicKey will return the active public key when Freighter is available
-      // If Freighter extension is not connected or no account selected, it will show modal
-      const pub = await FreighterApi.getPublicKey();
-      if (!pub) {
-        throw new Error("Could not get public key from Freighter");
-      }
+    const adapter =
+      (adapterId ? WALLET_ADAPTERS.find((a) => a.id === adapterId) : null) ??
+      getPreferredAdapter();
+
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+
+    if (isMobile && !adapter.supportsMobile()) {
+      const deepLink = adapter.mobileDeepLink();
+      const hint = deepLink
+        ? `Open ${adapter.name} at ${deepLink} and try again.`
+        : `${adapter.name} is not supported on mobile. Please use a desktop browser with the ${adapter.name} extension installed.`;
+      setError(hint);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const pub = await Promise.race([
+        adapter.getPublicKey(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s. ` +
+                    `Make sure ${adapter.name} is unlocked and try again.`,
+                ),
+            ),
+            CONNECT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+
+      const networkName = await adapter.getNetwork();
+
       setAddress(pub);
-      localStorage.setItem("walletAddress", pub);
+      setNetwork(networkName);
       setConnected(true);
+      setActiveWalletId(adapter.id);
+
+      localStorage.setItem("walletAddress", pub);
+      localStorage.setItem("walletNetwork", networkName);
+      localStorage.setItem("activeWalletId", adapter.id);
+      savePreferredAdapter(adapter.id);
+
       await refreshBalance(pub);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -110,8 +169,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     setConnected(false);
     setError(null);
     setNetwork(null);
+    setActiveWalletId(null);
     localStorage.removeItem("walletAddress");
     localStorage.removeItem("walletNetwork");
+    localStorage.removeItem("activeWalletId");
   };
 
   const signAndSubmit = useCallback(
@@ -122,7 +183,6 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       setError(null);
       try {
         const result = await signAndSubmitTransaction(transactionXdr);
-        // Refresh balance after a successful on-chain transaction
         if (result.success) {
           await refreshBalance();
         }
@@ -133,23 +193,26 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
         return { success: false, error: msg };
       }
     },
-    [connected, address]
+    [connected, address],
   );
 
-  const ctx = {
-    address,
-    balance,
-    connected,
-    loading,
-    error,
-    network,
-    connect,
-    disconnect,
-    refreshBalance: async () => refreshBalance(),
-    signAndSubmit,
-  };
-
   return (
-    <WalletContext.Provider value={ctx}>{children}</WalletContext.Provider>
+    <WalletContext.Provider
+      value={{
+        address,
+        balance,
+        connected,
+        loading,
+        error,
+        network,
+        activeWalletId,
+        connect,
+        disconnect,
+        refreshBalance: async () => refreshBalance(),
+        signAndSubmit,
+      }}
+    >
+      {children}
+    </WalletContext.Provider>
   );
 };

@@ -1,36 +1,71 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { CheckCircle2, Wallet, ShieldCheck } from "lucide-react";
+
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
+import { useWallet } from "@/hooks/useWallet";
 
 const PLATFORM_FEE_PCT = 3;
 
+// XLM SAC contract — required to settle native XLM through escrow. Set
+// NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID in .env.local (testnet XLM SAC).
+const NATIVE_TOKEN_CONTRACT_ID =
+  process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID ?? "";
+
 export default function CreateOrderForm() {
   const searchParams = useSearchParams();
-  const farmerAddress = searchParams.get("farmer") ?? "";
+  const prefilledFarmer = searchParams.get("farmer") ?? "";
 
+  const { connected } = useWallet();
   const { createOrder, createState } = useEscrowContract();
-  const [farmer, setFarmer] = useState(farmerAddress);
+
+  const [farmer, setFarmer] = useState(prefilledFarmer);
   const [amount, setAmount] = useState("");
+  const [deliveryDeadline, setDeliveryDeadline] = useState("");
   const [description, setDescription] = useState("");
-  const [txStep, setTxStep] = useState<"idle" | "signing" | "confirming" | "done" | "error">("idle");
+  const [txStep, setTxStep] = useState<"idle" | "signing" | "done" | "error">(
+    "idle",
+  );
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const numAmount = parseFloat(amount);
-  const isValid = farmer.length > 0 && numAmount > 0;
-  const fee = isValid ? (numAmount * PLATFORM_FEE_PCT) / 100 : 0;
-  const farmerReceives = isValid ? numAmount - fee : 0;
+  const hasAmount = numAmount > 0;
+  const hasFarmer = farmer.trim().length > 0;
+  const hasDeadline = deliveryDeadline.length > 0;
+  const isValid = hasFarmer && hasAmount && hasDeadline;
+
+  const fee = hasAmount ? (numAmount * PLATFORM_FEE_PCT) / 100 : 0;
+  const farmerReceives = hasAmount ? numAmount - fee : 0;
 
   async function handleSubmit() {
     if (!isValid) return;
+    if (!NATIVE_TOKEN_CONTRACT_ID) {
+      setTxStep("error");
+      return;
+    }
     try {
       setTxStep("signing");
       const stroops = BigInt(Math.round(numAmount * 1e7));
-      const result = await createOrder(farmer, stroops);
+      const result = await createOrder(
+        farmer.trim(),
+        NATIVE_TOKEN_CONTRACT_ID,
+        stroops,
+        deliveryDeadline,
+      );
       setTxStep("done");
       setTxHash(result?.txHash ?? null);
     } catch {
@@ -40,37 +75,103 @@ export default function CreateOrderForm() {
 
   if (txStep === "done") {
     return (
-      <Card variant="elevated" padding="lg" className="max-w-lg mx-auto text-center">
-        <div className="text-5xl mb-4">✅</div>
-        <h2 className="text-xl font-bold text-foreground mb-2">Order Created</h2>
-        <p className="text-sm text-muted mb-4">
-          Your funds are held in escrow until you confirm delivery.
-        </p>
-        {txHash && (
-          <p className="text-xs font-mono text-neutral-500 break-all mb-4">
-            TX: {txHash}
+      <Card className="mx-auto max-w-lg">
+        <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+          <div className="bg-primary/10 grid size-16 place-content-center rounded-full">
+            <CheckCircle2 className="text-primary size-8" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold">Order Created</h2>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Funds are now locked in escrow. The farmer ships, you confirm
+              receipt, the contract releases payment.
+            </p>
+          </div>
+          {txHash && (
+            <div className="bg-secondary/50 w-full rounded-xl border p-3 text-left">
+              <p className="text-muted-foreground text-xs">Transaction hash</p>
+              <p className="font-mono mt-1 break-all text-xs">{txHash}</p>
+            </div>
+          )}
+          <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row">
+            <Button asChild className="flex-1">
+              <Link href="/orders">View Orders</Link>
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                setTxStep("idle");
+                setAmount("");
+                setDeliveryDeadline("");
+                setDescription("");
+                setTxHash(null);
+              }}
+            >
+              Create Another
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!connected) {
+    return (
+      <Card className="mx-auto max-w-lg">
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <div className="bg-secondary text-muted-foreground grid size-12 place-content-center rounded-full">
+            <Wallet className="size-5" />
+          </div>
+          <h2 className="text-lg font-semibold">Connect your wallet</h2>
+          <p className="text-muted-foreground text-sm">
+            Sign in with Freighter to create an escrow order.
           </p>
-        )}
-        <Button variant="primary" onClick={() => { setTxStep("idle"); setAmount(""); }}>
-          Create Another Order
-        </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!NATIVE_TOKEN_CONTRACT_ID) {
+    return (
+      <Card className="mx-auto max-w-lg">
+        <CardContent className="space-y-2 py-6 text-sm">
+          <h2 className="font-semibold">Token contract not configured</h2>
+          <p className="text-muted-foreground">
+            Set{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 text-xs">
+              NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID
+            </code>{" "}
+            in{" "}
+            <code className="bg-muted rounded px-1.5 py-0.5 text-xs">
+              .env.local
+            </code>{" "}
+            to the XLM SAC for your network before the form will work.
+          </p>
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card variant="elevated" padding="lg" className="max-w-lg mx-auto">
-      <h2 className="text-xl font-bold text-foreground mb-1">Create Order</h2>
-      <p className="text-sm text-muted mb-6">
-        Funds will be held in escrow until you confirm receipt of goods.
-      </p>
-
-      <div className="space-y-4">
+    <Card className="mx-auto max-w-lg">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-xl">
+          <ShieldCheck className="text-primary size-5" />
+          Create Escrow Order
+        </CardTitle>
+        <p className="text-muted-foreground text-sm">
+          Funds are held in a Soroban escrow until you confirm receipt of
+          goods. If the farmer doesn&apos;t deliver in time, you can refund.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-5">
         <Input
           label="Farmer Address"
-          placeholder="G..."
+          placeholder="G…"
           value={farmer}
           onChange={(e) => setFarmer(e.target.value)}
+          spellCheck={false}
         />
 
         <Input
@@ -83,53 +184,83 @@ export default function CreateOrderForm() {
           onChange={(e) => setAmount(e.target.value)}
         />
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
-            Description (optional)
-          </label>
-          <textarea
-            className="w-full rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm text-foreground placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
-            placeholder="e.g. 50kg organic tomatoes"
+        <Input
+          label="Delivery deadline"
+          hint="If the farmer doesn't deliver by this time, you can refund the escrow."
+          type="datetime-local"
+          value={deliveryDeadline}
+          onChange={(e) => setDeliveryDeadline(e.target.value)}
+        />
+
+        <div className="grid w-full gap-1.5">
+          <Label htmlFor="order-description">Description (optional)</Label>
+          <Textarea
+            id="order-description"
             rows={2}
+            placeholder="e.g. 50kg organic tomatoes"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
 
-        {isValid && (
-          <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-4 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-neutral-600">You pay</span>
-              <span className="font-semibold text-foreground">{numAmount.toFixed(2)} XLM</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-neutral-600">Platform fee ({PLATFORM_FEE_PCT}%)</span>
-              <span className="text-neutral-500">{fee.toFixed(2)} XLM</span>
-            </div>
-            <div className="border-t border-neutral-200 pt-2 flex justify-between">
-              <span className="text-neutral-600">Farmer receives</span>
-              <span className="font-semibold text-primary-700">{farmerReceives.toFixed(2)} XLM</span>
-            </div>
+        {hasAmount && (
+          <div className="bg-secondary/40 space-y-2 rounded-2xl border p-4 text-sm">
+            <Row label="You pay" value={`${numAmount.toFixed(2)} XLM`} />
+            <Row
+              label={`Platform fee (${PLATFORM_FEE_PCT}%)`}
+              value={`${fee.toFixed(2)} XLM`}
+              muted
+            />
+            <Separator />
+            <Row
+              label="Farmer receives"
+              value={`${farmerReceives.toFixed(2)} XLM`}
+              bold
+            />
           </div>
         )}
 
         {(createState.error || txStep === "error") && (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-lg border p-3 text-sm">
             {createState.error ?? "Transaction failed. Please try again."}
           </div>
         )}
 
         <Button
-          variant="primary"
-          fullWidth
           size="lg"
           disabled={!isValid}
           isLoading={createState.isLoading}
           onClick={handleSubmit}
+          className="w-full"
         >
-          {txStep === "signing" ? "Sign in Wallet..." : "Confirm & Create Order"}
+          {txStep === "signing"
+            ? "Sign in wallet…"
+            : "Confirm & Create Escrow Order"}
         </Button>
-      </div>
+      </CardContent>
     </Card>
+  );
+}
+
+function Row({
+  label,
+  value,
+  muted,
+  bold,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  bold?: boolean;
+}) {
+  return (
+    <div
+      className={`flex justify-between ${
+        muted ? "text-muted-foreground" : ""
+      } ${bold ? "text-base font-semibold" : ""}`}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
   );
 }

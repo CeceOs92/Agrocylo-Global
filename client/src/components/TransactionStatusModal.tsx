@@ -1,7 +1,18 @@
 "use client";
 
-import React from "react";
-import { Button, Card, CardContent, Text, Badge } from "@/components/ui";
+import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export type TransactionState =
   | "idle"
@@ -20,43 +31,68 @@ export interface TransactionStatusModalProps {
   errorMessage?: string;
 }
 
+type Tone = "neutral" | "primary" | "warning" | "success" | "destructive";
+
 interface StateConfig {
   label: string;
-  badgeVariant: "default" | "primary" | "secondary" | "success" | "warning" | "error" | "outline";
+  badge:
+    | "default"
+    | "secondary"
+    | "destructive"
+    | "outline"
+    | "success"
+    | "warning";
+  tone: Tone;
   showSpinner: boolean;
 }
 
 const stateConfig: Record<Exclude<TransactionState, "idle">, StateConfig> = {
   preparing: {
     label: "Preparing transaction",
-    badgeVariant: "primary",
+    badge: "default",
+    tone: "primary",
     showSpinner: true,
   },
   waiting_signature: {
     label: "Waiting for wallet signature",
-    badgeVariant: "warning",
+    badge: "warning",
+    tone: "warning",
     showSpinner: true,
   },
   submitting: {
     label: "Submitting transaction",
-    badgeVariant: "primary",
+    badge: "default",
+    tone: "primary",
     showSpinner: true,
   },
   confirming: {
     label: "Confirming on network",
-    badgeVariant: "warning",
+    badge: "warning",
+    tone: "warning",
     showSpinner: true,
   },
   success: {
     label: "Transaction successful",
-    badgeVariant: "success",
+    badge: "success",
+    tone: "success",
     showSpinner: false,
   },
   failed: {
     label: "Transaction failed",
-    badgeVariant: "error",
+    badge: "destructive",
+    tone: "destructive",
     showSpinner: false,
   },
+};
+
+const toneRing: Record<Tone, string> = {
+  neutral: "bg-muted text-muted-foreground",
+  primary: "bg-primary/10 text-primary",
+  warning:
+    "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  success:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+  destructive: "bg-destructive/10 text-destructive",
 };
 
 export function TransactionStatusModal({
@@ -66,106 +102,66 @@ export function TransactionStatusModal({
   txHash,
   errorMessage,
 }: TransactionStatusModalProps) {
-  if (!isOpen || state === "idle") {
-    return null;
-  }
+  if (state === "idle") return null;
 
   const config = stateConfig[state];
   const isTerminal = state === "success" || state === "failed";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={isTerminal ? onClose : undefined}
-        aria-hidden="true"
-      />
-      <Card
-        variant="elevated"
-        padding="lg"
-        className="relative w-full max-w-md"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="transaction-modal-title"
-      >
-        <CardContent className="text-center space-y-6">
-          <div className="flex justify-center">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(next) => {
+        // Don't allow dismissal while a tx is in flight.
+        if (!next && isTerminal) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="items-center text-center">
+          <div
+            className={cn(
+              "mb-2 grid size-16 place-content-center rounded-full",
+              toneRing[config.tone],
+            )}
+          >
             {config.showSpinner ? (
-              <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <div className="size-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-              </div>
+              <Loader2 className="size-8 animate-spin" />
             ) : state === "success" ? (
-              <div className="size-16 rounded-full bg-success/10 flex items-center justify-center">
-                <svg
-                  className="size-10 text-success"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              </div>
+              <CheckCircle2 className="size-8" />
             ) : (
-              <div className="size-16 rounded-full bg-error/10 flex items-center justify-center">
-                <svg
-                  className="size-10 text-error"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </div>
+              <XCircle className="size-8" />
             )}
           </div>
+          <DialogTitle>{config.label}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {state.replace(/_/g, " ")}
+          </DialogDescription>
+          <Badge variant={config.badge} className="mt-2 capitalize">
+            {state.replace(/_/g, " ")}
+          </Badge>
+        </DialogHeader>
 
-          <div className="space-y-2">
-            <Text id="transaction-modal-title" variant="h3" as="h3">
-              {config.label}
-            </Text>
-            <Badge variant={config.badgeVariant}>{state.replace(/_/g, " ")}</Badge>
+        {txHash && (
+          <div className="bg-secondary/50 rounded-lg border p-3">
+            <p className="text-muted-foreground text-xs">Transaction hash</p>
+            <p className="font-mono mt-1 break-all text-xs">{txHash}</p>
           </div>
+        )}
 
-          {txHash && (
-            <div className="bg-muted/50 p-3 rounded-lg">
-              <Text variant="caption" muted className="block mb-1">
-                Transaction Hash
-              </Text>
-              <Text
-                variant="bodySmall"
-                className="font-mono text-xs break-all"
-              >
-                {txHash}
-              </Text>
-            </div>
-          )}
+        {errorMessage && (
+          <div className="bg-destructive/10 text-destructive border-destructive/30 rounded-lg border p-3 text-sm">
+            {errorMessage}
+          </div>
+        )}
 
-          {errorMessage && (
-            <div className="bg-error/10 border border-error/20 p-3 rounded-lg">
-              <Text variant="bodySmall" className="text-error">
-                {errorMessage}
-              </Text>
-            </div>
-          )}
-
-          {isTerminal && (
-            <Button variant="primary" onClick={onClose} fullWidth>
+        {isTerminal && (
+          <DialogFooter>
+            <Button onClick={onClose} className="w-full sm:w-auto">
               Close
             </Button>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
