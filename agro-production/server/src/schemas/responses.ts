@@ -1,16 +1,20 @@
 import { z } from "zod";
 import {
   campaignStatusEnum,
-  isoDateTime,
   orderStatusEnum,
-  positiveInt128,
   stellarAddress,
   uuidParam,
 } from "./common.js";
 
+/** Accepts ISO strings or Date instances from Prisma. */
+const dateField = z.union([
+  z.string().datetime(),
+  z.date().transform((d) => d.toISOString()),
+]);
+
 const timestamps = {
-  createdAt: isoDateTime,
-  updatedAt: isoDateTime,
+  createdAt: dateField,
+  updatedAt: dateField,
 };
 
 export const CampaignSchema = z.object({
@@ -22,7 +26,7 @@ export const CampaignSchema = z.object({
   totalRaised: z.string(),
   totalRevenue: z.string(),
   trancheReleased: z.string().optional(),
-  deadline: isoDateTime,
+  deadline: dateField,
   status: campaignStatusEnum,
   ...timestamps,
 });
@@ -57,7 +61,7 @@ export const InvestmentSchema = z.object({
   amount: z.string(),
   ledger: z.number().int(),
   txHash: z.string().nullable().optional(),
-  createdAt: isoDateTime,
+  createdAt: dateField,
   campaign: CampaignSchema.pick({
     id: true,
     onChainId: true,
@@ -80,8 +84,8 @@ export const OrderSchema = z.object({
   status: orderStatusEnum,
   ledger: z.number().int(),
   txHash: z.string().nullable().optional(),
-  createdAt: isoDateTime,
-  updatedAt: isoDateTime,
+  createdAt: dateField,
+  updatedAt: dateField,
   campaign: z
     .object({
       farmerAddress: stellarAddress,
