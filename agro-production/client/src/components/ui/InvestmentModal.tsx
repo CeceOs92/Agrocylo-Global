@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useInvest } from '@/hooks/useInvest';
 import { validateAmount } from '@/lib/validation';
+import { ButtonSpinner } from '@/components/Skeletons';
 
 interface InvestmentModalProps {
   open: boolean;
@@ -84,8 +85,8 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
       aria-label="Invest in product"
       onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
     >
-      <div ref={modalRef} className="bg-[var(--color-background)] text-[var(--color-foreground)] p-6 rounded-lg shadow-xl max-w-sm w-full">
-        <h2 className="text-xl font-semibold mb-4" style={{ color: 'var(--color-primary-600)' }}>
+      <div ref={modalRef} className="bg-background text-foreground p-6 rounded-lg shadow-xl max-w-sm w-full">
+        <h2 className="text-xl font-semibold mb-4 text-primary-600">
           Invest in product
         </h2>
         <div>
@@ -111,21 +112,22 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
           onClick={handleInvest}
           disabled={loading}
           aria-label={loading ? "Processing investment" : "Invest"}
-          className="w-full py-2 bg-[var(--color-primary-600)] text-white rounded hover:bg-[var(--color-primary-700)] disabled:opacity-50"
+          className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
+          {loading && <ButtonSpinner />}
           {loading ? 'Investing…' : 'Invest'}
         </button>
         {error && (
-          <p className="mt-2 text-sm text-[var(--color-error)]" role="alert">{error}</p>
+          <p className="mt-2 text-sm text-error" role="alert">{error}</p>
         )}
         {success && (
-          <p className="mt-2 text-sm text-[var(--color-success)]" role="status">Investment successful!</p>
+          <p className="mt-2 text-sm text-success" role="status">Investment successful!</p>
         )}
         <button
           ref={closeRef}
           onClick={onClose}
           disabled={loading}
-          className="mt-4 text-sm underline text-[var(--color-primary-600)]"
+          className="mt-4 text-sm underline text-primary-600"
           aria-label="Cancel investment"
         >
           Cancel

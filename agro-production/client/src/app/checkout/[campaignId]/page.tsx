@@ -10,6 +10,7 @@ import { buildCreateOrder } from "@/lib/contractService";
 import { signAndSubmitTransaction } from "@/lib/signTransaction";
 import { validateAmount, validateStellarAddress, sanitizeString } from "@/lib/validation";
 import { trackOrderPlaced } from "@/lib/analytics";
+import { ButtonSpinner } from "@/components/Skeletons";
 import type { CampaignDetail, Order } from "@/types";
 
 type TxStatus = "idle" | "creating" | "awaiting_signature" | "submitting" | "success" | "error";
@@ -144,7 +145,7 @@ export default function CheckoutPage() {
           {!connected ? (
             <div className="border border-border rounded-xl p-5 text-center space-y-3">
               <p className="text-sm text-muted">Connect your wallet to place an order.</p>
-              <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to place order"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50">{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
+              <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to place order"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2">{walletLoading && <ButtonSpinner />}{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
             </div>
           ) : (<div className="text-xs text-muted">Ordering as: <span className="font-mono text-foreground">{address}</span></div>)}
           <div>
