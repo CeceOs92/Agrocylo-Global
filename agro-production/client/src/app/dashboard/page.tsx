@@ -30,41 +30,27 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-foreground">My Dashboard</h1>
         <WalletConnect />
       </div>
-
-      <div className="bg-surface border border-border rounded-xl p-5">
+      <section aria-label="Wallet information" className="bg-surface border border-border rounded-xl p-5">
         <p className="text-sm text-muted mb-1">Connected address</p>
         <p className="font-mono text-sm text-foreground break-all">{address}</p>
         <p className="font-mono text-xs text-muted mt-1">({shortAddr(address)})</p>
-      </div>
-
-      {/* Investment Dashboard */}
-      <section>
+      </section>
+      <section aria-label="Investment portfolio">
         <h2 className="text-lg font-semibold text-foreground mb-4">My Investments</h2>
         <InvestmentDashboard investorAddress={address} />
       </section>
-
-      {/* Quick links */}
-      <section>
+      <section aria-label="Quick links">
         <h2 className="text-lg font-semibold text-foreground mb-4">Quick Links</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link
-            href="/orders"
-            className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block"
-          >
+          <Link href="/orders" className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block" aria-label="View my orders">
             <h3 className="font-semibold text-foreground mb-1">My Orders</h3>
             <p className="text-sm text-muted">View your purchase history and order status.</p>
           </Link>
-          <Link
-            href="/campaigns"
-            className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block"
-          >
+          <Link href="/campaigns" className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block" aria-label="Browse campaigns">
             <h3 className="font-semibold text-foreground mb-1">Browse Campaigns</h3>
             <p className="text-sm text-muted">Discover and fund active agricultural campaigns.</p>
           </Link>
-          <Link
-            href="/marketplace"
-            className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block"
-          >
+          <Link href="/marketplace" className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block" aria-label="Browse marketplace">
             <h3 className="font-semibold text-foreground mb-1">Marketplace</h3>
             <p className="text-sm text-muted">Browse available produce and farm products.</p>
           </Link>

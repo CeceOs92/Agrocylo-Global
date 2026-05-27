@@ -35,7 +35,6 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
     load();
   }, [load]);
 
-  // Live updates via WebSocket
   useWebSocket(
     useCallback(
       (msg: WsMessage) => {
@@ -64,9 +63,9 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
 
   if (loading) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-3" aria-label="Loading investments">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-surface border border-border rounded-xl p-5 animate-pulse h-24" />
+          <div key={i} className="bg-surface border border-border rounded-xl p-5 animate-pulse h-24" aria-hidden="true" />
         ))}
       </div>
     );
@@ -74,7 +73,7 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
 
   if (error) {
     return (
-      <div className="bg-surface border border-error rounded-xl p-5 text-error text-sm">
+      <div className="bg-surface border border-error rounded-xl p-5 text-error text-sm" role="alert">
         {error}
       </div>
     );
@@ -82,7 +81,6 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard label="Total Invested" value={`${formatAmount(String(totalContributed))} XLM`} />
         <SummaryCard label="Campaigns" value={String(investments.length)} />
@@ -94,7 +92,7 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
       </div>
 
       {lastUpdate && (
-        <p className="text-xs text-muted">
+        <p className="text-xs text-muted" aria-live="polite">
           Live — last updated {new Date(lastUpdate).toLocaleTimeString()}
         </p>
       )}
@@ -104,7 +102,7 @@ export default function InvestmentDashboard({ investorAddress }: Props) {
           No investments yet. Browse campaigns to get started.
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3" aria-label="Investments list">
           {investments.map((inv) => (
             <InvestmentRow key={inv.id} investment={inv} />
           ))}
