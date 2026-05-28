@@ -1,9 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 
 interface ProfileFormProps {
   displayName: string;
@@ -13,6 +21,8 @@ interface ProfileFormProps {
   onBack: () => void;
 }
 
+const BIO_LIMIT = 280;
+
 export default function ProfileForm({
   displayName,
   bio,
@@ -20,64 +30,61 @@ export default function ProfileForm({
   onNext,
   onBack,
 }: ProfileFormProps) {
-  const [nameError, setNameError] = useState("");
+  const [nameError, setNameError] = useState<string | undefined>();
 
   function handleNext() {
     if (!displayName.trim()) {
       setNameError("Display name is required");
       return;
     }
-    setNameError("");
+    setNameError(undefined);
     onNext();
   }
 
   return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto">
-      <h2 className="text-2xl font-bold text-foreground mb-2 text-center">
-        Your Profile
-      </h2>
-      <p className="text-muted text-sm mb-6 text-center">
-        Tell others about yourself.
-      </p>
-
-      <div className="space-y-4">
-        <Input
-          label="Display Name"
-          placeholder="e.g. John's Farm"
-          value={displayName}
-          onChange={(e) => {
-            onUpdate({ displayName: e.target.value, bio });
-            if (nameError) setNameError("");
-          }}
-          error={nameError}
-        />
-
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-1.5">
-            Bio (optional)
-          </label>
-          <textarea
-            className="w-full rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm text-foreground placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-neutral-600 dark:bg-neutral-800"
-            placeholder="Organic tomatoes and peppers from Lagos..."
-            rows={3}
-            maxLength={280}
-            value={bio}
-            onChange={(e) => onUpdate({ displayName, bio: e.target.value })}
+    <Card className="mx-auto max-w-md">
+      <CardHeader className="text-center">
+        <CardTitle className="text-2xl">Your Profile</CardTitle>
+        <CardDescription>Tell others about yourself.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <Input
+            label="Display Name"
+            placeholder="e.g. John's Farm"
+            value={displayName}
+            onChange={(e) => {
+              onUpdate({ displayName: e.target.value, bio });
+              if (nameError) setNameError(undefined);
+            }}
+            error={nameError}
           />
-          <p className="mt-1 text-xs text-neutral-400 text-right">
-            {bio.length}/280
-          </p>
-        </div>
-      </div>
 
-      <div className="flex gap-3 mt-6">
-        <Button variant="outline" fullWidth onClick={onBack}>
-          Back
-        </Button>
-        <Button variant="primary" fullWidth onClick={handleNext}>
-          Continue
-        </Button>
-      </div>
+          <div className="grid w-full gap-1.5">
+            <Label htmlFor="onboarding-bio">Bio (optional)</Label>
+            <Textarea
+              id="onboarding-bio"
+              placeholder="Organic tomatoes and peppers from Lagos…"
+              rows={3}
+              maxLength={BIO_LIMIT}
+              value={bio}
+              onChange={(e) => onUpdate({ displayName, bio: e.target.value })}
+            />
+            <p className="text-muted-foreground text-right text-xs">
+              {bio.length}/{BIO_LIMIT}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onBack} className="flex-1">
+            Back
+          </Button>
+          <Button onClick={handleNext} className="flex-[2]">
+            Continue
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

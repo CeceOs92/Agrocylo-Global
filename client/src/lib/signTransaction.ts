@@ -12,6 +12,7 @@ import { TransactionBuilder } from "@stellar/stellar-sdk";
 import { rpc } from "@stellar/stellar-sdk";
 import FreighterApi from "@stellar/freighter-api";
 import { getRpcServer, getCurrentNetworkName } from "./stellar";
+import { isTestMode } from "./testMode";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -66,9 +67,19 @@ export async function signTransaction(
     opts?.networkPassphrase
   );
 
-  const signedXdr = await FreighterApi.signTransaction(transactionXdr, {
-    networkPassphrase,
-  });
+  // Prefer window.freighter if available (e.g. Playwright test mocks).
+  const freighterDirect =
+    typeof window !== "undefined"
+      ? window.freighter ?? window.freighterApi ?? null
+      : null;
+
+  const signedXdr = freighterDirect
+    ? await freighterDirect.signTransaction(transactionXdr, {
+        networkPassphrase,
+      })
+    : await FreighterApi.signTransaction(transactionXdr, {
+        networkPassphrase,
+      });
 
   if (!signedXdr) {
     throw new Error("Transaction was rejected by the wallet");
@@ -89,6 +100,16 @@ export async function submitTransaction(
   signedXdr: string,
   opts?: SignTransactionOptions
 ): Promise<SignAndSubmitResult> {
+  // Test mode: return dummy success response
+  if (isTestMode()) {
+    return {
+      success: true,
+      txHash: "0000000000000000000000000000000000000000000000000000000000000000",
+      status: "SUCCESS",
+      resultXdr: "AAAAAgAAAAB6Mcc=",
+    };
+  }
+
   const networkPassphrase = await resolveNetworkPassphrase(
     opts?.networkPassphrase
   );

@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import EscrowTransaction from './EscrowTransaction';
 import { WalletContext } from '@/context/WalletContext';
+import type { WalletContextType } from '@/types/wallet';
 
 // Mocking external services and hooks to isolate component logic
 vi.mock('@/services/stellar/contractService', () => ({
@@ -34,7 +35,7 @@ describe('EscrowTransaction Component', () => {
 
   it('renders product details and calculates total price correctly', () => {
     render(
-      <WalletContext.Provider value={mockContextValue as any}>
+      <WalletContext.Provider value={mockContextValue as unknown as WalletContextType}>
         <EscrowTransaction {...defaultProps} />
       </WalletContext.Provider>
     );
@@ -51,7 +52,7 @@ describe('EscrowTransaction Component', () => {
 
   it('validates that delivery deadline is required before submission', async () => {
     render(
-      <WalletContext.Provider value={mockContextValue as any}>
+      <WalletContext.Provider value={mockContextValue as unknown as WalletContextType}>
         <EscrowTransaction {...defaultProps} />
       </WalletContext.Provider>
     );

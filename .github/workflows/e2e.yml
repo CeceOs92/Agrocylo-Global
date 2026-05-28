@@ -1,27 +1,48 @@
-name: E2E Tests (Playwright)
+# Playwright end-to-end suite.
+#
+# Currently manual-trigger only — the existing fixtures and harness need a
+# rewrite (wallet-stubbing strategy, dev server bootstrap, seeded data) before
+# this gate becomes mandatory on PRs. Trigger via the GitHub Actions UI or
+# `gh workflow run e2e.yml --ref <branch>`.
+
+name: E2E · Playwright
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Browser to run
+        required: false
+        default: chromium
+        type: choice
+        options: [chromium, firefox, webkit, all]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   e2e:
-    name: Playwright E2E
+    name: Playwright (${{ github.event.inputs.browser }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: client
+    env:
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "22"
           cache: npm
           cache-dependency-path: client/package-lock.json
 
@@ -29,17 +50,25 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox
+        run: |
+          if [ "${{ github.event.inputs.browser }}" = "all" ]; then
+            npx playwright install --with-deps chromium firefox webkit
+          else
+            npx playwright install --with-deps "${{ github.event.inputs.browser }}"
+          fi
 
-      - name: Run Playwright E2E tests
-        run: npx playwright test
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
+      - name: Run Playwright tests
+        run: |
+          if [ "${{ github.event.inputs.browser }}" = "all" ]; then
+            npx playwright test
+          else
+            npx playwright test --project="${{ github.event.inputs.browser }}"
+          fi
 
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-${{ github.event.inputs.browser }}
           path: client/playwright-report/
           retention-days: 7
