@@ -190,17 +190,24 @@ export async function startContractWatcher(): Promise<void> {
         filters: [{ type: "contract", contractIds: [contractId] }],
       });
 
-      for (const event of response.events) {
-        // Route through the structured ingestion pipeline (persistence + projection).
-        // Services are imported statically at module load, not re-imported every
-        // iteration of the polling loop.
-        void BlockchainEventIngestionService.ingestEvent(event).catch((err) =>
-          logger.error("[ContractWatcher] BlockchainEventIngestionService failed", err),
-        );
+      const events = response.events;
+      if (events.length === 0) return;
 
-        void EscrowEventIngestionService.ingestEvent(event).catch((err) =>
-          logger.error("[ContractWatcher] EscrowEventIngestionService failed", err),
-        );
+      let maxProcessedLedger = lastLedger;
+
+      for (const event of events) {
+        if (event.ledger < lastLedger) {
+          logger.debug(`[ContractWatcher] Skipping duplicate event at ledger ${event.ledger} (already processed)`);
+          continue;
+        }
+
+        void import("./events/blockchainEventIngestionService.js")
+          .then(({ BlockchainEventIngestionService }) => BlockchainEventIngestionService.ingestEvent(event))
+          .catch((err) => logger.error("[ContractWatcher] BlockchainEventIngestionService import failed", err));
+
+        void import("./events/escrowEventIngestionService.js")
+          .then(({ EscrowEventIngestionService }) => EscrowEventIngestionService.ingestEvent(event))
+          .catch((err) => logger.error("[ContractWatcher] EscrowEventIngestionService import failed", err));
 
         handleEvent(event);
 
