@@ -19,10 +19,56 @@ fn setup_test() -> (
 ) {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
 
     let admin = Address::generate(&env);
     let buyer = Address::generate(&env);
     let farmer = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let xlm_client = token::Client::new(&env, &xlm_contract.address());
+    let xlm_admin_client = token::StellarAssetClient::new(&env, &xlm_contract.address());
+    xlm_admin_client.mint(&buyer, &100_000);
+    xlm_admin_client.mint(&farmer, &100_000);
+
+    let usdc_contract = env.register_stellar_asset_contract_v2(token_admin);
+    let usdc_client = token::Client::new(&env, &usdc_contract.address());
+
+    let contract_id = env.register(ProductionEscrowContract, ());
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let mut supported_tokens = Vec::new(&env);
+    supported_tokens.push_back(xlm_client.address.clone());
+    supported_tokens.push_back(usdc_client.address.clone());
+
+    // fee_rate_bps = 0 so existing balance assertions remain unchanged
+    client.initialize(&admin, &supported_tokens, &STAKE_AMOUNT, &fee_collector, &0u32);
+
+    (env, client, admin, buyer, farmer, xlm_client, usdc_client)
+}
+
+/// Helper that sets up the contract with a non-zero fee rate.
+fn setup_test_with_fee(
+    fee_rate_bps: u32,
+) -> (
+    Env,
+    ProductionEscrowContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+    token::Client<'static>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let admin = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let farmer = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
     let token_admin = Address::generate(&env);
 
     let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
@@ -41,9 +87,23 @@ fn setup_test() -> (
     supported_tokens.push_back(xlm_client.address.clone());
     supported_tokens.push_back(usdc_client.address.clone());
 
-    client.initialize(&admin, &supported_tokens, &STAKE_AMOUNT);
+    client.initialize(
+        &admin,
+        &supported_tokens,
+        &STAKE_AMOUNT,
+        &fee_collector,
+        &fee_rate_bps,
+    );
 
-    (env, client, admin, buyer, farmer, xlm_client, usdc_client)
+    (
+        env,
+        client,
+        admin,
+        buyer,
+        farmer,
+        fee_collector,
+        xlm_client,
+    )
 }
 
 // ── Campaign tests (Issue #137) ───────────────────────────────────────────────
@@ -705,7 +765,7 @@ fn test_resolve_dispute_in_favour_of_raiser() {
     let buyer_balance_before = token.balance(&buyer);
     client.resolve_dispute(&admin, &dispute_id, &true);
 
-    // Buyer gets stake + order amount back.
+    // Buyer gets stake + order net amount back.
     assert_eq!(
         token.balance(&buyer),
         buyer_balance_before + STAKE_AMOUNT + 500
@@ -729,7 +789,7 @@ fn test_resolve_dispute_against_raiser_stake_forfeited() {
 
     // Admin gets the forfeited stake.
     assert_eq!(token.balance(&admin), admin_balance_before + STAKE_AMOUNT);
-    // Counterparty (farmer) gets the order amount.
+    // Counterparty (farmer) gets the order net amount.
     assert_eq!(token.balance(&farmer), farmer_balance_before + 500);
 
     let dispute = client.get_dispute(&dispute_id);
@@ -983,10 +1043,120 @@ fn test_zero_amount_order_fails() {
     );
 }
 
+// ── Fee mechanism tests (Issue #270) ─────────────────────────────────────────
+
+#[test]
+fn test_fee_collected_on_order_creation() {
+    let (_env, client, _admin, buyer, farmer, fee_collector, token) =
+        setup_test_with_fee(300); // 3%
+
+    let gross = 1_000_i128;
+    let expected_fee = 30_i128;
+    let expected_net = 970_i128;
+
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &gross);
+
+    let order = client.get_order_details(&order_id);
+    assert_eq!(order.gross_amount, gross);
+    assert_eq!(order.amount, expected_net);
+
+    assert_eq!(token.balance(&fee_collector), expected_fee);
+    assert_eq!(token.balance(&buyer), 100_000 - gross);
+}
+
+#[test]
+fn test_farmer_receives_net_amount_after_fee() {
+    let (_env, client, _admin, buyer, farmer, _fee_collector, token) =
+        setup_test_with_fee(300); // 3%
+
+    let gross = 1_000_i128;
+    let expected_net = 970_i128;
+
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &gross);
+    client.confirm_receipt(&buyer, &order_id);
+
+    assert_eq!(token.balance(&farmer), 100_000 + expected_net);
+}
+
+#[test]
+fn test_zero_fee_rate_no_fee_collected() {
+    let (_env, client, _admin, buyer, farmer, fee_collector, token) =
+        setup_test_with_fee(0); // 0%
+
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &500);
+
+    let order = client.get_order_details(&order_id);
+    assert_eq!(order.gross_amount, 500);
+    assert_eq!(order.amount, 500);
+    assert_eq!(token.balance(&fee_collector), 0);
+}
+
+#[test]
+fn test_fee_calculation_edge_case_small_amount() {
+    // With 1% fee on 99 tokens, integer division gives fee = 0 (99 * 100 / 10_000 = 0)
+    let (_env, client, _admin, buyer, farmer, fee_collector, token) =
+        setup_test_with_fee(100); // 1%
+
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &99);
+
+    let order = client.get_order_details(&order_id);
+    assert_eq!(order.gross_amount, 99);
+    assert_eq!(order.amount, 99); // fee = 0 due to integer truncation
+    assert_eq!(token.balance(&fee_collector), 0);
+}
+
+#[test]
+fn test_fee_rate_max_boundary() {
+    // fee_rate_bps = 10_000 (100%) is the maximum allowed
+    let (_env, client, _admin, buyer, farmer, fee_collector, token) =
+        setup_test_with_fee(10_000);
+
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &500);
+
+    let order = client.get_order_details(&order_id);
+    assert_eq!(order.gross_amount, 500);
+    assert_eq!(order.amount, 0); // 100% fee → net = 0
+    assert_eq!(token.balance(&fee_collector), 500);
+}
+
+#[test]
+fn test_invalid_fee_rate_bps_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let xlm_client = token::Client::new(&env, &xlm_contract.address());
+    let usdc_contract = env.register_stellar_asset_contract_v2(token_admin);
+    let usdc_client = token::Client::new(&env, &usdc_contract.address());
+
+    let contract_id = env.register(ProductionEscrowContract, ());
+    let client = ProductionEscrowContractClient::new(&env, &contract_id);
+
+    let mut supported_tokens = Vec::new(&env);
+    supported_tokens.push_back(xlm_client.address.clone());
+    supported_tokens.push_back(usdc_client.address.clone());
+
+    let result = client.try_initialize(
+        &admin,
+        &supported_tokens,
+        &STAKE_AMOUNT,
+        &fee_collector,
+        &10_001u32,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ProductionEscrowError::InvalidFeeRate
+    );
+}
+
 #[test]
 fn test_negative_amount_order_fails() {
     let (_env, client, _admin, buyer, farmer, token, _) = setup_test();
-    
+
     let result = client.try_create_order(&buyer, &farmer, &token.address, &-100);
     assert_eq!(
         result.unwrap_err().unwrap(),
@@ -994,4 +1164,19 @@ fn test_negative_amount_order_fails() {
     );
 }
 
+#[test]
+fn test_refund_expired_order_returns_net_amount() {
+    let (env, client, _admin, buyer, farmer, _fee_collector, token) =
+        setup_test_with_fee(300); // 3%
 
+    let order_id = client.create_order(&buyer, &farmer, &token.address, &1_000);
+    let buyer_after_order = token.balance(&buyer);
+
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + NINETY_SIX_HOURS + 1);
+
+    client.refund_expired_order(&order_id);
+
+    // Buyer gets back net amount (970), not gross (1000) — fee is non-refundable
+    assert_eq!(token.balance(&buyer), buyer_after_order + 970);
+}
