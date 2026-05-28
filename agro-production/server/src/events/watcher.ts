@@ -4,6 +4,7 @@ import logger from "../config/logger.js";
 import { prisma } from "../db/client.js";
 import { ProductionEventParser } from "./parser.js";
 import { EventPersister } from "./persister.js";
+import { recordPersistError } from "./metrics.js";
 import type { RawSorobanEvent } from "./types.js";
 
 const POLL_INTERVAL_MS = 5_000;
@@ -85,9 +86,10 @@ export async function startProductionWatcher(): Promise<void> {
       for (const rawEvent of response.events) {
         const event = ProductionEventParser.tryParse(rawEvent as unknown as RawSorobanEvent);
         if (event) {
-          await EventPersister.persist(event).catch((err) =>
-            logger.error("EventPersister error", { error: err }),
-          );
+          await EventPersister.persist(event).catch((err) => {
+            recordPersistError();
+            logger.error("EventPersister error", { error: err });
+          });
         }
         if (rawEvent.ledger > highWaterMark) {
           highWaterMark = rawEvent.ledger;

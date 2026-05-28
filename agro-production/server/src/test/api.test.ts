@@ -1,73 +1,569 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import request from 'supertest';
-import app from '../index.js';
-import { PrismaClient } from '@prisma/client';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import request from "supertest";
 
-// Mock Prisma
-vi.mock('@prisma/client', () => {
-  const mPrisma = {
+vi.mock("../db/client.js", () => ({
+  prisma: {
     campaign: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       count: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      upsert: vi.fn(),
     },
     investment: {
       findMany: vi.fn(),
+      create: vi.fn(),
+      upsert: vi.fn(),
     },
     order: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
-  };
-  return { PrismaClient: vi.fn(() => mPrisma) };
+    user: {
+      upsert: vi.fn(),
+    },
+  },
+  connectDB: vi.fn(),
+}));
+
+vi.mock("../services/wsServer.js", () => ({
+  broadcast: vi.fn(),
+  attachWebSocketServer: vi.fn(),
+}));
+
+import app from "../app.js";
+import { prisma } from "../db/client.js";
+
+// Valid test fixtures
+const FARMER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const INVESTOR = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const BUYER = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+const TOKEN = "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
+const CAMPAIGN_UUID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+const ORDER_UUID = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
+const INVESTMENT_UUID = "cccccccc-cccc-4ccc-cccc-cccccccccccc";
+const FUTURE_DATE = "2030-01-01T00:00:00.000Z";
+const NOW = new Date().toISOString();
+
+const mockCampaign = {
+  id: CAMPAIGN_UUID,
+  onChainId: "on-chain-id-1",
+  farmerAddress: FARMER,
+  tokenAddress: TOKEN,
+  targetAmount: "1000",
+  totalRaised: "0",
+  totalRevenue: "0",
+  deadline: new Date(FUTURE_DATE),
+  status: "FUNDING" as const,
+  createdAt: new Date(NOW),
+  updatedAt: new Date(NOW),
+  _count: { investments: 0, orders: 0 },
+};
+
+const mockInvestment = {
+  id: INVESTMENT_UUID,
+  campaignId: CAMPAIGN_UUID,
+  investorAddress: INVESTOR,
+  amount: "100",
+  ledger: 100,
+  createdAt: new Date(NOW),
+};
+
+const mockOrder = {
+  id: ORDER_UUID,
+  onChainId: "pending",
+  campaignId: CAMPAIGN_UUID,
+  buyerAddress: BUYER,
+  amount: "50",
+  status: "PENDING" as const,
+  ledger: 0,
+  createdAt: new Date(NOW),
+  updatedAt: new Date(NOW),
+};
+
+const db = prisma as {
+  campaign: Record<string, ReturnType<typeof vi.fn>>;
+  investment: Record<string, ReturnType<typeof vi.fn>>;
+  order: Record<string, ReturnType<typeof vi.fn>>;
+  user: Record<string, ReturnType<typeof vi.fn>>;
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
 });
 
-const prisma = new PrismaClient() as any;
+// ---------------------------------------------------------------------------
+// Campaign endpoints
+// ---------------------------------------------------------------------------
 
-describe('Campaign API', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+describe("GET /api/v1/campaigns", () => {
+  it("returns a paginated list of campaigns", async () => {
+    db.campaign.findMany.mockResolvedValue([mockCampaign]);
+    db.campaign.count.mockResolvedValue(1);
 
-  it('GET /api/campaigns should return paginated campaigns', async () => {
-    const mockCampaigns = [
-      { id: '1', farmerAddress: 'addr1', targetAmount: '1000', status: 'FUNDING' },
-    ];
-    prisma.campaign.findMany.mockResolvedValue(mockCampaigns);
-    prisma.campaign.count.mockResolvedValue(1);
-
-    const res = await request(app).get('/api/campaigns');
+    const res = await request(app).get("/api/v1/campaigns");
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
-    expect(res.body.pagination.total).toBe(1);
+    expect(res.body.data[0].id).toBe(CAMPAIGN_UUID);
+    expect(res.body.meta.total).toBe(1);
+    expect(res.body.meta.page).toBe(1);
   });
 
-  it('GET /api/campaigns/:id should return a specific campaign', async () => {
-    const mockCampaign = { id: '1', farmerAddress: 'addr1', investments: [] };
-    prisma.campaign.findUnique.mockResolvedValue(mockCampaign);
+  it("filters campaigns by status", async () => {
+    db.campaign.findMany.mockResolvedValue([]);
+    db.campaign.count.mockResolvedValue(0);
 
-    const res = await request(app).get('/api/campaigns/1');
+    const res = await request(app).get("/api/v1/campaigns?status=FUNDED");
 
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe('1');
+    expect(db.campaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ status: "FUNDED" }) }),
+    );
   });
 
-  it('GET /api/analytics/price-history should return analytics', async () => {
-    prisma.order.findMany.mockResolvedValue([
-      { id: 'o1', amount: '100', status: 'COMPLETED', product: { name: 'tomato', pricePerUnit: '10' } }
-    ]);
+  it("filters campaigns by farmerAddress", async () => {
+    db.campaign.findMany.mockResolvedValue([mockCampaign]);
+    db.campaign.count.mockResolvedValue(1);
 
-    const res = await request(app).get('/api/analytics/price-history?product=tomato');
+    const res = await request(app).get(`/api/v1/campaigns?farmerAddress=${FARMER}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('avg_price');
-    expect(res.body.avg_price).toBe(10);
+    expect(db.campaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ farmerAddress: FARMER }) }),
+    );
   });
 
-  it('GET /api/campaigns/:id should return 404 if not found', async () => {
-    prisma.campaign.findUnique.mockResolvedValue(null);
+  it("returns 400 for invalid status value", async () => {
+    const res = await request(app).get("/api/v1/campaigns?status=INVALID");
 
-    const res = await request(app).get('/api/campaigns/999');
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+
+  it("returns 400 for malformed Stellar address", async () => {
+    const res = await request(app).get("/api/v1/campaigns?farmerAddress=notanaddress");
+
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+});
+
+describe("GET /api/v1/campaigns/:id", () => {
+  it("returns a campaign with investments and orders", async () => {
+    db.campaign.findUnique.mockResolvedValue({
+      ...mockCampaign,
+      investments: [mockInvestment],
+      orders: [],
+    });
+
+    const res = await request(app).get(`/api/v1/campaigns/${CAMPAIGN_UUID}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(CAMPAIGN_UUID);
+    expect(res.body.investments).toHaveLength(1);
+  });
+
+  it("returns 404 when campaign is not found", async () => {
+    db.campaign.findUnique.mockResolvedValue(null);
+
+    const res = await request(app).get(`/api/v1/campaigns/${CAMPAIGN_UUID}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for a non-UUID id", async () => {
+    const res = await request(app).get("/api/v1/campaigns/not-a-uuid");
+
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+});
+
+describe("POST /api/v1/campaigns", () => {
+  it("creates a campaign and returns 201", async () => {
+    db.campaign.create.mockResolvedValue(mockCampaign);
+    db.user.upsert.mockResolvedValue({});
+
+    const res = await request(app).post("/api/v1/campaigns").send({
+      farmerAddress: FARMER,
+      tokenAddress: TOKEN,
+      targetAmount: "1000",
+      deadline: FUTURE_DATE,
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe(CAMPAIGN_UUID);
+    expect(db.campaign.create).toHaveBeenCalledOnce();
+  });
+
+  it("returns 400 for an invalid Stellar address", async () => {
+    const res = await request(app).post("/api/v1/campaigns").send({
+      farmerAddress: "invalid",
+      tokenAddress: TOKEN,
+      targetAmount: "1000",
+      deadline: FUTURE_DATE,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+
+  it("returns 400 for a past deadline", async () => {
+    const res = await request(app).post("/api/v1/campaigns").send({
+      farmerAddress: FARMER,
+      tokenAddress: TOKEN,
+      targetAmount: "1000",
+      deadline: "2000-01-01T00:00:00.000Z",
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+
+  it("returns 400 for a zero amount", async () => {
+    const res = await request(app).post("/api/v1/campaigns").send({
+      farmerAddress: FARMER,
+      tokenAddress: TOKEN,
+      targetAmount: "0",
+      deadline: FUTURE_DATE,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
+  });
+
+  it("returns 400 when required fields are missing", async () => {
+    const res = await request(app).post("/api/v1/campaigns").send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Investment endpoints
+// ---------------------------------------------------------------------------
+
+describe("GET /api/v1/campaigns/:id/investments", () => {
+  it("returns investments for a campaign", async () => {
+    db.investment.findMany.mockResolvedValue([mockInvestment]);
+
+    const res = await request(app).get(`/api/v1/campaigns/${CAMPAIGN_UUID}/investments`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].investorAddress).toBe(INVESTOR);
+  });
+
+  it("returns empty array when no investments exist", async () => {
+    db.investment.findMany.mockResolvedValue([]);
+
+    const res = await request(app).get(`/api/v1/campaigns/${CAMPAIGN_UUID}/investments`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(0);
+  });
+});
+
+describe("GET /api/v1/investments", () => {
+  it("returns investments for an investor address", async () => {
+    db.investment.findMany.mockResolvedValue([mockInvestment]);
+
+    const res = await request(app).get(`/api/v1/investments?investorAddress=${INVESTOR}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+  });
+
+  it("returns 400 when investorAddress is missing", async () => {
+    const res = await request(app).get("/api/v1/investments");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for an invalid Stellar address", async () => {
+    const res = await request(app).get("/api/v1/investments?investorAddress=bad");
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/v1/campaigns/:id/invest", () => {
+  it("records an investment and returns 201", async () => {
+    db.campaign.findUnique.mockResolvedValue(mockCampaign);
+    db.investment.create.mockResolvedValue(mockInvestment);
+    db.user.upsert.mockResolvedValue({});
+
+    const res = await request(app)
+      .post(`/api/v1/campaigns/${CAMPAIGN_UUID}/invest`)
+      .send({ investorAddress: INVESTOR, amount: "100" });
+
+    expect(res.status).toBe(201);
+    expect(db.investment.create).toHaveBeenCalledOnce();
+  });
+
+  it("returns 404 when the campaign does not exist", async () => {
+    db.campaign.findUnique.mockResolvedValue(null);
+
+    const res = await request(app)
+      .post(`/api/v1/campaigns/${CAMPAIGN_UUID}/invest`)
+      .send({ investorAddress: INVESTOR, amount: "100" });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 when the campaign is not in FUNDING status", async () => {
+    db.campaign.findUnique.mockResolvedValue({ ...mockCampaign, status: "FUNDED" });
+
+    const res = await request(app)
+      .post(`/api/v1/campaigns/${CAMPAIGN_UUID}/invest`)
+      .send({ investorAddress: INVESTOR, amount: "100" });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 400 for an invalid investor address", async () => {
+    const res = await request(app)
+      .post(`/api/v1/campaigns/${CAMPAIGN_UUID}/invest`)
+      .send({ investorAddress: "invalid", amount: "100" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for a zero investment amount", async () => {
+    const res = await request(app)
+      .post(`/api/v1/campaigns/${CAMPAIGN_UUID}/invest`)
+      .send({ investorAddress: INVESTOR, amount: "0" });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Order endpoints
+// ---------------------------------------------------------------------------
+
+describe("GET /api/v1/orders", () => {
+  it("returns orders for a buyer address", async () => {
+    db.order.findMany.mockResolvedValue([mockOrder]);
+
+    const res = await request(app).get(`/api/v1/orders?buyerAddress=${BUYER}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].buyerAddress).toBe(BUYER);
+  });
+
+  it("returns orders for a farmer address", async () => {
+    db.campaign.findMany.mockResolvedValue([{ id: CAMPAIGN_UUID }]);
+    db.order.findMany.mockResolvedValue([mockOrder]);
+
+    const res = await request(app).get(`/api/v1/orders?farmerAddress=${FARMER}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+  });
+
+  it("returns 400 when neither address is provided", async () => {
+    const res = await request(app).get("/api/v1/orders");
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for an invalid Stellar address", async () => {
+    const res = await request(app).get("/api/v1/orders?buyerAddress=bad");
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/v1/orders", () => {
+  it("creates an order for a HARVESTED campaign and returns 201", async () => {
+    db.campaign.findUnique.mockResolvedValue({ ...mockCampaign, status: "HARVESTED" });
+    db.order.create.mockResolvedValue(mockOrder);
+    db.user.upsert.mockResolvedValue({});
+
+    const res = await request(app).post("/api/v1/orders").send({
+      buyerAddress: BUYER,
+      campaignId: CAMPAIGN_UUID,
+      amount: "50",
+    });
+
+    expect(res.status).toBe(201);
+    expect(db.order.create).toHaveBeenCalledOnce();
+  });
+
+  it("creates an order for an IN_PRODUCTION campaign", async () => {
+    db.campaign.findUnique.mockResolvedValue({ ...mockCampaign, status: "IN_PRODUCTION" });
+    db.order.create.mockResolvedValue(mockOrder);
+    db.user.upsert.mockResolvedValue({});
+
+    const res = await request(app).post("/api/v1/orders").send({
+      buyerAddress: BUYER,
+      campaignId: CAMPAIGN_UUID,
+      amount: "50",
+    });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 404 when the campaign does not exist", async () => {
+    db.campaign.findUnique.mockResolvedValue(null);
+
+    const res = await request(app).post("/api/v1/orders").send({
+      buyerAddress: BUYER,
+      campaignId: CAMPAIGN_UUID,
+      amount: "50",
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 when the campaign is still in FUNDING status", async () => {
+    db.campaign.findUnique.mockResolvedValue({ ...mockCampaign, status: "FUNDING" });
+
+    const res = await request(app).post("/api/v1/orders").send({
+      buyerAddress: BUYER,
+      campaignId: CAMPAIGN_UUID,
+      amount: "50",
+    });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 400 when campaignId is not a UUID", async () => {
+    const res = await request(app).post("/api/v1/orders").send({
+      buyerAddress: BUYER,
+      campaignId: "not-a-uuid",
+      amount: "50",
+    });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /api/v1/orders/:id", () => {
+  it("returns an order by id", async () => {
+    db.order.findUnique.mockResolvedValue(mockOrder);
+
+    const res = await request(app).get(`/api/v1/orders/${ORDER_UUID}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(ORDER_UUID);
+  });
+
+  it("returns 404 when order is not found", async () => {
+    db.order.findUnique.mockResolvedValue(null);
+
+    const res = await request(app).get(`/api/v1/orders/${ORDER_UUID}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for a non-UUID id", async () => {
+    const res = await request(app).get("/api/v1/orders/not-a-uuid");
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH /api/v1/orders/:id/confirm", () => {
+  it("confirms a pending order", async () => {
+    db.order.findUnique.mockResolvedValue(mockOrder);
+    db.order.update.mockResolvedValue({ ...mockOrder, status: "CONFIRMED" });
+
+    const res = await request(app)
+      .patch(`/api/v1/orders/${ORDER_UUID}/confirm`)
+      .send({ buyerAddress: BUYER });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("CONFIRMED");
+  });
+
+  it("returns 404 when the order does not exist", async () => {
+    db.order.findUnique.mockResolvedValue(null);
+
+    const res = await request(app)
+      .patch(`/api/v1/orders/${ORDER_UUID}/confirm`)
+      .send({ buyerAddress: BUYER });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when a different buyer tries to confirm", async () => {
+    db.order.findUnique.mockResolvedValue(mockOrder);
+
+    const res = await request(app)
+      .patch(`/api/v1/orders/${ORDER_UUID}/confirm`)
+      .send({ buyerAddress: INVESTOR });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 409 when the order is already confirmed", async () => {
+    db.order.findUnique.mockResolvedValue({ ...mockOrder, status: "CONFIRMED" });
+
+    const res = await request(app)
+      .patch(`/api/v1/orders/${ORDER_UUID}/confirm`)
+      .send({ buyerAddress: BUYER });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 400 for an invalid buyer address", async () => {
+    const res = await request(app)
+      .patch(`/api/v1/orders/${ORDER_UUID}/confirm`)
+      .send({ buyerAddress: "bad" });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Utility endpoints
+// ---------------------------------------------------------------------------
+
+describe("GET /health", () => {
+  it("returns status UP", async () => {
+    const res = await request(app).get("/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("UP");
+    expect(res.body.service).toBe("agro-production-server");
+  });
+});
+
+describe("GET /metrics/events", () => {
+  it("returns event processing metrics", async () => {
+    const res = await request(app).get("/metrics/events");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("processed");
+    expect(res.body).toHaveProperty("skipped_duplicates");
+    expect(res.body).toHaveProperty("parse_errors");
+    expect(res.body).toHaveProperty("persist_errors");
+    expect(res.body).toHaveProperty("by_action");
+  });
+});
+
+describe("GET /metrics/rate-limits", () => {
+  it("returns rate limit hit counters", async () => {
+    const res = await request(app).get("/metrics/rate-limits");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("default_hits");
+    expect(res.body).toHaveProperty("write_hits");
+    expect(res.body).toHaveProperty("total_hits");
+  });
+});
+
+describe("Unknown routes", () => {
+  it("returns 404 for an unregistered path", async () => {
+    const res = await request(app).get("/api/v1/does-not-exist");
 
     expect(res.status).toBe(404);
   });
