@@ -2296,9 +2296,10 @@ fn test_error_campaign_deadline_not_passed_finalize() {
 fn test_batch_refund_investors_refunds_all() {
     let t = setup();
     let deadline = future_deadline(&t);
+    // Target is 20_000 so partial investments keep campaign in Funding state.
     let id = t
         .client
-        .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &20_000, &deadline);
     t.client.invest(&t.investor1, &id, &6_000);
     t.client.invest(&t.investor2, &id, &4_000);
     advance_ledger(&t.env, 8 * 24 * 3600);
@@ -2322,9 +2323,10 @@ fn test_batch_refund_investors_refunds_all() {
 fn test_batch_refund_investors_emits_single_summary_event() {
     let t = setup();
     let deadline = future_deadline(&t);
+    // Partial investment keeps campaign in Funding so finalize_failed works.
     let id = t
         .client
-        .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &20_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     advance_ledger(&t.env, 8 * 24 * 3600);
     t.client.finalize_failed(&id);
@@ -2335,16 +2337,17 @@ fn test_batch_refund_investors_emits_single_summary_event() {
     // Should complete without error (event emission is verified via no-panic).
     let (count, total) = t.client.batch_refund_investors(&id, &investors);
     assert_eq!(count, 1);
-    assert_eq!(total, 10_000);
+    assert_eq!(total, 10_000); // investor1 contributed 10_000 out of 20_000 target
 }
 
 #[test]
 fn test_batch_refund_investors_skips_non_investors() {
     let t = setup();
     let deadline = future_deadline(&t);
+    // Partial investment keeps campaign in Funding so finalize_failed works.
     let id = t
         .client
-        .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &20_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     advance_ledger(&t.env, 8 * 24 * 3600);
     t.client.finalize_failed(&id);
@@ -2363,9 +2366,10 @@ fn test_batch_refund_investors_skips_non_investors() {
 fn test_batch_refund_investors_idempotent() {
     let t = setup();
     let deadline = future_deadline(&t);
+    // Partial investment keeps campaign in Funding so finalize_failed works.
     let id = t
         .client
-        .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &20_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     advance_ledger(&t.env, 8 * 24 * 3600);
     t.client.finalize_failed(&id);
@@ -2409,9 +2413,10 @@ fn test_batch_refund_investors_mixes_with_individual_refund() {
     // Investor1 already refunded individually; batch should skip them and refund investor2.
     let t = setup();
     let deadline = future_deadline(&t);
+    // Target is 20_000 so partial investments keep campaign in Funding state.
     let id = t
         .client
-        .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &20_000, &deadline);
     t.client.invest(&t.investor1, &id, &6_000);
     t.client.invest(&t.investor2, &id, &4_000);
     advance_ledger(&t.env, 8 * 24 * 3600);
