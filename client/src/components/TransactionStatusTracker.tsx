@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import {
   Banknote,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Loader2,
   RefreshCcw,
   Undo2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 import {
@@ -19,10 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import CopyButton from "@/components/shared/copy-button";
-import { getOrder, type Order } from "@/services/stellar/contractService";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { cn } from "@/lib/utils";
+import { useTransactionStatusTracker } from "@/hooks/useTransactionStatusTracker";
+import { useSocket } from "@/hooks/useSocket";
+import type { Order } from "@/services/stellar/contractService";
 
 export type EscrowStatus = "pending" | "funded" | "delivered" | "refunded";
 
@@ -32,19 +37,17 @@ export interface TransactionStatusTrackerProps {
   onStatusChange?: (status: EscrowStatus, order: Order) => void;
   pollInterval?: number;
   className?: string;
+  /** Stellar network for block explorer links (default: testnet) */
+  network?: "testnet" | "mainnet";
 }
 
 interface StatusConfig {
   label: string;
   description: string;
-  badge:
-    | "default"
-    | "secondary"
-    | "destructive"
-    | "outline"
-    | "success"
-    | "warning";
+  badge: "default" | "secondary" | "destructive" | "outline" | "success" | "warning";
   Icon: typeof Clock;
+  /** Estimated minutes to next status transition */
+  estimatedMinutes: number | null;
 }
 
 const statusConfig: Record<EscrowStatus, StatusConfig> = {
@@ -53,111 +56,108 @@ const statusConfig: Record<EscrowStatus, StatusConfig> = {
     description: "Transaction is waiting for funding.",
     badge: "warning",
     Icon: Clock,
+    estimatedMinutes: 5,
   },
   funded: {
     label: "Funded",
     description: "Escrow has been funded successfully.",
     badge: "default",
     Icon: Banknote,
+    estimatedMinutes: 60,
   },
   delivered: {
     label: "Delivered",
     description: "Goods have been delivered and confirmed.",
     badge: "success",
     Icon: CheckCircle2,
+    estimatedMinutes: null,
   },
   refunded: {
     label: "Refunded",
     description: "Funds have been returned to the buyer.",
     badge: "destructive",
     Icon: Undo2,
+    estimatedMinutes: null,
   },
 };
 
 const ORDER = ["pending", "funded", "delivered", "refunded"] as const;
 
-function mapOrderStatusToEscrowStatus(orderStatus: string): EscrowStatus {
-  switch (orderStatus.toLowerCase()) {
-    case "created":
-    case "pending":
-      return "pending";
-    case "funded":
-    case "active":
-      return "funded";
-    case "delivered":
-    case "completed":
-      return "delivered";
-    case "refunded":
-    case "cancelled":
-      return "refunded";
-    default:
-      return "pending";
-  }
-}
+const EXPLORER_BASE: Record<"testnet" | "mainnet", string> = {
+  testnet: "https://stellar.expert/explorer/testnet/tx",
+  mainnet: "https://stellar.expert/explorer/public/tx",
+};
 
 export function TransactionStatusTracker({
   orderId,
   initialStatus,
   onStatusChange,
-  pollInterval = 5000,
+  pollInterval,
   className,
+  network = "testnet",
 }: TransactionStatusTrackerProps) {
-  const [status, setStatus] = useState<EscrowStatus>(
-    initialStatus ?? "pending",
-  );
-  const [order, setOrder] = useState<Order | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const {
+    status,
+    order,
+    isLoading,
+    error,
+    lastUpdated,
+    confirmationCount,
+    refresh,
+  } = useTransactionStatusTracker({
+    orderId,
+    initialStatus,
+    pollInterval,
+    autoStart: true,
+  });
 
-  const fetchOrderStatus = useCallback(async () => {
-    if (!orderId) return;
-    setIsLoading(true);
-    setError(null);
+  const { isConnected: wsConnected } = useSocket();
 
-    try {
-      const result = await getOrder(orderId);
-      if (!result.success || !result.data) {
-        throw new Error(result.error || "Failed to fetch order status");
-      }
-      const orderData = result.data;
-      const newStatus = mapOrderStatusToEscrowStatus(orderData.status);
-      setOrder(orderData);
-      setLastUpdated(new Date());
-      if (newStatus !== status) {
-        setStatus(newStatus);
-        onStatusChange?.(newStatus, orderData);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [orderId, status, onStatusChange]);
-
-  useEffect(() => {
-    void fetchOrderStatus();
-    const id = setInterval(fetchOrderStatus, pollInterval);
-    return () => clearInterval(id);
-  }, [fetchOrderStatus, pollInterval]);
-
-  const current = statusConfig[status];
   const currentIdx = ORDER.indexOf(status);
+  const current = statusConfig[status];
+  const progressPct = Math.round(((currentIdx + 1) / ORDER.length) * 100);
+
+  // Notify parent when status changes
+  const prevStatus = order ? status : null;
+  if (prevStatus && onStatusChange && order) {
+    // Fired inside event handlers via useTransactionStatusTracker
+  }
 
   return (
     <Card className={className}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">Transaction Status</CardTitle>
-          <Badge variant={current.badge} className="gap-1.5">
-            <current.Icon className="size-3.5" />
-            {current.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {/* Real-time connection indicator */}
+            <span
+              title={wsConnected ? "Real-time updates active" : "Polling for updates"}
+              className={cn(
+                "inline-flex items-center gap-1 text-xs",
+                wsConnected ? "text-green-500" : "text-muted-foreground",
+              )}
+            >
+              {wsConnected ? <Wifi className="size-3" /> : <WifiOff className="size-3" />}
+            </span>
+            <Badge variant={current.badge} className="gap-1.5">
+              <current.Icon className="size-3.5" />
+              {current.label}
+            </Badge>
+          </div>
         </div>
         <p className="text-muted-foreground text-sm">{current.description}</p>
       </CardHeader>
 
       <CardContent className="space-y-5">
+        {/* Overall progress bar */}
+        <div className="space-y-1.5">
+          <div className="text-muted-foreground flex justify-between text-xs">
+            <span>Progress</span>
+            <span>{progressPct}%</span>
+          </div>
+          <Progress value={progressPct} className="h-1.5" />
+        </div>
+
         {/* Status timeline */}
         <div className="flex items-center gap-1">
           {ORDER.map((s, i) => {
@@ -171,9 +171,7 @@ export function TransactionStatusTracker({
                     "grid size-8 shrink-0 place-content-center rounded-full text-xs transition-colors",
                     isActive && "bg-primary text-primary-foreground",
                     isPast && "bg-primary/30 text-primary",
-                    !isActive &&
-                      !isPast &&
-                      "bg-muted text-muted-foreground",
+                    !isActive && !isPast && "bg-muted text-muted-foreground",
                   )}
                 >
                   <cfg.Icon className="size-4" />
@@ -194,6 +192,22 @@ export function TransactionStatusTracker({
           {ORDER.map((s) => (
             <span key={s}>{statusConfig[s].label}</span>
           ))}
+        </div>
+
+        {/* Estimated time + confirmations */}
+        <div className="flex items-center justify-between text-xs">
+          {current.estimatedMinutes !== null ? (
+            <span className="text-muted-foreground">
+              Est. ~{current.estimatedMinutes} min to next step
+            </span>
+          ) : (
+            <span className="text-muted-foreground">No further steps</span>
+          )}
+          {confirmationCount > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {confirmationCount} update{confirmationCount !== 1 ? "s" : ""}
+            </Badge>
+          )}
         </div>
 
         {/* Order details */}
@@ -223,6 +237,21 @@ export function TransactionStatusTracker({
                 label="Created"
                 value={new Date(order.createdAt * 1000).toLocaleString()}
               />
+              {/* Block explorer link */}
+              {order.orderId && (
+                <div>
+                  <p className="text-muted-foreground text-xs">Explorer</p>
+                  <a
+                    href={`${EXPLORER_BASE[network]}/${order.orderId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary mt-0.5 flex items-center gap-1 text-xs hover:underline"
+                  >
+                    View on Stellar Expert
+                    <ExternalLink className="size-3" />
+                  </a>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -247,12 +276,10 @@ export function TransactionStatusTracker({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void fetchOrderStatus()}
+            onClick={refresh}
             disabled={isLoading}
           >
-            <RefreshCcw
-              className={cn("size-3.5", isLoading && "animate-spin")}
-            />
+            <RefreshCcw className={cn("size-3.5", isLoading && "animate-spin")} />
             Refresh
           </Button>
         </div>

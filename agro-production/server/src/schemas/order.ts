@@ -1,23 +1,30 @@
 import { z } from "zod";
-
-const positiveInt128 = z
-  .string()
-  .regex(/^\d+$/, "Must be a positive integer string")
-  .refine((v) => BigInt(v) > 0n, "Must be greater than zero");
+import { positiveInt128, stellarAddress, uuidParam } from "./common.js";
 
 export const CreateOrderSchema = z.object({
-  buyerAddress: z.string().min(56).max(56),
-  campaignId: z.string().uuid(),
+  buyerAddress: stellarAddress,
+  campaignId: uuidParam,
   amount: positiveInt128,
 });
 
 export const ConfirmOrderSchema = z.object({
-  buyerAddress: z.string().min(56).max(56),
+  buyerAddress: stellarAddress,
 });
 
 export const OrderIdParamSchema = z.object({
-  id: z.string().uuid("Order ID must be a UUID"),
+  id: uuidParam,
 });
+
+export const ListOrdersQuerySchema = z
+  .object({
+    buyerAddress: stellarAddress.optional(),
+    farmerAddress: stellarAddress.optional(),
+  })
+  .refine((q) => Boolean(q.buyerAddress ?? q.farmerAddress), {
+    message: "buyerAddress or farmerAddress query param is required",
+    path: ["buyerAddress"],
+  });
 
 export type CreateOrderInput = z.infer<typeof CreateOrderSchema>;
 export type ConfirmOrderInput = z.infer<typeof ConfirmOrderSchema>;
+export type ListOrdersQuery = z.infer<typeof ListOrdersQuerySchema>;

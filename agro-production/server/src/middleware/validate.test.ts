@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import express from "express";
 import request from "supertest";
 import { z } from "zod";
-import { validateBody, validateParams, validateQuery } from "./validate.js";
+import { formatZodError, validateBody, validateParams, validateQuery } from "./validate.js";
 
 function makeApp() {
   const app = express();
@@ -28,6 +28,19 @@ function makeApp() {
 
 const app = makeApp();
 
+describe("formatZodError", () => {
+  it("maps Zod issues to RFC 7807 field errors", () => {
+    const schema = z.object({ age: z.number() });
+    const result = schema.safeParse({ age: "x" });
+    if (result.success) throw new Error("expected failure");
+    const problem = formatZodError(result.error, "/example");
+    expect(problem.title).toBe("Validation Failed");
+    expect(problem.status).toBe(400);
+    expect(problem.errors[0]?.field).toBe("age");
+    expect(problem.errors[0]?.code).toBeDefined();
+  });
+});
+
 describe("validateBody", () => {
   it("passes valid body through", async () => {
     const res = await request(app)
@@ -37,17 +50,18 @@ describe("validateBody", () => {
     expect(res.body).toEqual({ name: "Alice", age: 30 });
   });
 
-  it("returns 400 on missing required field", async () => {
+  it("returns RFC 7807 problem detail on missing field", async () => {
     const res = await request(app).post("/test").send({ name: "Alice" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Validation failed");
-    expect(res.body.details).toBeDefined();
+    expect(res.body.title).toBe("Validation Failed");
+    expect(res.body.errors).toBeDefined();
+    expect(res.body.errors.some((d: { field: string }) => d.field === "age")).toBe(true);
   });
 
   it("returns 400 on wrong type", async () => {
     const res = await request(app).post("/test").send({ name: "Alice", age: "old" });
     expect(res.status).toBe(400);
-    expect(res.body.details.some((d: { field: string }) => d.field === "age")).toBe(true);
+    expect(res.body.errors.some((d: { field: string }) => d.field === "age")).toBe(true);
   });
 
   it("returns 400 on empty string when min(1)", async () => {
@@ -86,5 +100,6 @@ describe("validateParams", () => {
   it("returns 400 on invalid UUID", async () => {
     const res = await request(app).get("/test/not-a-uuid");
     expect(res.status).toBe(400);
+    expect(res.body.title).toBe("Validation Failed");
   });
 });

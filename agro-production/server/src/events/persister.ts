@@ -18,16 +18,9 @@ import type {
  */
 export class EventPersister {
   static async persist(event: ParsedEvent): Promise<void> {
-    // Guard against duplicate events at the DB level via the unique index on
-    // transactions(ledger, eventIndex).
-    const alreadyProcessed = await prisma.transaction.findUnique({
-      where: { ledger_eventIndex: { ledger: event.ledger, eventIndex: event.eventIndex } },
-    });
+    const alreadyProcessed = await hasPersistedEvent(prisma, event.ledger, event.eventIndex);
     if (alreadyProcessed) {
-      logger.debug("EventPersister: skipping duplicate", {
-        ledger: event.ledger,
-        eventIndex: event.eventIndex,
-      });
+      logDuplicateSkip(event, "persist.preflight");
       return;
     }
 
@@ -74,12 +67,14 @@ export class EventPersister {
 // ---------------------------------------------------------------------------
 
 async function handleCampaignCreated(event: CampaignCreatedEvent) {
+  // Idempotency: campaign upsert + transaction uniqueness guarantee safe replay.
   const deadlineTs = parseInt(event.deadline, 10);
   const deadline = Number.isFinite(deadlineTs)
     ? new Date(deadlineTs * 1000)
     : new Date(event.deadline);
 
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.farmer, "FARMER");
 
     const campaign = await tx.campaign.upsert({
@@ -107,8 +102,41 @@ async function handleCampaignCreated(event: CampaignCreatedEvent) {
   });
 }
 
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function hasPersistedEvent(
+  client: Pick<typeof prisma, "transaction"> | Pick<TransactionClient, "transaction">,
+  ledger: number,
+  eventIndex: number,
+) {
+  const existing = await client.transaction.findUnique({
+    where: { ledger_eventIndex: { ledger, eventIndex } },
+  });
+  return Boolean(existing);
+}
+
+async function skipDuplicateInTransaction(tx: TransactionClient, event: ParsedEvent) {
+  const alreadyProcessed = await hasPersistedEvent(tx, event.ledger, event.eventIndex);
+  if (alreadyProcessed) {
+    logDuplicateSkip(event, "persist.tx");
+    return true;
+  }
+  return false;
+}
+
+function logDuplicateSkip(event: ParsedEvent, stage: string) {
+  logger.debug("EventPersister: skipping duplicate", {
+    action: event.action,
+    ledger: event.ledger,
+    eventIndex: event.eventIndex,
+    stage,
+  });
+}
+
 async function handleCampaignInvested(event: CampaignInvestedEvent) {
+  // Idempotency: investment upsert key includes campaign/investor/ledger.
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.investor, "INVESTOR");
 
     const campaign = await tx.campaign.findUnique({
@@ -166,7 +194,9 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
 }
 
 async function handleCampaignSettled(event: CampaignSettledEvent) {
+  // Idempotency: status/revenue overwrite plus transaction uniqueness prevents duplication.
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const campaign = await tx.campaign.findUnique({
       where: { onChainId: event.campaignId },
     });
@@ -204,7 +234,9 @@ async function handleCampaignSettled(event: CampaignSettledEvent) {
 }
 
 async function handleOrderCreated(event: OrderCreatedEvent) {
+  // Idempotency: order upsert by onChainId makes duplicate create events safe.
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.buyer, "BUYER");
 
     const campaign = await tx.campaign.findUnique({
@@ -243,7 +275,9 @@ async function handleOrderCreated(event: OrderCreatedEvent) {
 }
 
 async function handleOrderConfirmed(event: OrderConfirmedEvent) {
+  // Idempotency: duplicate confirms are dropped before order/revenue mutation.
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const order = await tx.order.findUnique({
       where: { onChainId: event.orderId },
     });
@@ -297,7 +331,9 @@ async function updateCampaignStatus(
   event: GenericCampaignEvent,
   status: CampaignStatus,
 ) {
+  // Idempotency: status transitions are deterministic for replayed lifecycle events.
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const campaign = await tx.campaign.findUnique({
       where: { onChainId: event.campaignId },
     });
