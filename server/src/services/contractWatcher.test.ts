@@ -1,5 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@stellar/stellar-sdk", () => ({
+  rpc: { Server: vi.fn() },
+  scValToNative: vi.fn(),
+  xdr: { ScVal: { fromXDR: vi.fn() } },
+}));
+vi.mock("../config/logger.js", () => ({
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+vi.mock("../config/index.js", () => ({
+  config: {
+    contractId: "test-contract",
+    rpcUrl: "https://testnet.local",
+    wsPath: "/ws",
+  },
+}));
+vi.mock("../config/database.js", () => ({
+  prisma: {
+    contractWatcherCheckpoint: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
+  },
+}));
+vi.mock("./notificationService.js", () => ({
+  NotificationService: { notify: vi.fn(), notifyFromEscrowEvent: vi.fn(), notifyOrderEvent: vi.fn() },
+}));
+vi.mock("./wsManager.js", () => ({
+  wsManager: { broadcast: vi.fn(), broadcastTo: vi.fn(), clientCount: 0 },
 vi.mock("./notificationService.js", () => ({
   NotificationService: { notifyFromEscrowEvent: vi.fn() },
 }));
