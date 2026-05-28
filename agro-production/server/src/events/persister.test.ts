@@ -197,6 +197,34 @@ describe("EventPersister", () => {
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
+
+    it("skips writes when duplicate is discovered inside transaction scope", async () => {
+      const { prisma } = await import("../db/client.js");
+      const logger = (await import("../config/logger.js")).default;
+      // Preflight sees no duplicate.
+      vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(prisma.$transaction).mockImplementationOnce(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          await fn({
+            user: { upsert: vi.fn().mockResolvedValue({}) },
+            campaign: { findUnique: vi.fn().mockResolvedValue({ id: "camp-uuid" }) },
+            order: { upsert: vi.fn().mockResolvedValue({}) },
+            transaction: {
+              findUnique: vi.fn().mockResolvedValue({ id: "tx-inside" }),
+              create: vi.fn().mockResolvedValue({}),
+            },
+          });
+        },
+      );
+
+      await EventPersister.persist(makeOrderCreated());
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        "EventPersister: skipping duplicate",
+        expect.objectContaining({ stage: "persist.tx" }),
+      );
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
   });
 
   describe("campaign.created", () => {
