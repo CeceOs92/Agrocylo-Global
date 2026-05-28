@@ -73,6 +73,7 @@ async function handleCampaignCreated(event: CampaignCreatedEvent) {
     : new Date(event.deadline);
 
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.farmer, "FARMER");
 
     const campaign = await tx.campaign.upsert({
@@ -113,6 +114,15 @@ async function hasPersistedEvent(
   return Boolean(existing);
 }
 
+async function skipDuplicateInTransaction(tx: TransactionClient, event: ParsedEvent) {
+  const alreadyProcessed = await hasPersistedEvent(tx, event.ledger, event.eventIndex);
+  if (alreadyProcessed) {
+    logDuplicateSkip(event, "persist.tx");
+    return true;
+  }
+  return false;
+}
+
 function logDuplicateSkip(event: ParsedEvent, stage: string) {
   logger.debug("EventPersister: skipping duplicate", {
     action: event.action,
@@ -124,6 +134,7 @@ function logDuplicateSkip(event: ParsedEvent, stage: string) {
 
 async function handleCampaignInvested(event: CampaignInvestedEvent) {
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.investor, "INVESTOR");
 
     const campaign = await tx.campaign.findUnique({
@@ -182,6 +193,7 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
 
 async function handleCampaignSettled(event: CampaignSettledEvent) {
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const campaign = await tx.campaign.findUnique({
       where: { onChainId: event.campaignId },
     });
@@ -220,6 +232,7 @@ async function handleCampaignSettled(event: CampaignSettledEvent) {
 
 async function handleOrderCreated(event: OrderCreatedEvent) {
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     await upsertUser(tx, event.buyer, "BUYER");
 
     const campaign = await tx.campaign.findUnique({
@@ -259,6 +272,7 @@ async function handleOrderCreated(event: OrderCreatedEvent) {
 
 async function handleOrderConfirmed(event: OrderConfirmedEvent) {
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const order = await tx.order.findUnique({
       where: { onChainId: event.orderId },
     });
@@ -313,6 +327,7 @@ async function updateCampaignStatus(
   status: CampaignStatus,
 ) {
   await prisma.$transaction(async (tx) => {
+    if (await skipDuplicateInTransaction(tx, event)) return;
     const campaign = await tx.campaign.findUnique({
       where: { onChainId: event.campaignId },
     });
