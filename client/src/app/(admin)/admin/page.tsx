@@ -115,7 +115,7 @@ export default function AdminOverviewPage() {
           </span>
         </div>
         <Separator />
-        <div className="grid grid-cols-2 gap-3 p-6 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-5 sm:p-6">
           <StatusBadge status="Pending" />
           <StatusBadge status="Delivered" />
           <StatusBadge status="Completed" />

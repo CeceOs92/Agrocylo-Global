@@ -134,11 +134,11 @@ export default function MarketPage() {
               <button
                 key={c}
                 onClick={() => setCategory(c)}
-                className="cursor-pointer"
+                className="inline-flex min-h-11 cursor-pointer items-center"
               >
                 <Badge
                   variant={category === c ? "default" : "outline"}
-                  className="px-3 py-1 text-xs"
+                  className="px-3 py-2 text-xs"
                 >
                   {c}
                 </Badge>
@@ -262,7 +262,7 @@ export default function MarketPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="size-8 rounded-full"
+                          className="size-11 rounded-full"
                             disabled={!connected}
                             onClick={() =>
                               setQuantityForProduct(p.id, currentQty - 1)
@@ -276,7 +276,7 @@ export default function MarketPage() {
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="size-8 rounded-full"
+                          className="size-11 rounded-full"
                             disabled={!connected}
                             onClick={() =>
                               setQuantityForProduct(p.id, currentQty + 1)

@@ -138,7 +138,7 @@ function ItemFieldset({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Category</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={item.category}
                     onChange={(e) =>
                       update(idx, {
@@ -168,7 +168,7 @@ function ItemFieldset({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Unit</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={item.unit}
                     onChange={(e) =>
                       update(idx, { unit: e.target.value as ProductUnit })
@@ -379,7 +379,7 @@ export default function BarterOfferForm({
           <div className="grid gap-1.5">
             <Label>Offer expires in</Label>
             <select
-              className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+              className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
               value={expiryHours}
               onChange={(e) => setExpiryHours(Number(e.target.value))}
             >
@@ -407,7 +407,7 @@ export default function BarterOfferForm({
             </div>
 
             {includeCollateral && (
-              <div className="grid grid-cols-2 gap-3 pl-7">
+              <div className="grid grid-cols-1 gap-3 pl-7 sm:grid-cols-2">
                 <Input
                   label="Collateral amount"
                   type="number"
@@ -421,7 +421,7 @@ export default function BarterOfferForm({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Currency</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={collateralCurrency}
                     onChange={(e) =>
                       setCollateralCurrency(
