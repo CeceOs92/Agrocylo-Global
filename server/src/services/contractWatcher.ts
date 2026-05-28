@@ -1,22 +1,17 @@
 import { rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import logger from "../config/logger.js";
 import { config } from "../config/index.js";
+import { prisma } from "../config/database.js";
 import { NotificationService } from "./notificationService.js";
 import { wsManager } from "./wsManager.js";
 
 const POLL_INTERVAL_MS = 5_000;
+const CHECKPOINT_SERVICE_NAME = "contract-watcher";
 
-/**
- * Decodes a raw Soroban event topic/value from base64 XDR.
- */
 function decodeScVal(base64: string): unknown {
   return scValToNative(xdr.ScVal.fromXDR(base64, "base64"));
 }
 
-/**
- * Extracts the action string and decoded data array from a raw RPC event.
- * Topics layout: [entity, action, ...]
- */
 function decodeEvent(event: any): { action: string; data: unknown[] } | null {
   try {
     const topics = (event.topic as string[]).map(decodeScVal);
@@ -30,15 +25,6 @@ function decodeEvent(event: any): { action: string; data: unknown[] } | null {
   }
 }
 
-/**
- * Dispatches a decoded event to the notification service and WebSocket broadcast.
- *
- * Contract event signatures (from escrow/src/lib.rs):
- *   OrderCreated  / FundsLocked  → (order, created)   → data: [order_id, buyer, farmer, amount, token]
- *   DeliveryConfirmed            → (order, confirmed)  → data: [order_id, buyer, farmer]
- *   RefundIssued                 → (order, refunded)   → data: [order_id, buyer]
- *   (internal)                   → (order, delivered)  → data: [order_id, farmer, buyer, delivery_ts]
- */
 function handleEvent(event: any): void {
   const decoded = decodeEvent(event);
   if (!decoded) return;
@@ -50,14 +36,11 @@ function handleEvent(event: any): void {
 
   switch (action) {
     case "created": {
-      // data: [order_id, buyer, farmer, amount, token]
       const buyer = String(data[1] ?? "");
       const farmer = String(data[2] ?? "");
       const amount = String(data[3] ?? "");
       const token = String(data[4] ?? "");
 
-      // OrderCreated → notify buyer
-      // FundsLocked  → notify farmer (funds locked in escrow on their behalf)
       void NotificationService.notifyFromEscrowEvent({
         action: "created",
         buyerAddress: buyer,
@@ -72,8 +55,6 @@ function handleEvent(event: any): void {
     }
 
     case "delivered": {
-      // data: [order_id, farmer, buyer, delivery_timestamp]
-      // Internal state change — no payment movement; broadcast status update only.
       const farmer = String(data[1] ?? "");
       const buyer = String(data[2] ?? "");
 
@@ -82,8 +63,6 @@ function handleEvent(event: any): void {
     }
 
     case "confirmed": {
-      // data: [order_id, buyer, farmer]
-      // DeliveryConfirmed → payment released to farmer.
       const buyer = String(data[1] ?? "");
       const farmer = String(data[2] ?? "");
 
@@ -99,8 +78,6 @@ function handleEvent(event: any): void {
     }
 
     case "refunded": {
-      // data: [order_id, buyer]
-      // RefundIssued → funds returned to buyer.
       const buyer = String(data[1] ?? "");
 
       void NotificationService.notifyFromEscrowEvent({
@@ -118,19 +95,58 @@ function handleEvent(event: any): void {
   }
 }
 
-/**
- * Starts the Soroban event listener.
- *
- * Connects to the Stellar RPC, subscribes to all contract events for the
- * configured escrow contract, decodes them, and dispatches notifications
- * and WebSocket broadcasts in real time.
- *
- * Tracked events:
- *   - OrderCreated  (order.created)
- *   - FundsLocked   (order.created — funds locked at order creation)
- *   - DeliveryConfirmed (order.confirmed)
- *   - RefundIssued  (order.refunded)
- */
+export async function loadCheckpoint(): Promise<number | null> {
+  try {
+    const row = await prisma.contractWatcherCheckpoint.findUnique({
+      where: { service: CHECKPOINT_SERVICE_NAME },
+    });
+    if (row) {
+      logger.info(`[ContractWatcher] Loaded checkpoint: ledger ${row.lastLedger}`);
+      return row.lastLedger;
+    }
+    logger.info("[ContractWatcher] No existing checkpoint found");
+    return null;
+  } catch (err) {
+    logger.error("[ContractWatcher] Failed to load checkpoint", err);
+    return null;
+  }
+}
+
+export async function persistCheckpoint(ledger: number): Promise<void> {
+  try {
+    await prisma.contractWatcherCheckpoint.upsert({
+      where: { service: CHECKPOINT_SERVICE_NAME },
+      create: { service: CHECKPOINT_SERVICE_NAME, lastLedger: ledger },
+      update: { lastLedger: ledger },
+    });
+    logger.debug(`[ContractWatcher] Persisted checkpoint: ledger ${ledger}`);
+  } catch (err) {
+    logger.error("[ContractWatcher] Failed to persist checkpoint", err);
+  }
+}
+
+const RECOVERY_GAP_WARNING_THRESHOLD = 10;
+
+export function detectRecoveryGap(checkpointLedger: number | null, latestLedger: number): void {
+  if (checkpointLedger === null) {
+    logger.info(`[ContractWatcher] Fresh start — beginning from ledger ${latestLedger}`);
+    return;
+  }
+
+  const gap = latestLedger - checkpointLedger;
+  if (gap <= 0) {
+    logger.info(`[ContractWatcher] Checkpoint is ahead of or at latest ledger (checkpoint: ${checkpointLedger}, latest: ${latestLedger})`);
+    return;
+  }
+
+  if (gap >= RECOVERY_GAP_WARNING_THRESHOLD) {
+    logger.warn(
+      `[ContractWatcher] Recovery gap detected: ${gap} ledgers behind. Resuming from ledger ${checkpointLedger}. ` +
+      `${gap} ledgers of events will be replayed to catch up.`,
+    );
+  }
+}
+
 export async function startContractWatcher(): Promise<void> {
   const { contractId, rpcUrl } = config;
 
@@ -140,7 +156,17 @@ export async function startContractWatcher(): Promise<void> {
   }
 
   const server = new rpc.Server(rpcUrl);
-  let lastLedger = (await server.getLatestLedger()).sequence;
+  const checkpointLedger = await loadCheckpoint();
+
+  let lastLedger: number;
+  if (checkpointLedger !== null) {
+    lastLedger = checkpointLedger;
+  } else {
+    lastLedger = (await server.getLatestLedger()).sequence;
+  }
+
+  const latestLedger = (await server.getLatestLedger()).sequence;
+  detectRecoveryGap(checkpointLedger, latestLedger);
 
   logger.info(`[ContractWatcher] Listening for events on contract ${contractId} from ledger ${lastLedger}`);
 
@@ -151,8 +177,17 @@ export async function startContractWatcher(): Promise<void> {
         filters: [{ type: "contract", contractIds: [contractId] }],
       });
 
-      for (const event of response.events) {
-        // Route through the structured ingestion pipeline (persistence + projection)
+      const events = response.events;
+      if (events.length === 0) return;
+
+      let maxProcessedLedger = lastLedger;
+
+      for (const event of events) {
+        if (event.ledger < lastLedger) {
+          logger.debug(`[ContractWatcher] Skipping duplicate event at ledger ${event.ledger} (already processed)`);
+          continue;
+        }
+
         void import("./events/blockchainEventIngestionService.js")
           .then(({ BlockchainEventIngestionService }) => BlockchainEventIngestionService.ingestEvent(event))
           .catch((err) => logger.error("[ContractWatcher] BlockchainEventIngestionService import failed", err));
@@ -161,12 +196,16 @@ export async function startContractWatcher(): Promise<void> {
           .then(({ EscrowEventIngestionService }) => EscrowEventIngestionService.ingestEvent(event))
           .catch((err) => logger.error("[ContractWatcher] EscrowEventIngestionService import failed", err));
 
-        // Dispatch notifications and real-time WebSocket events
         handleEvent(event);
 
-        if (event.ledger >= lastLedger) {
-          lastLedger = event.ledger + 1;
+        if (event.ledger >= maxProcessedLedger) {
+          maxProcessedLedger = event.ledger + 1;
         }
+      }
+
+      if (maxProcessedLedger > lastLedger) {
+        lastLedger = maxProcessedLedger;
+        await persistCheckpoint(lastLedger);
       }
     } catch (err) {
       logger.error("[ContractWatcher] Poll error", err);
