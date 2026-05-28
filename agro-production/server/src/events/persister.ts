@@ -18,16 +18,9 @@ import type {
  */
 export class EventPersister {
   static async persist(event: ParsedEvent): Promise<void> {
-    // Guard against duplicate events at the DB level via the unique index on
-    // transactions(ledger, eventIndex).
-    const alreadyProcessed = await prisma.transaction.findUnique({
-      where: { ledger_eventIndex: { ledger: event.ledger, eventIndex: event.eventIndex } },
-    });
+    const alreadyProcessed = await hasPersistedEvent(prisma, event.ledger, event.eventIndex);
     if (alreadyProcessed) {
-      logger.debug("EventPersister: skipping duplicate", {
-        ledger: event.ledger,
-        eventIndex: event.eventIndex,
-      });
+      logDuplicateSkip(event, "persist.preflight");
       return;
     }
 
@@ -104,6 +97,28 @@ async function handleCampaignCreated(event: CampaignCreatedEvent) {
         eventIndex: event.eventIndex,
       },
     });
+  });
+}
+
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function hasPersistedEvent(
+  client: Pick<typeof prisma, "transaction"> | Pick<TransactionClient, "transaction">,
+  ledger: number,
+  eventIndex: number,
+) {
+  const existing = await client.transaction.findUnique({
+    where: { ledger_eventIndex: { ledger, eventIndex } },
+  });
+  return Boolean(existing);
+}
+
+function logDuplicateSkip(event: ParsedEvent, stage: string) {
+  logger.debug("EventPersister: skipping duplicate", {
+    action: event.action,
+    ledger: event.ledger,
+    eventIndex: event.eventIndex,
+    stage,
   });
 }
 
