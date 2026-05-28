@@ -72,7 +72,7 @@ export function useSocket() {
     };
   }, []);
 
-  connectRef.current = connect;
+  useEffect(() => { connectRef.current = connect; }, [connect]);
 
   useEffect(() => {
     unmounted.current = false;
