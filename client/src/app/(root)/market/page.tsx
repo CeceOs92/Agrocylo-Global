@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 import { RefreshCw, WifiOff } from "lucide-react";
@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { siteConfig } from "@/config/site.config";
 import type { ProductCategory } from "@/types/product";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 function isNetworkError(error: unknown): boolean {
   if (error instanceof TypeError) return true;
@@ -39,6 +40,8 @@ export default function MarketPage() {
   const { cart, setQuantityForProduct } = useCart();
   const [category, setCategory] = useState<ProductCategory | "All">("All");
   const [search, setSearch] = useState("");
+  const { trackFilterUsage, trackSearchQuery, trackFeatureAdoption } =
+    useAnalytics();
 
   const { data, isLoading, error, refetch, isFetching } = useProducts({
     pageSize: 50,
@@ -62,6 +65,27 @@ export default function MarketPage() {
     if (!q) return products;
     return products.filter((p) => p.name.toLowerCase().includes(q));
   }, [products, search]);
+
+  useEffect(() => {
+    trackFilterUsage("market_category", category, {
+      source: "market-page",
+    });
+  }, [category, trackFilterUsage]);
+
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (!trimmed) return;
+    const timer = setTimeout(() => {
+      trackSearchQuery(trimmed, { source: "market-search" });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search, trackSearchQuery]);
+
+  useEffect(() => {
+    if (connected) {
+      trackFeatureAdoption("market_browse_connected");
+    }
+  }, [connected, trackFeatureAdoption]);
 
   return (
     <div className="flex flex-col">

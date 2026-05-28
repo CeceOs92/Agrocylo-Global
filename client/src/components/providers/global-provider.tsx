@@ -7,10 +7,12 @@ import type { LenisRef } from "lenis/react";
 import type { FC, ReactNode } from "react";
 import NextJsToploader from "nextjs-toploader";
 
+import AnalyticsInit from "@/components/AnalyticsInit";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import QueryProvider from "@/components/QueryProvider";
 import WalletProviderWrapper from "@/components/WalletProviderWrapper";
+import { AnalyticsProvider } from "@/context/AnalyticsContext";
 import { TransactionFeedbackProvider } from "@/context/TransactionFeedbackContext";
 
 interface GlobalProviderProps {
@@ -24,6 +26,7 @@ interface GlobalProviderProps {
  *   ThemeProvider               next-themes light/dark mode
  *   ReactLenis                  smooth scroll, RAF driven by GSAP ticker
  *   QueryProvider               TanStack Query cache
+ *   AnalyticsProvider           local event capture + dashboard state
  *   TransactionFeedbackProvider transaction-state machine
  *   WalletProviderWrapper       Freighter wallet + Profile + Cart + global Navbar
  *
@@ -47,18 +50,21 @@ const GlobalProvider: FC<GlobalProviderProps> = ({ children }) => {
     <ThemeProvider>
       <ReactLenis root options={{ autoRaf: false }} ref={lenisRef}>
         <QueryProvider>
-          <TransactionFeedbackProvider>
-            <WalletProviderWrapper>
-              <NextJsToploader
-                showSpinner={false}
-                showForHashAnchor={false}
-                showAtBottom={false}
-                color="var(--primary)"
-              />
-              {children}
-              <Toaster richColors />
-            </WalletProviderWrapper>
-          </TransactionFeedbackProvider>
+          <AnalyticsProvider>
+            <AnalyticsInit />
+            <TransactionFeedbackProvider>
+              <WalletProviderWrapper>
+                <NextJsToploader
+                  showSpinner={false}
+                  showForHashAnchor={false}
+                  showAtBottom={false}
+                  color="var(--primary)"
+                />
+                {children}
+                <Toaster richColors />
+              </WalletProviderWrapper>
+            </TransactionFeedbackProvider>
+          </AnalyticsProvider>
         </QueryProvider>
       </ReactLenis>
     </ThemeProvider>

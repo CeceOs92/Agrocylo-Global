@@ -4,6 +4,7 @@ import { useTheme } from "next-themes";
 import { Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
+import { trackThemeToggled } from "@/lib/analytics";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -26,7 +27,11 @@ export function ThemeToggle() {
       variant="ghost"
       size="icon"
       className="size-9"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => {
+        const nextTheme = theme === "dark" ? "light" : "dark";
+        setTheme(nextTheme);
+        trackThemeToggled(nextTheme);
+      }}
       aria-label="Toggle theme"
     >
       {theme === "dark" ? (

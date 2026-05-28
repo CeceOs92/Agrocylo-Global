@@ -23,6 +23,7 @@ import type {
   ProductUnit,
 } from "@/types/product";
 import type { BarterOfferItem } from "@/types/barter";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 const CATEGORIES: ProductCategory[] = [
   "Vegetables",
@@ -206,6 +207,8 @@ export default function BarterOfferForm({
   onClose,
   onSuccess,
 }: BarterOfferFormProps) {
+  const { trackFunnelStep, trackFormSubmission, trackTransactionAttempt } =
+    useAnalytics();
   const [recipientWallet, setRecipientWallet] = useState("");
   const [offerItems, setOfferItems] = useState<BarterOfferItem[]>([
     emptyItem(),
@@ -280,6 +283,14 @@ export default function BarterOfferForm({
 
     setSaving(true);
     setSaveError(null);
+    trackFormSubmission("barter_offer_form", {
+      walletAddress,
+      collateral: includeCollateral,
+      expiryHours,
+    });
+    trackTransactionAttempt("barter", "started", {
+      recipientWallet: recipientWallet.trim(),
+    });
 
     try {
       // TODO: when /barter is exposed on the backend, replace the simulated
@@ -305,9 +316,18 @@ export default function BarterOfferForm({
       void _payload;
 
       await new Promise((r) => setTimeout(r, 500));
+      trackTransactionAttempt("barter", "confirmed", {
+        recipientWallet: recipientWallet.trim(),
+      });
+      trackFunnelStep("barter_creation", "submitted", {
+        includeCollateral,
+      });
       await onSuccess();
       onClose();
     } catch (err) {
+      trackTransactionAttempt("barter", "failed", {
+        recipientWallet: recipientWallet.trim(),
+      });
       setSaveError(
         err instanceof Error ? err.message : "Failed to submit barter offer.",
       );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, MapPin, Truck, Wallet } from "lucide-react";
 
@@ -14,12 +14,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { Product } from "@/types/product";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 export default function ProductDetailPage() {
   const { productId } = useParams<{ productId: string }>();
   const router = useRouter();
   const { connected } = useWallet();
   const { cart, setQuantityForProduct } = useCart();
+  const { trackFunnelStep, trackFeatureAdoption } = useAnalytics();
 
   const { data: product, isLoading, error } = useProduct(productId);
 
@@ -32,6 +34,15 @@ export default function ProductDetailPage() {
     }
     return 0;
   }, [cart.groups, product]);
+
+  useEffect(() => {
+    if (product) {
+      trackFunnelStep("product_discovery", "product_viewed", {
+        productId: product.id,
+        category: product.category,
+      });
+    }
+  }, [product, trackFunnelStep]);
 
   if (isLoading) {
     return (
@@ -179,9 +190,12 @@ export default function ProductDetailPage() {
                     size="icon"
                     variant="ghost"
                     className="size-9 rounded-full"
-                    onClick={() =>
-                      setQuantityForProduct(product.id, currentQty - 1)
-                    }
+                    onClick={() => {
+                      trackFunnelStep("purchase", "quantity_decremented", {
+                        productId: product.id,
+                      });
+                      setQuantityForProduct(product.id, currentQty - 1);
+                    }}
                   >
                     −
                   </Button>
@@ -192,9 +206,12 @@ export default function ProductDetailPage() {
                     size="icon"
                     variant="ghost"
                     className="size-9 rounded-full"
-                    onClick={() =>
-                      setQuantityForProduct(product.id, currentQty + 1)
-                    }
+                    onClick={() => {
+                      trackFunnelStep("purchase", "quantity_incremented", {
+                        productId: product.id,
+                      });
+                      setQuantityForProduct(product.id, currentQty + 1);
+                    }}
                   >
                     +
                   </Button>
@@ -204,7 +221,15 @@ export default function ProductDetailPage() {
             ) : (
               <Button
                 size="lg"
-                onClick={() => setQuantityForProduct(product.id, 1)}
+                onClick={() => {
+                  trackFeatureAdoption("product_detail_add_to_cart", {
+                    productId: product.id,
+                  });
+                  trackFunnelStep("purchase", "add_to_cart", {
+                    productId: product.id,
+                  });
+                  setQuantityForProduct(product.id, 1);
+                }}
                 className="w-full"
               >
                 Add to cart
