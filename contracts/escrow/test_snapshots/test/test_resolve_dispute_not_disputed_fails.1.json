@@ -180,21 +180,12 @@
         }
       ]
     ],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
     []
   ],
   "ledger": {
     "protocol_version": 25,
     "sequence_number": 0,
-    "timestamp": 345601,
+    "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -484,7 +475,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Refunded"
+                          "symbol": "Pending"
                         }
                       ]
                     }
@@ -617,7 +608,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "985"
+                      "i128": "500"
                     }
                   },
                   {
@@ -773,7 +764,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "0"
+                      "i128": "485"
                     }
                   },
                   {

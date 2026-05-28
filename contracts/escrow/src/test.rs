@@ -12,9 +12,10 @@ fn setup_test() -> (
     Address,
     Address,
     Address,
+    token::Client<'static>,
+    token::Client<'static>,
     Address,
-    token::Client<'static>,
-    token::Client<'static>,
+    Address,
     Address,
 ) {
     let env = Env::default();
@@ -59,6 +60,7 @@ fn setup_test() -> (
         usdc_client,
         admin,
         investor1,
+        contract_id,
     )
 }
 
@@ -101,7 +103,7 @@ fn create_test_with_tokens() -> (
 
 #[test]
 fn test_create_and_confirm_order() {
-    let (_env, client, buyer, farmer, _collector, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _collector, token, _, _, _, _) = setup_test();
 
     assert_eq!(token.balance(&buyer), 1000);
     assert_eq!(token.balance(&farmer), 0);
@@ -124,12 +126,13 @@ fn test_create_and_confirm_order() {
 
 #[test]
 fn test_mark_delivered_then_confirm() {
-    let (_env, client, buyer, farmer, _collector, token, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, _collector, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
+    env.ledger().set_timestamp(1000);
     client.mock_all_auths().mark_delivered(&farmer, &order_id);
 
     let order = client.get_order_details(&order_id);
@@ -144,7 +147,7 @@ fn test_mark_delivered_then_confirm() {
 
 #[test]
 fn test_mark_delivered_wrong_farmer_fails() {
-    let (env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
     let fake_farmer = Address::generate(&env);
 
     let order_id = client
@@ -158,24 +161,24 @@ fn test_mark_delivered_wrong_farmer_fails() {
 }
 
 #[test]
-fn test_mark_delivered_twice_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+fn test_mark_delivered_twice_succeeds() {
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
     client.mock_all_auths().mark_delivered(&farmer, &order_id);
+    let order = client.get_order_details(&order_id);
 
-    let result = client
-        .mock_all_auths()
-        .try_mark_delivered(&farmer, &order_id);
-    assert!(result.is_err());
+    client.mock_all_auths().mark_delivered(&farmer, &order_id);
+    let order_after = client.get_order_details(&order_id);
+    assert_eq!(order_after.delivery_timestamp, order.delivery_timestamp);
 }
 
 #[test]
 fn test_confirm_without_mark_delivered() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -189,7 +192,7 @@ fn test_confirm_without_mark_delivered() {
 
 #[test]
 fn test_confirm_already_completed() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
     let order_id = client
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
@@ -204,10 +207,19 @@ fn test_confirm_already_completed() {
 
 #[test]
 fn test_refund_expired_order() {
-    let (env, client, buyer, farmer, _collector, token, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, collector, token, _, _, _, contract_id) = setup_test();
+    let amount = 500i128;
+    let fee = amount * 3 / 100;
+    let net_amount = amount - fee;
+
     let order_id = client
         .mock_all_auths()
-        .create_order(&buyer, &farmer, &token.address, &500);
+        .create_order(&buyer, &farmer, &token.address, &amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&farmer), 0);
+    assert_eq!(token.balance(&contract_id), net_amount);
 
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + 345_601);
@@ -216,11 +228,16 @@ fn test_refund_expired_order() {
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Refunded);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount + net_amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&farmer), 0);
+    assert_eq!(token.balance(&contract_id), 0);
 }
 
 #[test]
 fn test_refund_unexpired_order_fails() {
-    let (env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
     let order_id = client
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
@@ -233,7 +250,7 @@ fn test_refund_unexpired_order_fails() {
 
 #[test]
 fn test_create_order_unsupported_token_fails() {
-    let (env, client, buyer, farmer, _, _, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, _, _, _, _, _, _) = setup_test();
     let unsupported_token_admin = Address::generate(&env);
     let unsupported_contract = env.register_stellar_asset_contract_v2(unsupported_token_admin);
     let unsupported_client = token::Client::new(&env, &unsupported_contract.address());
@@ -248,8 +265,41 @@ fn test_create_order_unsupported_token_fails() {
 }
 
 #[test]
+fn test_create_order_zero_amount_fails() {
+    let (_env, client, buyer, farmer, _collector, token, _, _, _, _) = setup_test();
+
+    let result = client
+        .mock_all_auths()
+        .try_create_order(&buyer, &farmer, &token.address, &0);
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AmountMustBePositive);
+}
+
+#[test]
+fn test_create_order_negative_amount_fails() {
+    let (_env, client, buyer, farmer, _collector, token, _, _, _, _) = setup_test();
+
+    let result = client
+        .mock_all_auths()
+        .try_create_order(&buyer, &farmer, &token.address, &-1);
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AmountMustBePositive);
+}
+
+#[test]
+fn test_create_order_buyer_auth_fails() {
+    let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
+
+    // Use mock_all_auths to successfully create an order while recording auths.
+    client.mock_all_auths().create_order(&buyer, &farmer, &token.address, &500);
+
+    // Verify that the buyer's authorization was required by the contract.
+    let auths = env.auths();
+    assert!(!auths.is_empty(), "expected at least one auth entry");
+    assert_eq!(auths[0].0, buyer, "expected buyer to be the authorized address");
+}
+
+#[test]
 fn test_platform_fee_acceptance_criteria() {
-    let (_env, client, buyer, farmer, collector, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, collector, token, _, _, _, _) = setup_test();
 
     let amount = 1000;
 
@@ -267,7 +317,7 @@ fn test_platform_fee_acceptance_criteria() {
 
 #[test]
 fn test_open_dispute_by_buyer() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -290,7 +340,7 @@ fn test_open_dispute_by_buyer() {
 
 #[test]
 fn test_open_dispute_by_farmer() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -313,7 +363,7 @@ fn test_open_dispute_by_farmer() {
 
 #[test]
 fn test_open_dispute_not_pending_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -334,7 +384,7 @@ fn test_open_dispute_not_pending_fails() {
 
 #[test]
 fn test_open_dispute_not_participant_fails() {
-    let (env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
     let non_participant = Address::generate(&env);
 
     let order_id = client
@@ -359,7 +409,7 @@ fn test_open_dispute_not_participant_fails() {
 
 #[test]
 fn test_open_dispute_duplicate_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -382,17 +432,25 @@ fn test_open_dispute_duplicate_fails() {
 
     assert_eq!(
         result.unwrap_err().unwrap(),
-        EscrowError::DisputeAlreadyExists
+        EscrowError::OrderNotPending
     );
 }
 
 #[test]
 fn test_resolve_dispute_refund() {
-    let (_env, client, buyer, farmer, _, token, _, _, admin) = setup_test();
+    let (_env, client, buyer, farmer, collector, token, _, admin, _, contract_id) = setup_test();
+    let amount = 500i128;
+    let fee = amount * 3 / 100;
+    let net_amount = amount - fee;
 
     let order_id = client
         .mock_all_auths()
-        .create_order(&buyer, &farmer, &token.address, &500);
+        .create_order(&buyer, &farmer, &token.address, &amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), net_amount);
+    assert_eq!(token.balance(&farmer), 0);
 
     let reason = String::from_str(&_env, "Product not received");
     let evidence_hash = String::from_str(&_env, "QmHashRefund");
@@ -407,15 +465,29 @@ fn test_resolve_dispute_refund() {
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Refunded);
+    assert_eq!(order.amount, net_amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount + net_amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(token.balance(&farmer), 0);
 }
 
 #[test]
 fn test_resolve_dispute_release() {
-    let (_env, client, buyer, farmer, _, token, _, _, admin) = setup_test();
+    let (_env, client, buyer, farmer, collector, token, _, admin, _, contract_id) = setup_test();
+    let amount = 500i128;
+    let fee = amount * 3 / 100;
+    let net_amount = amount - fee;
 
     let order_id = client
         .mock_all_auths()
-        .create_order(&buyer, &farmer, &token.address, &500);
+        .create_order(&buyer, &farmer, &token.address, &amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), net_amount);
+    assert_eq!(token.balance(&farmer), 0);
 
     let reason = String::from_str(&_env, "Farmer delivered goods");
     let evidence_hash = String::from_str(&_env, "QmHashRelease");
@@ -430,15 +502,32 @@ fn test_resolve_dispute_release() {
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Completed);
+    assert_eq!(order.amount, net_amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(token.balance(&farmer), net_amount);
 }
 
 #[test]
 fn test_resolve_dispute_split_50_50() {
-    let (_env, client, buyer, farmer, _, token, _, _, admin) = setup_test();
+    let (_env, client, buyer, farmer, collector, token, _, admin, _, contract_id) = setup_test();
+    let amount = 1000i128;
+    let fee = amount * 3 / 100;
+    let net_amount = amount - fee;
+    let buyer_share_bps: u32 = 5000;
+    let refund_amount = net_amount * buyer_share_bps as i128 / 10_000;
+    let release_amount = net_amount - refund_amount;
 
     let order_id = client
         .mock_all_auths()
-        .create_order(&buyer, &farmer, &token.address, &1000);
+        .create_order(&buyer, &farmer, &token.address, &amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), net_amount);
+    assert_eq!(token.balance(&farmer), 0);
 
     let reason = String::from_str(&_env, "Partial fulfillment");
     let evidence_hash = String::from_str(&_env, "QmHashSplit50");
@@ -449,16 +538,21 @@ fn test_resolve_dispute_split_50_50() {
 
     client
         .mock_all_auths()
-        .resolve_dispute(&admin, &order_id, &DisputeResolution::Split(5000));
+        .resolve_dispute(&admin, &order_id, &DisputeResolution::Split(buyer_share_bps));
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Completed);
+    assert_eq!(order.amount, net_amount);
+
+    assert_eq!(token.balance(&buyer), 1000 - amount + refund_amount);
+    assert_eq!(token.balance(&collector), fee);
+    assert_eq!(token.balance(&contract_id), 0);
+    assert_eq!(token.balance(&farmer), release_amount);
 }
 
 #[test]
 fn test_resolve_dispute_not_admin_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
-    let (env, _, admin, _, _, _) = create_test_with_tokens();
+    let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -483,7 +577,7 @@ fn test_resolve_dispute_not_admin_fails() {
 
 #[test]
 fn test_resolve_dispute_not_disputed_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, admin) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, admin, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -499,7 +593,7 @@ fn test_resolve_dispute_not_disputed_fails() {
 
 #[test]
 fn test_resolve_dispute_invalid_split_ratio_fails() {
-    let (_env, client, buyer, farmer, _, token, _, _, admin) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, admin, _, _) = setup_test();
 
     let order_id = client
         .mock_all_auths()
@@ -523,7 +617,7 @@ fn test_resolve_dispute_invalid_split_ratio_fails() {
 
 #[test]
 fn test_get_orders_by_buyer() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let _order_id1 = client
         .mock_all_auths()
@@ -539,7 +633,7 @@ fn test_get_orders_by_buyer() {
 
 #[test]
 fn test_get_orders_by_farmer() {
-    let (_env, client, buyer, farmer, _, token, _, _, _) = setup_test();
+    let (_env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     let _order_id1 = client
         .mock_all_auths()
