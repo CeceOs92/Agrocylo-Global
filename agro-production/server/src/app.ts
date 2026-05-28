@@ -13,6 +13,7 @@ import { globalErrorHandler } from './middleware/errors.js';
 import { HealthResponseSchema } from './schemas/health.js';
 import { serveOpenApiDocument } from './openapi/document.js';
 import { getRateLimitMetrics } from './middleware/rateLimitMetrics.js';
+import { getEventMetrics } from './events/metrics.js';
 
 const app = express();
 
@@ -41,6 +42,10 @@ app.get('/api/docs/openapi.json', serveOpenApiDocument);
 
 app.get('/metrics/rate-limits', (_req: Request, res: Response) => {
   res.status(200).json(getRateLimitMetrics());
+});
+
+app.get('/metrics/events', (_req: Request, res: Response) => {
+  res.status(200).json(getEventMetrics());
 });
 
 app.use((_req: Request, res: Response) => {

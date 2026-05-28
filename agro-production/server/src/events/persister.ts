@@ -2,6 +2,7 @@ import type { CampaignStatus, OrderStatus } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import logger from "../config/logger.js";
 import { broadcast } from "../services/wsServer.js";
+import { recordEventProcessed, recordEventDuplicate } from "./metrics.js";
 import type {
   CampaignCreatedEvent,
   CampaignInvestedEvent,
@@ -20,6 +21,7 @@ export class EventPersister {
   static async persist(event: ParsedEvent): Promise<void> {
     const alreadyProcessed = await hasPersistedEvent(prisma, event.ledger, event.eventIndex);
     if (alreadyProcessed) {
+      recordEventDuplicate();
       logDuplicateSkip(event, "persist.preflight");
       return;
     }
@@ -58,6 +60,7 @@ export class EventPersister {
         return;
     }
 
+    recordEventProcessed(event.action, event.ledger);
     logger.info("EventPersister: persisted", { action: event.action, ledger: event.ledger });
   }
 }
