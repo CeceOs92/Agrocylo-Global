@@ -83,15 +83,15 @@ fn create_test_with_tokens() -> (
     let xlm_admin_client = token::StellarAssetClient::new(&env, &xlm_contract.address());
     xlm_admin_client.mint(&buyer, &1000);
 
-    let usdc_contract = env.register_stellar_asset_contract_v2(token_admin);
-    let usdc_client = token::Client::new(&env, &usdc_contract.address());
+    // Register the second required token; only its address is needed for the whitelist.
+    let usdc_address = env.register_stellar_asset_contract_v2(token_admin).address();
 
     let contract_id = env.register(EscrowContract, ());
     let client = EscrowContractClient::new(&env, &contract_id);
 
     let mut supported_tokens = Vec::new(&env);
     supported_tokens.push_back(xlm_client.address.clone());
-    supported_tokens.push_back(usdc_client.address.clone());
+    supported_tokens.push_back(usdc_address);
 
     let fee_collector = Address::generate(&env);
     client.initialize(&admin, &fee_collector, &supported_tokens);
@@ -170,7 +170,7 @@ fn test_mark_delivered_twice_fails() {
     let result = client
         .mock_all_auths()
         .try_mark_delivered(&farmer, &order_id);
-    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotPending);
 }
 
 #[test]
@@ -547,4 +547,51 @@ fn test_get_orders_by_farmer() {
 
     let orders = client.get_orders_by_farmer(&farmer);
     assert_eq!(orders.len(), 1);
+}
+
+#[test]
+fn test_initialize_with_only_one_token_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin);
+    let xlm_address = xlm_contract.address();
+
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let mut one_token = Vec::new(&env);
+    one_token.push_back(xlm_address);
+
+    let result = client.try_initialize(&admin, &fee_collector, &one_token);
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::MustSupportTwoTokens);
+}
+
+#[test]
+fn test_initialize_duplicate_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let usdc_address = env.register_stellar_asset_contract_v2(token_admin).address();
+
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let mut tokens = Vec::new(&env);
+    tokens.push_back(xlm_contract.address());
+    tokens.push_back(usdc_address);
+
+    client.initialize(&admin, &fee_collector, &tokens);
+
+    let result = client.try_initialize(&admin, &fee_collector, &tokens);
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AlreadyInitialized);
 }
