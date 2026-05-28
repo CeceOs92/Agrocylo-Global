@@ -245,6 +245,15 @@ Stellar / Soroban network
 4. The WebSocket server broadcasts the event to all connected frontend clients.
 5. On restart the watcher reads the highest `ledger` from the `transactions` table and resumes from there — no events are re-processed.
 
+### Event idempotency guarantees
+
+- `campaign.created` - uses `campaign.upsert` and unique `transactions(ledger,eventIndex)` checks before writes.
+- `campaign.invested` - uses replay-safe `investment.upsert` and duplicate transaction checks in preflight + transaction scope.
+- `campaign.settled` - deterministic campaign revenue/status writes guarded by duplicate checks before mutation.
+- `order.created` - `order.upsert` by on-chain order ID prevents duplicate order creation.
+- `order.confirmed` - duplicate events are dropped before order status and campaign revenue updates.
+- `campaign.produce|harvest|failed|disputed` - deterministic status writes are replay-safe and guarded by duplicate checks.
+
 ---
 
 ## WebSocket
