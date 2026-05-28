@@ -283,7 +283,7 @@ impl EscrowContract {
         if order.farmer != farmer {
             return Err(EscrowError::NotFarmer);
         }
-        if order.status != OrderStatus::Pending {
+        if order.status != OrderStatus::Pending || order.delivery_timestamp > 0 {
             return Err(EscrowError::OrderNotPending);
         }
 
