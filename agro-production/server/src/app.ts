@@ -12,6 +12,7 @@ import orderRoutes from './routes/orders.js';
 import { globalErrorHandler } from './middleware/errors.js';
 import { HealthResponseSchema } from './schemas/health.js';
 import { serveOpenApiDocument } from './openapi/document.js';
+import { getRateLimitMetrics } from './middleware/rateLimitMetrics.js';
 
 const app = express();
 
@@ -37,6 +38,10 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.get('/api/docs/openapi.json', serveOpenApiDocument);
+
+app.get('/metrics/rate-limits', (_req: Request, res: Response) => {
+  res.status(200).json(getRateLimitMetrics());
+});
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
