@@ -4,6 +4,8 @@ import { config } from "../config/index.js";
 import { prisma } from "../config/database.js";
 import { NotificationService } from "./notificationService.js";
 import { wsManager } from "./wsManager.js";
+import { BlockchainEventIngestionService } from "./events/blockchainEventIngestionService.js";
+import { EscrowEventIngestionService } from "./events/escrowEventIngestionService.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const CHECKPOINT_SERVICE_NAME = "contract-watcher";
@@ -28,11 +30,22 @@ function decodeEvent(event: any): { action: string; data: unknown[] } | null {
 function handleEvent(event: any): void {
   const decoded = decodeEvent(event);
   if (!decoded) return;
+  dispatchEvent(decoded.action, decoded.data, event.ledger);
+}
 
-  const { action, data } = decoded;
+/**
+ * Dispatches a decoded escrow event to the notification service and WebSocket
+ * broadcast. Split out from {@link handleEvent} (which handles XDR decoding) so
+ * the routing logic can be unit-tested with plain decoded data.
+ */
+export function dispatchEvent(
+  action: string,
+  data: unknown[],
+  ledger?: number,
+): void {
   const orderId = String(data[0] ?? "");
 
-  logger.info(`[ContractWatcher] Event received: ${action} | order: ${orderId} | ledger: ${event.ledger}`);
+  logger.info(`[ContractWatcher] Event received: ${action} | order: ${orderId} | ledger: ${ledger ?? "?"}`);
 
   switch (action) {
     case "created": {
@@ -177,24 +190,17 @@ export async function startContractWatcher(): Promise<void> {
         filters: [{ type: "contract", contractIds: [contractId] }],
       });
 
-      const events = response.events;
-      if (events.length === 0) return;
+      for (const event of response.events) {
+        // Route through the structured ingestion pipeline (persistence + projection).
+        // Services are imported statically at module load, not re-imported every
+        // iteration of the polling loop.
+        void BlockchainEventIngestionService.ingestEvent(event).catch((err) =>
+          logger.error("[ContractWatcher] BlockchainEventIngestionService failed", err),
+        );
 
-      let maxProcessedLedger = lastLedger;
-
-      for (const event of events) {
-        if (event.ledger < lastLedger) {
-          logger.debug(`[ContractWatcher] Skipping duplicate event at ledger ${event.ledger} (already processed)`);
-          continue;
-        }
-
-        void import("./events/blockchainEventIngestionService.js")
-          .then(({ BlockchainEventIngestionService }) => BlockchainEventIngestionService.ingestEvent(event))
-          .catch((err) => logger.error("[ContractWatcher] BlockchainEventIngestionService import failed", err));
-
-        void import("./events/escrowEventIngestionService.js")
-          .then(({ EscrowEventIngestionService }) => EscrowEventIngestionService.ingestEvent(event))
-          .catch((err) => logger.error("[ContractWatcher] EscrowEventIngestionService import failed", err));
+        void EscrowEventIngestionService.ingestEvent(event).catch((err) =>
+          logger.error("[ContractWatcher] EscrowEventIngestionService failed", err),
+        );
 
         handleEvent(event);
 
