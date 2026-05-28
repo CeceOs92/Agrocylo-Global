@@ -57,6 +57,7 @@ cp .env.example .env
 | `PRODUCTION_CONTRACT_ID` | — | No | Alias used by the legacy single-contract watcher (falls back to `PRODUCTION_ESCROW_CONTRACT_ID`) |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | No | Rate-limit rolling window in milliseconds |
 | `RATE_LIMIT_MAX_REQUESTS` | `100` | No | Max requests per IP per window |
+| `RATE_LIMIT_WRITE_MAX_REQUESTS` | `10` | No | Max write requests per IP per window |
 | `SUPABASE_URL` | — | For images | Supabase project URL (campaign image uploads) |
 | `SUPABASE_ANON_KEY` | — | For images | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | — | For images | Supabase service-role key (bypasses RLS for uploads) |
@@ -180,6 +181,7 @@ Import this URL into Swagger UI, Postman, or any OpenAPI client. Validation fail
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/metrics` | JSON snapshot of platform activity |
+| `GET` | `/metrics/rate-limits` | In-memory rate-limit hit counters (`default_hits`, `write_hits`, `total_hits`) |
 
 **Metrics response fields:**
 
@@ -196,6 +198,12 @@ Import this URL into Swagger UI, Postman, or any OpenAPI client. Validation fail
 |---|---|
 | `x-wallet-address` | POST /demand, POST /supply, POST /campaigns, POST /orders |
 | `Content-Type: application/json` | All JSON POST requests |
+
+**Rate limiting behavior:**
+
+- Default limiter applies to all routes using `RATE_LIMIT_WINDOW_MS` + `RATE_LIMIT_MAX_REQUESTS`.
+- Write limiter applies to mutating endpoints using `RATE_LIMIT_WINDOW_MS` + `RATE_LIMIT_WRITE_MAX_REQUESTS`.
+- Each rejection increments in-memory counters exposed at `/metrics/rate-limits`.
 
 ---
 
