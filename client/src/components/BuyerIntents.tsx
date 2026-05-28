@@ -7,7 +7,6 @@ import {
   Star,
   ChevronDown,
   ChevronUp,
-  RefreshCw,
   RotateCcw,
 } from "lucide-react";
 import {

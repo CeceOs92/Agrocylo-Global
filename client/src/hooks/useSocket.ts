@@ -15,6 +15,7 @@ export function useSocket() {
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unmounted = useRef(false);
+  const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
     if (unmounted.current) return;
@@ -37,7 +38,7 @@ export function useSocket() {
         RECONNECT_MAX_DELAY_MS,
       );
       reconnectAttempt.current += 1;
-      reconnectTimer.current = setTimeout(() => connect(), delay);
+      reconnectTimer.current = setTimeout(() => connectRef.current(), delay);
     };
 
     socket.onmessage = (event) => {
@@ -70,6 +71,8 @@ export function useSocket() {
       }
     };
   }, []);
+
+  connectRef.current = connect;
 
   useEffect(() => {
     unmounted.current = false;

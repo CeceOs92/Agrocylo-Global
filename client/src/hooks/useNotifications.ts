@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { listUnreadNotifications, markNotificationsRead } from "@/services/notification/api";
+import { markNotificationsRead } from "@/services/notification/api";
 import type { OrderEventNotification } from "@/services/notification/api";
 import { API_BASE_URL } from "@/lib/apiConfig";
 

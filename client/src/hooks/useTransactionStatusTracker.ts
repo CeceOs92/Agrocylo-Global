@@ -130,7 +130,6 @@ export function useTransactionStatusTracker({
     const interval = pollInterval ?? ADAPTIVE_INTERVALS[state.status];
     const timer = setInterval(() => void fetchStatus(), interval);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPolling, isConnected, fetchStatus, state.status, pollInterval]);
 
   const startPolling = useCallback(() => setIsPolling(true), []);
