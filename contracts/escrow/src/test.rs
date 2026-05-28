@@ -83,7 +83,6 @@ fn create_test_with_tokens() -> (
     let xlm_admin_client = token::StellarAssetClient::new(&env, &xlm_contract.address());
     xlm_admin_client.mint(&buyer, &1000);
 
-    // Register the second required token; only its address is needed for the whitelist.
     let usdc_address = env.register_stellar_asset_contract_v2(token_admin).address();
 
     let contract_id = env.register(EscrowContract, ());
@@ -133,7 +132,7 @@ fn test_mark_delivered_then_confirm() {
     client.mock_all_auths().mark_delivered(&farmer, &order_id);
 
     let order = client.get_order_details(&order_id);
-    assert_eq!(order.status, OrderStatus::Pending);
+    assert_eq!(order.status, OrderStatus::Delivered);
     assert!(order.delivery_timestamp > 0);
 
     client.mock_all_auths().confirm_receipt(&buyer, &order_id);
