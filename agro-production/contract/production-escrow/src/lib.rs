@@ -899,6 +899,43 @@ impl ProductionEscrowContract {
             .get(&DataKey::SupportedTokens)
             .unwrap_or_else(|| Vec::new(&env))
     }
+
+    // ── Access Control Getters (Issue #275) ──────────────────────────────────
+
+    pub fn get_admin(env: Env) -> Result<Address, ProductionEscrowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(ProductionEscrowError::ContractNotInitialized)
+    }
+
+    pub fn get_dispute_stake_amount(env: Env) -> Result<i128, ProductionEscrowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::DisputeStakeAmount)
+            .ok_or(ProductionEscrowError::ContractNotInitialized)
+    }
+
+    pub fn get_campaign_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CampaignCount)
+            .unwrap_or(0)
+    }
+
+    pub fn get_order_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::OrderCount)
+            .unwrap_or(0)
+    }
+
+    pub fn get_dispute_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::DisputeCount)
+            .unwrap_or(0)
+    }
 }
 
 mod test;
