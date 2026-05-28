@@ -1,48 +1,31 @@
-import { Worker, QueueEvents, type WorkerOptions } from "bullmq";
-import logger from "../config/logger.js";
-import { runWithLogContext } from "../config/logContext.js";
-import { createRedisConnection } from "./connection.js";
-import { processIndexing } from "./processors/indexing.js";
-import { processAnalytics } from "./processors/analytics.js";
-import { processNotifications } from "./processors/notifications.js";
-
-type RunningWorkers = {
-  workers: Worker[];
-  events: QueueEvents[];
-  close: () => Promise<void>;
-};
-
-function withJobContext<T>(queue: string, jobId: string, name: string | undefined, fn: () => T): T {
-  return runWithLogContext({ job: { queue, jobId, name } }, fn);
-}
-
 export function startWorkers(): RunningWorkers {
   const connection = createRedisConnection();
-  const opts: WorkerOptions = { connection, concurrency: 5 };
+  
+  // Define resilient default options for all jobs
+  const opts: WorkerOptions = { 
+    connection, 
+    concurrency: 5,
+    defaultJobOptions: {
+      attempts: 3, // Retry up to 3 times
+      backoff: {
+        type: 'exponential', // Wait longer between each retry
+        delay: 5000,         // Start with 5 second delay
+      },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 }, // Keeps failed jobs in the "failed" list for debugging
+    }
+  };
 
-  const indexing = new Worker(
-    "indexing",
-    async (job) => withJobContext("indexing", String(job.id), job.name, () => processIndexing(job)),
-    opts,
-  );
-  const analytics = new Worker(
-    "analytics",
-    async (job) => withJobContext("analytics", String(job.id), job.name, () => processAnalytics(job)),
-    opts,
-  );
-  const notifications = new Worker(
-    "notifications",
-    async (job) =>
-      withJobContext("notifications", String(job.id), job.name, () => processNotifications(job)),
-    opts,
-  );
+  const indexing = new Worker("indexing", async (job) => withJobContext("indexing", String(job.id), job.name, () => processIndexing(job)), opts);
+  const analytics = new Worker("analytics", async (job) => withJobContext("analytics", String(job.id), job.name, () => processAnalytics(job)), opts);
+  const notifications = new Worker("notifications", async (job) => withJobContext("notifications", String(job.id), job.name, () => processNotifications(job)), opts);
 
   const workers = [indexing, analytics, notifications];
 
   for (const w of workers) {
     w.on("active", (job) =>
       withJobContext(w.name, String(job.id), job.name, () =>
-        logger.info("Job active", { attempt: job.attemptsMade } as any),
+        logger.info("Job active", { attempt: job.attemptsMade }),
       ),
     );
     w.on("completed", (job) =>
@@ -50,29 +33,13 @@ export function startWorkers(): RunningWorkers {
     );
     w.on("failed", (job, err) =>
       withJobContext(w.name, String(job?.id ?? "unknown"), job?.name, () =>
-        logger.error("Job failed", err),
+        logger.error("Job failed", { 
+          error: err.message, 
+          attemptsMade: job?.attemptsMade,
+          isFailed: job?.isFailed()
+        }),
       ),
     );
     w.on("error", (err) => logger.error("Worker error", err));
   }
-
-  const events = [
-    new QueueEvents("indexing", { connection }),
-    new QueueEvents("analytics", { connection }),
-    new QueueEvents("notifications", { connection }),
-  ];
-
-  for (const e of events) {
-    e.on("error", (err) => logger.error("QueueEvents error", err));
-  }
-
-  async function close(): Promise<void> {
-    await Promise.allSettled([...events.map((e) => e.close()), ...workers.map((w) => w.close())]);
-    await connection.quit();
-  }
-
-  logger.info("Workers started");
-
-  return { workers, events, close };
-}
-
+  // ... (keep the rest of your events and close logic as is)
