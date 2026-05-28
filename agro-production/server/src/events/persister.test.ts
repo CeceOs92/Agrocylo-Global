@@ -158,6 +158,7 @@ describe("EventPersister", () => {
   describe("idempotency / deduplication", () => {
     it("skips an event that already has a transaction record", async () => {
       const { prisma } = await import("../db/client.js");
+      const logger = (await import("../config/logger.js")).default;
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce({
         id: "tx-1",
       } as never);
@@ -166,6 +167,10 @@ describe("EventPersister", () => {
 
       // $transaction should never be called when the event is a duplicate.
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        "EventPersister: skipping duplicate",
+        expect.objectContaining({ stage: "persist.preflight" }),
+      );
     });
 
     it("processes an event that has not been seen before", async () => {
@@ -191,6 +196,34 @@ describe("EventPersister", () => {
       await EventPersister.persist(event);
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
+    });
+
+    it("skips writes when duplicate is discovered inside transaction scope", async () => {
+      const { prisma } = await import("../db/client.js");
+      const logger = (await import("../config/logger.js")).default;
+      // Preflight sees no duplicate.
+      vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce(null);
+      vi.mocked(prisma.$transaction).mockImplementationOnce(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          await fn({
+            user: { upsert: vi.fn().mockResolvedValue({}) },
+            campaign: { findUnique: vi.fn().mockResolvedValue({ id: "camp-uuid" }) },
+            order: { upsert: vi.fn().mockResolvedValue({}) },
+            transaction: {
+              findUnique: vi.fn().mockResolvedValue({ id: "tx-inside" }),
+              create: vi.fn().mockResolvedValue({}),
+            },
+          });
+        },
+      );
+
+      await EventPersister.persist(makeOrderCreated());
+
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        "EventPersister: skipping duplicate",
+        expect.objectContaining({ stage: "persist.tx" }),
+      );
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
     });
   });
 
