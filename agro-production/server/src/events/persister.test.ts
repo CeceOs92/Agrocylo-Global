@@ -158,6 +158,7 @@ describe("EventPersister", () => {
   describe("idempotency / deduplication", () => {
     it("skips an event that already has a transaction record", async () => {
       const { prisma } = await import("../db/client.js");
+      const logger = (await import("../config/logger.js")).default;
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce({
         id: "tx-1",
       } as never);
@@ -166,6 +167,10 @@ describe("EventPersister", () => {
 
       // $transaction should never be called when the event is a duplicate.
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
+        "EventPersister: skipping duplicate",
+        expect.objectContaining({ stage: "persist.preflight" }),
+      );
     });
 
     it("processes an event that has not been seen before", async () => {
