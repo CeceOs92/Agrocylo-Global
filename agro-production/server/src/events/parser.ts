@@ -5,6 +5,7 @@ import type {
   RawSorobanEvent,
 } from "./types.js";
 import logger from "../config/logger.js";
+import { recordParseError } from "./metrics.js";
 
 /**
  * Decodes base64-encoded XDR ScVal topics and value from a raw Soroban event
@@ -114,6 +115,7 @@ export class ProductionEventParser {
     try {
       return ProductionEventParser.parse(raw);
     } catch (err) {
+      recordParseError();
       logger.warn("ProductionEventParser: skipping malformed event", {
         id: raw.id,
         error: err instanceof Error ? err.message : String(err),

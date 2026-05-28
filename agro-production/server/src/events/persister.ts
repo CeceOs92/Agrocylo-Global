@@ -1,7 +1,8 @@
-import type { CampaignStatus, OrderStatus } from "@prisma/client";
+import type { CampaignStatus, OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import logger from "../config/logger.js";
 import { broadcast } from "../services/wsServer.js";
+import { recordEventProcessed, recordEventDuplicate } from "./metrics.js";
 import type {
   CampaignCreatedEvent,
   CampaignInvestedEvent,
@@ -20,6 +21,7 @@ export class EventPersister {
   static async persist(event: ParsedEvent): Promise<void> {
     const alreadyProcessed = await hasPersistedEvent(prisma, event.ledger, event.eventIndex);
     if (alreadyProcessed) {
+      recordEventDuplicate();
       logDuplicateSkip(event, "persist.preflight");
       return;
     }
@@ -58,6 +60,7 @@ export class EventPersister {
         return;
     }
 
+    recordEventProcessed(event.action, event.ledger);
     logger.info("EventPersister: persisted", { action: event.action, ledger: event.ledger });
   }
 }
@@ -94,7 +97,7 @@ async function handleCampaignCreated(event: CampaignCreatedEvent) {
       data: {
         campaignId: campaign.id,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -185,7 +188,7 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
       data: {
         campaignId: campaign.id,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -225,7 +228,7 @@ async function handleCampaignSettled(event: CampaignSettledEvent) {
       data: {
         campaignId: campaign.id,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -266,7 +269,7 @@ async function handleOrderCreated(event: OrderCreatedEvent) {
       data: {
         campaignId: campaign.id,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -319,7 +322,7 @@ async function handleOrderConfirmed(event: OrderConfirmedEvent) {
       data: {
         campaignId: order.campaignId,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -348,7 +351,7 @@ async function updateCampaignStatus(
       data: {
         campaignId: campaign.id,
         eventType: event.action,
-        payload: event as unknown as Record<string, unknown>,
+        payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
       },
@@ -361,18 +364,30 @@ async function recordTransaction(event: ParsedEvent, campaignId: string | null) 
     data: {
       campaignId,
       eventType: event.action,
-      payload: event as unknown as Record<string, unknown>,
+      payload: toEventPayload(event),
       ledger: event.ledger,
       eventIndex: event.eventIndex,
     },
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function upsertUser(tx: any, walletAddress: string, role: string) {
+async function upsertUser(
+  tx: Prisma.TransactionClient,
+  walletAddress: string,
+  role: string,
+) {
   await tx.user.upsert({
     where: { walletAddress },
     create: { walletAddress, role },
     update: {},
   });
+}
+
+/**
+ * Serialize a parsed event into a Prisma-storable JSON payload. The round-trip
+ * normalizes non-JSON values (e.g. the `timestamp` Date becomes an ISO string),
+ * which is what Prisma would persist anyway.
+ */
+function toEventPayload(event: ParsedEvent): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(event)) as Prisma.InputJsonValue;
 }

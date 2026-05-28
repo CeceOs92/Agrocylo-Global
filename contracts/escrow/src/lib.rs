@@ -542,6 +542,26 @@ impl EscrowContract {
             .get(&DataKey::SupportedTokens)
             .unwrap_or_else(|| Vec::new(&env))
     }
+
+    // ── Access Control Getters (Issue #275) ──────────────────────────────────
+
+    pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
+        read_admin(&env)
+    }
+
+    pub fn get_fee_collector(env: Env) -> Result<Address, EscrowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(EscrowError::ContractNotInitialized)
+    }
+
+    pub fn get_order_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::OrderCount)
+            .unwrap_or(0)
+    }
 }
 
 mod test;
