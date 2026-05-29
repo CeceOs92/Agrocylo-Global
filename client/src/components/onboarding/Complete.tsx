@@ -1,31 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { CheckCircle2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
 
 interface CompleteProps {
   role: "farmer" | "buyer";
 }
 
 export default function Complete({ role }: CompleteProps) {
-  return (
-    <Card variant="elevated" padding="lg" className="max-w-md mx-auto text-center">
-      <div className="text-5xl mb-4">{role === "farmer" ? "🌾" : "🛒"}</div>
-      <h2 className="text-2xl font-bold text-foreground mb-2">
-        You&apos;re All Set!
-      </h2>
-      <p className="text-muted text-sm mb-6">
-        {role === "farmer"
-          ? "Your profile is live. Buyers can now find you on the map."
-          : "Your profile is ready. Explore the farmer map to find local produce."}
-      </p>
+  const isFarmer = role === "farmer";
 
-      <Link href={role === "farmer" ? "/map" : "/map"}>
-        <Button variant="primary" fullWidth>
-          {role === "farmer" ? "View My Pin on the Map" : "Explore Farmer Map"}
-        </Button>
-      </Link>
+  return (
+    <Card className="mx-auto max-w-md">
+      <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+        <div className="bg-primary/10 grid size-16 place-content-center rounded-full">
+          <CheckCircle2 className="text-primary size-8" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold">You&apos;re All Set!</h2>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {isFarmer
+              ? "Your farmer profile is live. Buyers can now find you on the map."
+              : "Your profile is ready. Explore the marketplace to find local produce."}
+          </p>
+        </div>
+
+        <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row">
+          <Link
+            href={isFarmer ? "/dashboard" : "/market"}
+            className={buttonVariants({ className: "flex-1" })}
+          >
+            {isFarmer ? "Go to Dashboard" : "Browse Marketplace"}
+          </Link>
+          <Link
+            href="/map"
+            className={buttonVariants({ variant: "outline", className: "flex-1" })}
+          >
+            View Farmer Map
+          </Link>
+        </div>
+      </CardContent>
     </Card>
   );
 }

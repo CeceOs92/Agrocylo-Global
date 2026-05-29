@@ -12,6 +12,7 @@
 
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { getNetworkConfig, type NetworkConfig } from "./networkConfig";
+import { isTestMode } from "@/lib/testMode";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -27,15 +28,9 @@ export interface CreateOrderTx {
   orderId: string;
 }
 
-/** On-chain order representation returned by `get_order`. */
-export interface Order {
-  orderId: string;
-  buyer: string;
-  seller: string;
-  amount: bigint;
-  status: string;
-  createdAt: number;
-}
+// Re-export Order from canonical location so existing callers don't need to update.
+export type { Order } from "@/types/order";
+import type { Order } from "@/types/order";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -218,6 +213,19 @@ export async function createOrderWithOrderId(
   deliveryDeadline?: string,
 ): Promise<ContractResult<CreateOrderTx>> {
   try {
+    // Test mode: return dummy transaction
+    if (isTestMode()) {
+      // Return a minimal XDR string and generate a deterministic order ID
+      const orderId = String(Date.now());
+      return {
+        success: true,
+        data: {
+          txXdr: "AAAAAgAAAAABAABkdwAAAAIAAAABAAAAFgAAAAAABcekAAAB4w==",
+          orderId,
+        },
+      };
+    }
+
     const server = rpcServer();
     const { networkPassphrase } = config();
     const contract = contractInstance();
@@ -368,6 +376,96 @@ export async function refundOrder(
 }
 
 /**
+ * Build an `open_dispute` transaction.
+ *
+ * @param caller   - Stellar public key of the party opening the dispute
+ * @param orderId  - On-chain order identifier
+ * @param reason   - Short text reason for the dispute
+ * @param evidence - Optional evidence URL/hash
+ */
+export async function openDispute(
+  caller: string,
+  orderId: string,
+  reason: string,
+  evidence: string
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      caller,
+      "open_dispute",
+      [
+        new StellarSdk.Address(caller).toScVal(),
+        StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" }),
+        StellarSdk.nativeToScVal(reason, { type: "string" }),
+        StellarSdk.nativeToScVal(evidence, { type: "string" }),
+      ]
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Build a `resolve_dispute` transaction (Admin only).
+ *
+ * @param admin          - Stellar public key of the admin
+ * @param orderId        - On-chain order identifier
+ * @param resolveToBuyer - True to refund buyer, false to release to farmer
+ */
+export async function resolveDispute(
+  admin: string,
+  orderId: string,
+  resolveToBuyer: boolean
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      admin,
+      "resolve_dispute",
+      [
+        new StellarSdk.Address(admin).toScVal(),
+        StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" }),
+        StellarSdk.nativeToScVal(resolveToBuyer, { type: "bool" }),
+      ]
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Build a `split_funds` transaction (Admin only).
+ *
+ * @param admin       - Stellar public key of the admin
+ * @param orderId     - On-chain order identifier
+ * @param buyerShare  - Amount to refund to buyer
+ * @param farmerShare - Amount to release to farmer
+ */
+export async function splitFunds(
+  admin: string,
+  orderId: string,
+  buyerShare: bigint,
+  farmerShare: bigint
+): Promise<ContractResult<string>> {
+  try {
+    const tx = await buildTransaction(
+      admin,
+      "split_funds",
+      [
+        new StellarSdk.Address(admin).toScVal(),
+        StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" }),
+        StellarSdk.nativeToScVal(buyerShare, { type: "i128" }),
+        StellarSdk.nativeToScVal(farmerShare, { type: "i128" }),
+      ]
+    );
+    return { success: true, data: tx.toXDR() };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
  * Query order details (read-only, no signing required).
  *
  * @param orderId - On-chain order identifier
@@ -395,7 +493,7 @@ export async function getOrder(
       .addOperation(
         contract.call(
           "get_order",
-          StellarSdk.nativeToScVal(orderId, { type: "symbol" })
+          StellarSdk.nativeToScVal(BigInt(orderId), { type: "u64" })
         )
       )
       .setTimeout(30)

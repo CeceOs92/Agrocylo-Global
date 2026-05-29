@@ -41,8 +41,6 @@ export async function getServer(): Promise<Horizon.Server> {
       HORIZON_URLS[networkName] ||
       networkDetails.networkUrl ||
       DEFAULT_HORIZON_URL;
-    console.log(`Switching Horizon to network: ${networkName} (${horizonUrl})`);
-
     currentServer = new Horizon.Server(horizonUrl);
     currentNetworkName = networkName;
     return currentServer;
@@ -70,10 +68,8 @@ export async function getRpcServer(): Promise<rpc.Server> {
 
     const rpcUrl =
       RPC_URLS[networkName] ||
-      (networkDetails as any).rpcUrl ||
+      (networkDetails as { rpcUrl?: string }).rpcUrl ||
       DEFAULT_RPC_URL;
-    console.log(`Switching RPC to network: ${networkName} (${rpcUrl})`);
-
     currentRpcServer = new rpc.Server(rpcUrl);
     // Keep network name in sync with Horizon if possible, but at least update if missing
     currentNetworkName = networkName;
@@ -95,14 +91,13 @@ export async function getXlmBalance(address: string): Promise<string> {
     const native = account.balances.find(
       (b: { asset_type: string }) => b.asset_type === "native",
     );
-    // Balance is a string already, return it or '0'
     return native?.balance ?? "0";
   } catch (err: unknown) {
-    // If account not found (404), throw a generic message
-    if (err instanceof Error && err.message.includes("404")) {
-      throw new Error(
-        "Account not found on this network. Please ensure the account is funded.",
-      );
+    const message = err instanceof Error ? err.message : String(err);
+    // Unfunded accounts return 404 / "Not Found" from Horizon. That's a valid
+    // empty-wallet state on testnet, not a failure — surface a zero balance.
+    if (/404|not found/i.test(message)) {
+      return "0";
     }
     throw err;
   }
@@ -113,6 +108,16 @@ export async function getXlmBalance(address: string): Promise<string> {
  */
 export async function getCurrentNetworkName(): Promise<string> {
   try {
+    // Prefer window.freighter if available (e.g. Playwright test mocks).
+    const freighterDirect =
+      typeof window !== "undefined"
+        ? window.freighter ?? window.freighterApi ?? null
+        : null;
+
+    if (freighterDirect) {
+      return await freighterDirect.getNetwork();
+    }
+
     const networkDetails = await FreighterApi.getNetworkDetails();
     return networkDetails.network;
   } catch (err) {

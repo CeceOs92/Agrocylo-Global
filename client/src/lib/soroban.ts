@@ -23,14 +23,11 @@ export async function checkTransactionStatus(
   const rpcServer = await getRpcServer();
   const startTime = Date.now();
 
-  console.log(`Starting poll for transaction: ${txHash}`);
-
   while (Date.now() - startTime < timeoutMs) {
     try {
       const response = await rpcServer.getTransaction(txHash);
 
       if (response.status === rpc.Api.GetTransactionStatus.SUCCESS) {
-        console.log(`Transaction ${txHash} succeeded`);
         return {
           status: "SUCCESS",
           txHash,
@@ -50,13 +47,7 @@ export async function checkTransactionStatus(
         };
       }
 
-      if (response.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
-        console.log(`Transaction ${txHash} not found yet, retrying...`);
-      } else {
-        // TS may narrow this else-branch to an unreachable path depending on
-        // the RPC status union type, so avoid referencing `response.status`.
-        console.log(`Transaction ${txHash} status not terminal yet, retrying...`);
-      }
+      // Status is NOT_FOUND or non-terminal — keep polling until timeout.
     } catch (error) {
       console.warn(`Error checking transaction ${txHash}:`, error);
       // We don't abort on transient RPC errors, just log and continue until timeout

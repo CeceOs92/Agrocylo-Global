@@ -1,5 +1,8 @@
 "use client";
 
+import { Compass } from "lucide-react";
+import { cn } from "@/lib/utils";
+
 const DISTANCES = [
   { label: "10 km", value: 10 },
   { label: "25 km", value: 25 },
@@ -13,19 +16,26 @@ interface DistanceFilterProps {
   onChange: (km: number) => void;
 }
 
-export default function DistanceFilter({ selected, onChange }: DistanceFilterProps) {
+export default function DistanceFilter({
+  selected,
+  onChange,
+}: DistanceFilterProps) {
   return (
-    <div className="flex items-center gap-2 rounded-lg bg-white/90 p-2 shadow-md backdrop-blur-sm">
-      <span className="text-sm font-medium text-neutral-600 px-1">Range:</span>
+    <div className="bg-card/95 flex items-center gap-1 rounded-full border p-1 shadow-lg backdrop-blur-sm">
+      <span className="text-muted-foreground inline-flex items-center gap-1 pl-3 pr-1 text-xs font-medium">
+        <Compass className="size-3.5" />
+        Range
+      </span>
       {DISTANCES.map(({ label, value }) => (
         <button
           key={value}
           onClick={() => onChange(value)}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={cn(
+            "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
             selected === value
-              ? "bg-primary-600 text-white"
-              : "text-neutral-700 hover:bg-neutral-100"
-          }`}
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
         >
           {label}
         </button>
