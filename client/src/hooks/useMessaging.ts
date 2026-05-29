@@ -14,24 +14,53 @@ import {
 } from '../services/messagingService';
 
 export function useMessaging(conversationId?: string) {
-  const [conversations, setConversations] = useState<<Conversation[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [typingUsers, setTypingUsers] = useState<<Set<string>>(new Set());
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const cursorRef = useRef<string | undefined>();
-  const typingTimerRef = useRef<<ReturnType<<typeof setTimeout>>();
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
 
-  // Load Conversations 
+  const loadConversations = useCallback(async () => {
+    try {
+      const data = await fetchConversations();
+      setConversations(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load conversations');
+    }
+  }, []);
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId || isLoading) return;
+
+    setIsLoading(true);
+    try {
+      const { messages: newMessages, nextCursor } = await fetchMessages(
+        conversationId,
+        cursorRef.current
+      );
+
+      setMessages(prev => cursorRef.current ? [...newMessages, ...prev] : newMessages);
+      cursorRef.current = nextCursor;
+      setHasMore(!!nextCursor);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load messages');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [conversationId, isLoading]);
+
+  // Load Conversations
 
   useEffect(() => {
     loadConversations();
-    
+
     const unsubNew = messagingSocket.on('new_conversation', (conv: Conversation) => {
       setConversations(prev => [conv, ...prev]);
     });
-    
+
     const unsubUpdate = messagingSocket.on('conversation_updated', (conv: Conversation) => {
       setConversations(prev => prev.map(c => c.id === conv.id ? conv : c));
     });
@@ -40,23 +69,13 @@ export function useMessaging(conversationId?: string) {
       unsubNew();
       unsubUpdate();
     };
-  }, []);
+  }, [loadConversations]);
 
-  const loadConversations = async () => {
-    try {
-      const data = await fetchConversations();
-      setConversations(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load conversations');
-    }
-  };
-
-  //Load Messages 
+  // Load Messages
 
   useEffect(() => {
     if (!conversationId) return;
-    
-    setMessages([]);
+
     cursorRef.current = undefined;
     loadMessages();
     markAsRead(conversationId);
@@ -105,27 +124,7 @@ export function useMessaging(conversationId?: string) {
       unsubReaction();
       unsubTyping();
     };
-  }, [conversationId]);
-
-  const loadMessages = async () => {
-    if (!conversationId || isLoading) return;
-    
-    setIsLoading(true);
-    try {
-      const { messages: newMessages, nextCursor } = await fetchMessages(
-        conversationId,
-        cursorRef.current
-      );
-      
-      setMessages(prev => cursorRef.current ? [...newMessages, ...prev] : newMessages);
-      cursorRef.current = nextCursor;
-      setHasMore(!!nextCursor);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load messages');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [conversationId, loadMessages]);
 
   const loadMore = () => {
     if (hasMore && !isLoading) {
