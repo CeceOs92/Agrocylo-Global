@@ -220,9 +220,11 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::FeeCollector)
             .ok_or(EscrowError::ContractNotInitialized)?;
-        
+
         let fee = amount.checked_mul(3).ok_or(EscrowError::ArithmeticError)? / 100;
-        let net_amount = amount.checked_sub(fee).ok_or(EscrowError::ArithmeticError)?;
+        let net_amount = amount
+            .checked_sub(fee)
+            .ok_or(EscrowError::ArithmeticError)?;
 
         token_client.transfer(&buyer, &fee_collector, &fee);
         token_client.transfer(&buyer, &env.current_contract_address(), &net_amount);
@@ -481,7 +483,10 @@ impl EscrowContract {
                     .checked_mul(buyer_share_bps as i128)
                     .ok_or(EscrowError::ArithmeticError)?
                     / 10_000;
-                let release_amount = order.amount.checked_sub(refund_amount).ok_or(EscrowError::ArithmeticError)?;
+                let release_amount = order
+                    .amount
+                    .checked_sub(refund_amount)
+                    .ok_or(EscrowError::ArithmeticError)?;
 
                 if refund_amount > 0 {
                     token_client.transfer(
