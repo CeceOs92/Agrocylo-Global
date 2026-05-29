@@ -94,18 +94,9 @@ app.use(apiErrorHandler);
 app.use(profileErrorHandler);
 app.use(locationErrorHandler);
 app.use(orderErrorHandler);
-app.use(notificationErrorHandler);
 app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
-  logger.error("Unhandled request error", err);
+  logger.error("Request failed", err);
   res.status(500).json({ message: "Internal server error" });
 });
-app.use(profileErrorHandler);
-app.use(locationErrorHandler);
-app.use(orderErrorHandler);
-app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
-  logger.error('Unhandled request error', err);
-  res.status(500).json({ message: 'Internal server error' });
-});
-app.use(adminErrorHandler);
 
 export default app;
