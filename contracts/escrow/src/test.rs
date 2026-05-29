@@ -1,4 +1,5 @@
 #![cfg(test)]
+// Note: DisputeResolution::Split expects basis points (0-10000), where 5000 = 50%, 10000 = 100%.
 
 use super::*;
 use soroban_sdk::{
