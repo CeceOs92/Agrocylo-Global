@@ -38,6 +38,14 @@
   }
 }
 
+.dark {
+  --color-background: var(--color-neutral-950);
+  --color-foreground: var(--color-neutral-50);
+  --color-muted: var(--color-neutral-400);
+  --color-border: var(--color-neutral-700);
+  --color-surface: var(--color-neutral-900);
+}
+
 @theme inline {
   --color-background: var(--color-background);
   --color-foreground: var(--color-foreground);
@@ -60,4 +68,9 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
 }

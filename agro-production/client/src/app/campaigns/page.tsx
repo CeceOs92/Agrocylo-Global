@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchCampaigns, fundingProgress, formatAmount } from "@/services/campaignService";
+import { classifyError, logErrorWithContext } from "@/lib/errorHandling";
+import { CampaignCardSkeleton } from "@/components/Skeletons";
 import type { Campaign, CampaignStatus } from "@/types";
 
 const STATUS_COLORS: Record<CampaignStatus, string> = {
@@ -20,20 +22,13 @@ function FundingBar({ campaign }: { campaign: Campaign }) {
   return (
     <div>
       <div className="flex justify-between text-xs mb-1">
-        <span className="text-muted">
-          {formatAmount(campaign.totalRaised)} XLM raised
-        </span>
+        <span className="text-muted">{formatAmount(campaign.totalRaised)} XLM raised</span>
         <span className="font-medium text-foreground">{pct}%</span>
       </div>
-      <div className="w-full bg-neutral-200 rounded-full h-2 overflow-hidden">
-        <div
-          className="bg-primary-500 h-2 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
+      <div className="w-full bg-neutral-200 rounded-full h-2 overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${pct}% funded`}>
+        <div className="bg-primary-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-xs text-muted mt-1">
-        Goal: {formatAmount(campaign.targetAmount)} XLM
-      </p>
+      <p className="text-xs text-muted mt-1">Goal: {formatAmount(campaign.targetAmount)} XLM</p>
     </div>
   );
 }
@@ -41,52 +36,26 @@ function FundingBar({ campaign }: { campaign: Campaign }) {
 function CampaignCard({ campaign }: { campaign: Campaign }) {
   const deadline = new Date(campaign.deadline);
   const isExpired = deadline < new Date();
-  const daysLeft = Math.max(
-    0,
-    Math.ceil((deadline.getTime() - Date.now()) / 86_400_000),
-  );
-
+  const daysLeft = Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86_400_000));
   return (
-    <Link
-      href={`/campaigns/${campaign.id}`}
-      className="block border border-border rounded-xl p-5 bg-surface hover:shadow-md transition-shadow"
-    >
+    <Link href={`/campaigns/${campaign.id}`} className="block border border-border rounded-xl p-5 bg-surface hover:shadow-md transition-shadow" aria-label={`Campaign ${campaign.id.slice(0, 8)}… - ${campaign.status.replace("_", " ")}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="min-w-0">
-          <p className="text-xs font-mono text-muted truncate">
-            Farmer: {campaign.farmerAddress.slice(0, 8)}…{campaign.farmerAddress.slice(-6)}
-          </p>
-          <p className="text-xs text-muted mt-0.5">
-            {campaign._count?.investments ?? 0} investors ·{" "}
-            {campaign._count?.orders ?? 0} orders
-          </p>
+          <p className="text-xs font-mono text-muted truncate">Farmer: {campaign.farmerAddress.slice(0, 8)}…{campaign.farmerAddress.slice(-6)}</p>
+          <p className="text-xs text-muted mt-0.5">{campaign._count?.investments ?? 0} investors · {campaign._count?.orders ?? 0} orders</p>
         </div>
-        <span
-          className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLORS[campaign.status]}`}
-        >
-          {campaign.status.replace("_", " ")}
-        </span>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLORS[campaign.status]}`}>{campaign.status.replace("_", " ")}</span>
       </div>
-
-      <div className="mb-4">
-        <FundingBar campaign={campaign} />
-      </div>
-
+      <div className="mb-4"><FundingBar campaign={campaign} /></div>
       <div className="flex items-center justify-between text-xs text-muted">
-        <span>
-          {isExpired ? (
-            <span className="text-error">Deadline passed</span>
-          ) : (
-            <span>{daysLeft}d left</span>
-          )}
-        </span>
+        <span>{isExpired ? <span className="text-error">Deadline passed</span> : <span>{daysLeft}d left</span>}</span>
         <span>{deadline.toLocaleDateString()}</span>
       </div>
     </Link>
   );
 }
 
-const STATUS_FILTERS: Array<{ label: string; value: string }> = [
+const STATUS_FILTERS = [
   { label: "All", value: "" },
   { label: "Funding", value: "FUNDING" },
   { label: "Funded", value: "FUNDED" },
@@ -102,28 +71,25 @@ export default function CampaignsPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const limit = 12;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-
+    setLoading(true); setError(null);
     fetchCampaigns({ status: status || undefined, page, limit })
-      .then((res) => {
-        if (!cancelled) {
-          setCampaigns(res.data);
-          setTotal(res.meta.total);
-        }
-      })
+      .then((res) => { if (!cancelled) { setCampaigns(res.data); setTotal(res.meta.total); } })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load campaigns");
+        const classified = classifyError(err, "loadCampaigns");
+        logErrorWithContext(err, {
+          feature: "campaign-list",
+          action: "loadCampaigns",
+          page,
+          statusFilter: status || "all",
+          category: classified.category,
+        });
+        if (!cancelled) setError(classified.actionableMessage);
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [status, page]);
 
@@ -135,72 +101,23 @@ export default function CampaignsPage() {
         <h1 className="text-2xl font-bold text-foreground">Farming Campaigns</h1>
         <p className="text-muted mt-1">Invest in agricultural production and track progress on-chain.</p>
       </div>
-
-      {/* Status filter tabs */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <nav aria-label="Campaign status filters" className="flex flex-wrap gap-2 mb-6">
         {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => { setStatus(f.value); setPage(1); }}
-            className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
-              status === f.value
-                ? "bg-primary-600 text-white border-primary-600"
-                : "border-border text-muted hover:border-primary-400 hover:text-primary-600"
-            }`}
-          >
-            {f.label}
-          </button>
+          <button key={f.value} onClick={() => { setStatus(f.value); setPage(1); }} aria-pressed={status === f.value} className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${status === f.value ? "bg-primary-600 text-white border-primary-600" : "border-border text-muted hover:border-primary-400 hover:text-primary-600"}`}>{f.label}</button>
         ))}
-      </div>
-
-      {loading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="border border-border rounded-xl p-5 bg-surface animate-pulse h-36" />
-          ))}
-        </div>
-      )}
-
-      {!loading && error && (
-        <div className="border border-red-200 bg-red-50 rounded-xl p-6 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && campaigns.length === 0 && (
-        <div className="border border-border rounded-xl p-10 text-center text-muted">
-          No campaigns found.
-        </div>
-      )}
-
+      </nav>
+      {loading && (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading campaigns" aria-busy="true">{Array.from({ length: 6 }).map((_, i) => (<CampaignCardSkeleton key={i} />))}</div>)}
+      {!loading && error && (<div className="border border-red-200 bg-red-50 rounded-xl p-6 text-red-700 text-sm" role="alert">{error}</div>)}
+      {!loading && !error && campaigns.length === 0 && (<div className="border border-border rounded-xl p-10 text-center text-muted">No campaigns found.</div>)}
       {!loading && !error && campaigns.length > 0 && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {campaigns.map((c) => (
-              <CampaignCard key={c.id} campaign={c} />
-            ))}
-          </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Campaigns list">{campaigns.map((c) => (<CampaignCard key={c.id} campaign={c} />))}</div>
           {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-3 mt-8">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1.5 border border-border rounded-lg text-sm disabled:opacity-40 hover:bg-surface"
-              >
-                ← Previous
-              </button>
-              <span className="text-sm text-muted">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1.5 border border-border rounded-lg text-sm disabled:opacity-40 hover:bg-surface"
-              >
-                Next →
-              </button>
-            </div>
+            <nav aria-label="Pagination" className="flex justify-center items-center gap-3 mt-8">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} aria-label="Previous page" className="px-3 py-1.5 border border-border rounded-lg text-sm disabled:opacity-40 hover:bg-surface">← Previous</button>
+              <span className="text-sm text-muted" aria-current="page">Page {page} of {totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} aria-label="Next page" className="px-3 py-1.5 border border-border rounded-lg text-sm disabled:opacity-40 hover:bg-surface">Next →</button>
+            </nav>
           )}
         </>
       )}

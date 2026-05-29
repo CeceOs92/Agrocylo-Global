@@ -79,6 +79,7 @@ export const config = {
   // Rate limiting
   rateLimitWindowMs: parseInt(getEnv('RATE_LIMIT_WINDOW_MS') ?? '60000', 10),
   rateLimitMaxRequests: parseInt(getEnv('RATE_LIMIT_MAX_REQUESTS') ?? '100', 10),
+  rateLimitWriteMaxRequests: parseInt(getEnv('RATE_LIMIT_WRITE_MAX_REQUESTS') ?? '10', 10),
 
   // Supabase — campaign image upload
   // SUPABASE_URL: Supabase project URL

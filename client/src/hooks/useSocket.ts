@@ -3,75 +3,130 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { API_BASE_URL } from "@/lib/apiConfig";
 
+const RECONNECT_BASE_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_MULTIPLIER = 2;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export function useSocket() {
   const [isConnected, setIsConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const [listeners, setListeners] = useState<
-    Map<string, Set<(data: unknown) => void>>
-  >(new Map());
+  const listenersRef = useRef<Map<string, Set<(data: unknown) => void>>>(new Map());
+  const seenMessageIds = useRef<Set<string>>(new Set());
+  const reconnectAttempt = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unmounted = useRef(false);
+  const connectRef = useRef<() => void>(() => {});
+  const messageQueue = useRef<Record<string, unknown>[]>([]);
 
-  useEffect(() => {
-    // Derive WebSocket URL from the same backend base URL used for REST,
-    // so a single NEXT_PUBLIC_API_URL configures the entire backend connection.
+  const connect = useCallback(() => {
+    if (unmounted.current) return;
+
     const wsUrl = API_BASE_URL.replace(/^http/, "ws") + "/ws";
-    
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
 
     socket.onopen = () => {
       setIsConnected(true);
+      reconnectAttempt.current = 0;
+      
+      // Flush queue
+      while (messageQueue.current.length > 0) {
+        const msg = messageQueue.current.shift();
+        if (msg) {
+          socket.send(JSON.stringify(msg));
+        }
+      }
+
+      // Start heartbeat
+      heartbeatTimer.current = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, HEARTBEAT_INTERVAL_MS);
     };
 
     socket.onclose = () => {
       setIsConnected(false);
+      if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+      if (unmounted.current) return;
+      // Exponential backoff reconnect
+      const delay = Math.min(
+        RECONNECT_BASE_DELAY_MS * Math.pow(RECONNECT_MULTIPLIER, reconnectAttempt.current),
+        RECONNECT_MAX_DELAY_MS,
+      );
+      reconnectAttempt.current += 1;
+      reconnectTimer.current = setTimeout(() => connectRef.current(), delay);
     };
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse(event.data as string) as {
+          event?: string;
+          id?: string;
+          payload?: unknown;
+        };
+
+        if (data.event === 'pong') return;
+
+        // Deduplicate by message id if present
+        if (data.id) {
+          if (seenMessageIds.current.has(data.id)) return;
+          seenMessageIds.current.add(data.id);
+          // Keep the dedup set bounded
+          if (seenMessageIds.current.size > 500) {
+            const first = seenMessageIds.current.values().next().value;
+            if (first !== undefined) seenMessageIds.current.delete(first);
+          }
+        }
+
         if (data.event) {
-          const eventListeners = listeners.get(data.event);
+          const eventListeners = listenersRef.current.get(data.event);
           if (eventListeners) {
-            eventListeners.forEach((callback) => callback(data.payload));
+            eventListeners.forEach((cb) => cb(data.payload));
           }
         }
       } catch (err) {
         console.error("[useSocket] Failed to parse message", err);
       }
     };
+  }, []);
+
+  useEffect(() => { connectRef.current = connect; }, [connect]);
+
+  useEffect(() => {
+    unmounted.current = false;
+    connect();
 
     return () => {
-      socket.close();
+      unmounted.current = true;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (heartbeatTimer.current) clearInterval(heartbeatTimer.current);
+      socketRef.current?.close();
     };
-  }, [listeners]);
+  }, [connect]);
 
   const on = useCallback((event: string, callback: (data: unknown) => void) => {
-    setListeners((prev) => {
-      const next = new Map(prev);
-      const eventListeners = next.get(event) || new Set();
-      eventListeners.add(callback);
-      next.set(event, eventListeners);
-      return next;
-    });
+    const map = listenersRef.current;
+    if (!map.has(event)) map.set(event, new Set());
+    map.get(event)!.add(callback);
 
     return () => {
-      setListeners((prev) => {
-        const next = new Map(prev);
-        const eventListeners = next.get(event);
-        if (eventListeners) {
-          eventListeners.delete(callback);
-          if (eventListeners.size === 0) {
-            next.delete(event);
-          }
-        }
-        return next;
-      });
+      const listeners = map.get(event);
+      if (listeners) {
+        listeners.delete(callback);
+        if (listeners.size === 0) map.delete(event);
+      }
     };
   }, []);
 
   const emit = useCallback((type: string, payload: Record<string, unknown>) => {
+    const msg = { type, ...payload };
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type, ...payload }));
+      socketRef.current.send(JSON.stringify(msg));
+    } else {
+      messageQueue.current.push(msg);
     }
   }, []);
 

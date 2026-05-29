@@ -283,7 +283,7 @@ impl EscrowContract {
         if order.farmer != farmer {
             return Err(EscrowError::NotFarmer);
         }
-        if order.status != OrderStatus::Pending {
+        if order.status != OrderStatus::Pending || order.delivery_timestamp > 0 {
             return Err(EscrowError::OrderNotPending);
         }
 
@@ -541,6 +541,26 @@ impl EscrowContract {
             .instance()
             .get(&DataKey::SupportedTokens)
             .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    // ── Access Control Getters (Issue #275) ──────────────────────────────────
+
+    pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
+        read_admin(&env)
+    }
+
+    pub fn get_fee_collector(env: Env) -> Result<Address, EscrowError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeCollector)
+            .ok_or(EscrowError::ContractNotInitialized)
+    }
+
+    pub fn get_order_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::OrderCount)
+            .unwrap_or(0)
     }
 }
 
