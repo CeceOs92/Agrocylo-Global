@@ -7,7 +7,7 @@ import type {
 import { prisma } from "../../config/database.js";
 
 async function handleIndexContractEvents(job: Job<IndexContractEventsJobData>): Promise<void> {
-  const { eventType, eventData, ledger, eventIndex, timestamp } = job.data;
+  const { eventType, eventData, ledger, eventIndex } = job.data;
 
   const data = eventData as Record<string, unknown> | undefined;
   if (!data) {
@@ -35,21 +35,16 @@ async function handleIndexContractEvents(job: Job<IndexContractEventsJobData>): 
         action,
         ledger: Number(ledger) || 0,
         eventIndex: Number(eventIndex) || 0,
-        timestamp: timestamp ? new Date(timestamp) : new Date(),
         txHash: txHash ?? null,
         campaignIdOnChain: data.campaignIdOnChain as string | undefined ?? null,
         orderIdOnChain: data.orderIdOnChain as string | undefined ?? null,
-        actorAddress: data.actorAddress as string | undefined ?? null,
-        secondaryAddress: data.secondaryAddress as string | undefined ?? null,
-        amount: data.amount as string | undefined ?? null,
-        token: data.token as string | undefined ?? null,
-        status: data.status as string | undefined ?? null,
+        payload: data as never,
       },
       update: {
         eventType,
         entity,
         action,
-        status: data.status as string | undefined ?? undefined,
+        payload: data as never,
       },
     });
 

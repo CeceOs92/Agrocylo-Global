@@ -6,15 +6,6 @@ import type {
 } from "../job-types.js";
 import { prisma } from "../../config/database.js";
 
-function utcCalendarDayBounds(reference = new Date()): { start: Date; end: Date } {
-  const start = new Date(
-    Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate(), 0, 0, 0, 0),
-  );
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start, end };
-}
-
 async function handleAggregateMetrics(job: Job<AggregateMetricsJobData>): Promise<void> {
   const { metricName, startDate, endDate } = job.data;
 
@@ -131,7 +122,6 @@ async function handleGenerateReport(job: Job<GenerateReportJobData>): Promise<vo
         const demandsByCrop = await prisma.buyerDemand.groupBy({
           by: ["cropName"],
           _count: { id: true },
-          _sum: { quantityWanted: true },
         });
         summary = { activeDemands, demandsByCrop, generatedAt: reportDate };
         break;
@@ -141,7 +131,6 @@ async function handleGenerateReport(job: Job<GenerateReportJobData>): Promise<vo
         const suppliesByCrop = await prisma.farmerSupply.groupBy({
           by: ["cropName"],
           _count: { id: true },
-          _sum: { quantityAvailable: true },
         });
         summary = { activeSupplies, suppliesByCrop, generatedAt: reportDate };
         break;

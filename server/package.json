@@ -23,6 +23,7 @@
     "better-sqlite3": "^12.8.0",
     "bullmq": "^5.76.1",
     "cors": "^2.8.5",
+    "envalid": "^8.1.1",
     "express": "^4.19.0",
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
@@ -43,12 +44,12 @@
     "@types/node": "^20.11.0",
     "@types/pg": "^8.20.0",
     "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.0",
     "dotenv": "^17.4.2",
     "prisma": "^7.5.0",
     "supertest": "^7.2.2",
     "tsx": "^4.21.0",
     "typescript": "^5.4.0",
-    "@types/ws": "^8.18.0",
     "vitest": "^4.1.1"
   }
 }
