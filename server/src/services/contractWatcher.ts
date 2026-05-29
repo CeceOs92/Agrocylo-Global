@@ -1,106 +1,227 @@
 import { rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import logger from "../config/logger.js";
+import { config } from "../config/index.js";
 import { prisma } from "../config/database.js";
+import { NotificationService } from "./notificationService.js";
+import { wsManager } from "./wsManager.js";
+import { BlockchainEventIngestionService } from "./events/blockchainEventIngestionService.js";
+import { EscrowEventIngestionService } from "./events/escrowEventIngestionService.js";
 
-const CONTRACT_ID = process.env.CONTRACT_ID || "C...";
-const RPC_URL = process.env.RPC_URL || "https://soroban-testnet.stellar.org";
-const server = new rpc.Server(RPC_URL);
+const POLL_INTERVAL_MS = 5_000;
+const CHECKPOINT_SERVICE_NAME = "contract-watcher";
 
-// This service "watches" the blockchain for our Escrow events
-export async function startContractWatcher() {
-  logger.info("Contract Watcher Service started...");
-  // In a real app, you'd save the lastLedger in the DB so you don't skip events if the server restarts
-  let lastKnownLedger = (await server.getLatestLedger()).sequence;
+function decodeScVal(base64: string): unknown {
+  return scValToNative(xdr.ScVal.fromXDR(base64, "base64"));
+}
+
+function decodeEvent(event: any): { action: string; data: unknown[] } | null {
+  try {
+    const topics = (event.topic as string[]).map(decodeScVal);
+    const action = String(topics[1] ?? "").toLowerCase();
+    const raw = decodeScVal(event.value as string);
+    const data = Array.isArray(raw) ? raw : [raw];
+    return { action, data };
+  } catch (err) {
+    logger.error("Failed to decode contract event", err);
+    return null;
+  }
+}
+
+function handleEvent(event: any): void {
+  const decoded = decodeEvent(event);
+  if (!decoded) return;
+  dispatchEvent(decoded.action, decoded.data, event.ledger);
+}
+
+/**
+ * Dispatches a decoded escrow event to the notification service and WebSocket
+ * broadcast. Split out from {@link handleEvent} (which handles XDR decoding) so
+ * the routing logic can be unit-tested with plain decoded data.
+ */
+export function dispatchEvent(
+  action: string,
+  data: unknown[],
+  ledger?: number,
+): void {
+  const orderId = String(data[0] ?? "");
+
+  logger.info(`[ContractWatcher] Event received: ${action} | order: ${orderId} | ledger: ${ledger ?? "?"}`);
+
+  switch (action) {
+    case "created": {
+      const buyer = String(data[1] ?? "");
+      const farmer = String(data[2] ?? "");
+      const amount = String(data[3] ?? "");
+      const token = String(data[4] ?? "");
+
+      void NotificationService.notifyFromEscrowEvent({
+        action: "created",
+        buyerAddress: buyer,
+        farmerAddress: farmer,
+        orderId,
+        amount,
+        token,
+      });
+
+      wsManager.broadcast("order:created", { orderId, buyer, farmer, amount, token });
+      break;
+    }
+
+    case "delivered": {
+      const farmer = String(data[1] ?? "");
+      const buyer = String(data[2] ?? "");
+
+      wsManager.broadcast("order:delivered", { orderId, farmer, buyer });
+      break;
+    }
+
+    case "confirmed": {
+      const buyer = String(data[1] ?? "");
+      const farmer = String(data[2] ?? "");
+
+      void NotificationService.notifyFromEscrowEvent({
+        action: "confirmed",
+        buyerAddress: buyer,
+        farmerAddress: farmer,
+        orderId,
+      });
+
+      wsManager.broadcast("order:confirmed", { orderId, buyer, farmer });
+      break;
+    }
+
+    case "refunded": {
+      const buyer = String(data[1] ?? "");
+
+      void NotificationService.notifyFromEscrowEvent({
+        action: "refunded",
+        buyerAddress: buyer,
+        orderId,
+      });
+
+      wsManager.broadcast("order:refunded", { orderId, buyer });
+      break;
+    }
+
+    default:
+      logger.warn(`[ContractWatcher] Unhandled event action: "${action}"`);
+  }
+}
+
+export async function loadCheckpoint(): Promise<number | null> {
+  try {
+    const row = await prisma.contractWatcherCheckpoint.findUnique({
+      where: { service: CHECKPOINT_SERVICE_NAME },
+    });
+    if (row) {
+      logger.info(`[ContractWatcher] Loaded checkpoint: ledger ${row.lastLedger}`);
+      return row.lastLedger;
+    }
+    logger.info("[ContractWatcher] No existing checkpoint found");
+    return null;
+  } catch (err) {
+    logger.error("[ContractWatcher] Failed to load checkpoint", err);
+    return null;
+  }
+}
+
+export async function persistCheckpoint(ledger: number): Promise<void> {
+  try {
+    await prisma.contractWatcherCheckpoint.upsert({
+      where: { service: CHECKPOINT_SERVICE_NAME },
+      create: { service: CHECKPOINT_SERVICE_NAME, lastLedger: ledger },
+      update: { lastLedger: ledger },
+    });
+    logger.debug(`[ContractWatcher] Persisted checkpoint: ledger ${ledger}`);
+  } catch (err) {
+    logger.error("[ContractWatcher] Failed to persist checkpoint", err);
+  }
+}
+
+const RECOVERY_GAP_WARNING_THRESHOLD = 10;
+
+export function detectRecoveryGap(checkpointLedger: number | null, latestLedger: number): void {
+  if (checkpointLedger === null) {
+    logger.info(`[ContractWatcher] Fresh start — beginning from ledger ${latestLedger}`);
+    return;
+  }
+
+  const gap = latestLedger - checkpointLedger;
+  if (gap <= 0) {
+    logger.info(`[ContractWatcher] Checkpoint is ahead of or at latest ledger (checkpoint: ${checkpointLedger}, latest: ${latestLedger})`);
+    return;
+  }
+
+  if (gap >= RECOVERY_GAP_WARNING_THRESHOLD) {
+    logger.warn(
+      `[ContractWatcher] Recovery gap detected: ${gap} ledgers behind. Resuming from ledger ${checkpointLedger}. ` +
+      `${gap} ledgers of events will be replayed to catch up.`,
+    );
+  }
+}
+
+export async function startContractWatcher(): Promise<void> {
+  const { contractId, rpcUrl } = config;
+
+  if (!contractId) {
+    logger.warn("[ContractWatcher] CONTRACT_ID not set — skipping event listener.");
+    return;
+  }
+
+  const server = new rpc.Server(rpcUrl);
+  const checkpointLedger = await loadCheckpoint();
+
+  let lastLedger: number;
+  if (checkpointLedger !== null) {
+    lastLedger = checkpointLedger;
+  } else {
+    lastLedger = (await server.getLatestLedger()).sequence;
+  }
+
+  const latestLedger = (await server.getLatestLedger()).sequence;
+  detectRecoveryGap(checkpointLedger, latestLedger);
+
+  logger.info(`[ContractWatcher] Listening for events on contract ${contractId} from ledger ${lastLedger}`);
+
   setInterval(async () => {
     try {
       const response = await server.getEvents({
-        startLedger: lastKnownLedger,
-        filters: [
-          {
-            type: "contract",
-            contractIds: [CONTRACT_ID],
-            topics: [["AAAADwAAAAVvcmRlcg==", "*"]],
-          },
-        ],
+        startLedger: lastLedger,
+        filters: [{ type: "contract", contractIds: [contractId] }],
       });
-      for (const event of response.events) {
-        // --- NEW: Structured Ingestion for the Indexer ---
-        import("./events/escrowEventIngestionService.js")
-          .then(({ EscrowEventIngestionService }) => {
-            EscrowEventIngestionService.ingestEvent(event);
-          })
-          .catch((err) => logger.error("Dynamic Import Fail (IngestionService):", err));
-        handleContractEvent(event);
-        // Update ledger tracker to avoid processing the same event twice
-        if (event.ledger > lastKnownLedger) {
-          lastKnownLedger = event.ledger + 1;
+
+      const events = response.events;
+      if (events.length === 0) return;
+
+      let maxProcessedLedger = lastLedger;
+
+      for (const event of events) {
+        if (event.ledger < lastLedger) {
+          logger.debug(`[ContractWatcher] Skipping duplicate event at ledger ${event.ledger} (already processed)`);
+          continue;
+        }
+
+        void import("./events/blockchainEventIngestionService.js")
+          .then(({ BlockchainEventIngestionService }) => BlockchainEventIngestionService.ingestEvent(event))
+          .catch((err) => logger.error("[ContractWatcher] BlockchainEventIngestionService import failed", err));
+
+        void import("./events/escrowEventIngestionService.js")
+          .then(({ EscrowEventIngestionService }) => EscrowEventIngestionService.ingestEvent(event))
+          .catch((err) => logger.error("[ContractWatcher] EscrowEventIngestionService import failed", err));
+
+        handleEvent(event);
+
+        if (event.ledger >= maxProcessedLedger) {
+          maxProcessedLedger = event.ledger + 1;
         }
       }
-    } catch (error) {
-      logger.error("Watcher Error:", error);
+
+      if (maxProcessedLedger > lastLedger) {
+        lastLedger = maxProcessedLedger;
+        await persistCheckpoint(lastLedger);
+      }
+    } catch (err) {
+      logger.error("[ContractWatcher] Poll error", err);
     }
-  }, 5000);
-}
-
-// Logic to process the raw blockchain data into readable notifications
-function handleContractEvent(event: any) {
-  const topics = event.topic.map((t: string) =>
-    scValToNative(xdr.ScVal.fromXDR(t, "base64")),
-  );
-  const action = topics[1];
-  // The value of the event
-  const data = scValToNative(xdr.ScVal.fromXDR(event.value, "base64"));
-  logger.info(`New Event Detected: ${action}`);
-  const orderId = data[0].toString();
-  switch (action) {
-    case "created":
-      notifyUser(
-        data[2],
-        `New Order Alert! You have a new order #${orderId} for ${data[3]} tokens.`,
-        orderId,
-        action,
-      );
-      break;
-    case "confirmed":
-      notifyUser(
-        data[2],
-        `Payment Released! Buyer confirmed receipt for order #${orderId}.`,
-        orderId,
-        action,
-      );
-      break;
-    case "refunded":
-      notifyUser(
-        data[1],
-        `Refund Issued. Order #${orderId} was expired and funds returned.`,
-        orderId,
-        action,
-      );
-      break;
-  }
-}
-
-async function notifyUser(
-  address: string,
-  message: string,
-  orderId: string,
-  type: string,
-) {
-  try {
-    // Save to Database
-    const notification = await prisma.notification.create({
-      data: {
-        walletAddress: address,
-        message: message,
-        orderId: orderId.toString(),
-        type: type,
-        isRead: false,
-      },
-    });
-    logger.info(
-      `Notification saved to DB for ${address}: ID ${notification.id}`,
-    );
-  } catch (error) {
-    logger.error("Failed to save notification to DB:", error);
-  }
+  }, POLL_INTERVAL_MS);
 }

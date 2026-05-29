@@ -6,10 +6,10 @@ import type {
   ProductWriteInput,
 } from "@/types/product";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:5000";
+import { API_BASE_URL } from "@/lib/apiConfig";
+import { isTestMode } from "@/lib/testMode";
 
-function productFromJson(json: any): Product {
+function productFromJson(json: unknown): Product {
   return json as Product;
 }
 
@@ -56,10 +56,41 @@ export async function listProducts(params: ListProductsParams = {}) {
   }>(url);
 }
 
+export async function getProductById(productId: string): Promise<Product | null> {
+  try {
+    const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`);
+    return productFromJson(json);
+  } catch (err) {
+    if (err instanceof Error && /404|not found/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
 export async function createProduct(
   walletAddress: string,
   input: ProductWriteInput,
 ): Promise<Product> {
+  // Test mode: return dummy product
+  if (isTestMode()) {
+    return {
+      id: String(Date.now()),
+      farmer_wallet: walletAddress,
+      name: input.name ?? "Test Product",
+      category: input.category ?? "Other",
+      price_per_unit: input.price_per_unit ?? "0",
+      currency: input.currency ?? "USDC",
+      unit: input.unit ?? "kg",
+      stock_quantity: input.stock_quantity ?? null,
+      description: input.description ?? "",
+      location: input.location ?? "Test Location",
+      delivery_window: input.delivery_window ?? "Test Window",
+      is_available: input.is_available ?? true,
+      image_url: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
+
   const payload = {
     ...input,
     // Backend expects these field names.
@@ -67,7 +98,7 @@ export async function createProduct(
     stock_quantity: input.stock_quantity ?? null,
   };
 
-  const json = await requestJson<any>(`${API_BASE_URL}/products`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -95,7 +126,7 @@ export async function updateProduct(
     // leave as-is
   }
 
-  const json = await requestJson<any>(`${API_BASE_URL}/products/${productId}`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -111,7 +142,7 @@ export async function softDeleteProduct(
   walletAddress: string,
   productId: string,
 ): Promise<Product> {
-  const json = await requestJson<any>(`${API_BASE_URL}/products/${productId}`, {
+  const json = await requestJson<unknown>(`${API_BASE_URL}/products/${productId}`, {
     method: "DELETE",
     headers: {
       "x-wallet-address": walletAddress,

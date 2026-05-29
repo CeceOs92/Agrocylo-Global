@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const EXPIRY_HOURS = 96;
 
 interface CountdownTimerProps {
-  createdAt: number; // unix timestamp in seconds
+  /** Unix timestamp in seconds when the order was created. */
+  createdAt: number;
+  className?: string;
 }
 
 function formatTime(totalSeconds: number): string {
@@ -18,7 +22,10 @@ function formatTime(totalSeconds: number): string {
   return `${minutes}m remaining`;
 }
 
-export default function CountdownTimer({ createdAt }: CountdownTimerProps) {
+export default function CountdownTimer({
+  createdAt,
+  className,
+}: CountdownTimerProps) {
   const [remaining, setRemaining] = useState<string>("");
 
   useEffect(() => {
@@ -32,15 +39,17 @@ export default function CountdownTimer({ createdAt }: CountdownTimerProps) {
     return () => clearInterval(id);
   }, [createdAt]);
 
-  const expiryTime = createdAt + EXPIRY_HOURS * 3600;
-  const isExpired = Math.floor(Date.now() / 1000) >= expiryTime;
+  const isExpired = remaining === "Expired";
 
   return (
     <span
-      className={`text-xs font-medium ${
-        isExpired ? "text-red-600" : "text-secondary-700"
-      }`}
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs font-medium",
+        isExpired ? "text-destructive" : "text-muted-foreground",
+        className,
+      )}
     >
+      <Clock className="size-3.5" />
       {remaining}
     </span>
   );

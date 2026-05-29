@@ -8,7 +8,7 @@ export type ProductCategory =
 
 export type ProductCurrency = "STRK" | "USDC";
 
-export type ProductUnit = "kg" | "bag" | "crate" | "piece" | "litre" | "dozen";
+export type ProductUnit = "kg" | "bag" | "crate" | "piece" | "litre" | "dozen" | "bunch";
 
 export interface Product {
   id: string;
