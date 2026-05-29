@@ -2,8 +2,8 @@
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token, Address, Env, String,
+    testutils::{Address as _, Events, Ledger},
+    token, Address, Env,
 };
 
 fn setup_test() -> (
@@ -116,6 +116,39 @@ fn test_create_and_confirm_order() {
 }
 
 #[test]
+fn test_basic_escrow_happy_path_tracks_state_balances_and_events() {
+    let (env, client, buyer, farmer, token, _) = setup_test();
+    let contract_address = client.address.clone();
+
+    let initial_event_count = env.events().all().len();
+    let order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &500);
+
+    let order = client.get_order_details(&order_id);
+    assert_eq!(order_id, 1);
+    assert_eq!(order.status, OrderStatus::Pending);
+    assert_eq!(order.buyer, buyer);
+    assert_eq!(order.farmer, farmer);
+    assert_eq!(token.balance(&buyer), 500);
+    assert_eq!(token.balance(&contract_address), 500);
+    assert!(env.events().all().len() > initial_event_count);
+
+    client.mock_all_auths().mark_delivered(&farmer, &order_id);
+    let delivered = client.get_order_details(&order_id);
+    assert_eq!(delivered.status, OrderStatus::Delivered);
+    assert!(delivered.delivery_timestamp.is_some());
+    assert_eq!(token.balance(&contract_address), 500);
+
+    client.mock_all_auths().confirm_receipt(&buyer, &order_id);
+    let completed = client.get_order_details(&order_id);
+    assert_eq!(completed.status, OrderStatus::Completed);
+    assert_eq!(token.balance(&contract_address), 0);
+    assert_eq!(token.balance(&farmer), 500);
+    assert!(env.events().all().len() >= initial_event_count + 3);
+}
+
+#[test]
 fn test_mark_delivered_then_confirm() {
     let (_env, client, buyer, farmer, _collector, token, _, _) = setup_test();
 
@@ -212,6 +245,30 @@ fn test_refund_expired_order() {
 }
 
 #[test]
+fn test_basic_escrow_expiration_refund_tracks_state_balances_and_events() {
+    let (env, client, buyer, farmer, token, _) = setup_test();
+    let contract_address = client.address.clone();
+    let initial_event_count = env.events().all().len();
+
+    let order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &400);
+
+    assert_eq!(token.balance(&buyer), 600);
+    assert_eq!(token.balance(&contract_address), 400);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 345601);
+    client.mock_all_auths().refund_expired_order(&order_id);
+
+    let refunded = client.get_order_details(&order_id);
+    assert_eq!(refunded.status, OrderStatus::Refunded);
+    assert_eq!(token.balance(&buyer), 1000);
+    assert_eq!(token.balance(&contract_address), 0);
+    assert_eq!(token.balance(&farmer), 0);
+    assert!(env.events().all().len() >= initial_event_count + 2);
+}
+
+#[test]
 fn test_refund_unexpired_order_fails() {
     let (env, client, buyer, farmer, _, token, _, _) = setup_test();
     let order_id = client
@@ -222,6 +279,60 @@ fn test_refund_unexpired_order_fails() {
 
     let result = client.mock_all_auths().try_refund_expired_order(&order_id);
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotExpired);
+}
+
+#[test]
+fn test_multiple_orders_for_same_farmer_complete_independently() {
+    let (_env, client, buyer, farmer, token, _) = setup_test();
+
+    let first_order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &250);
+    let second_order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &300);
+
+    let farmer_orders = client.get_orders_by_farmer(&farmer);
+    let buyer_orders = client.get_orders_by_buyer(&buyer);
+    assert_eq!(farmer_orders.len(), 2);
+    assert_eq!(buyer_orders.len(), 2);
+    assert_eq!(token.balance(&buyer), 450);
+
+    client
+        .mock_all_auths()
+        .mark_delivered(&farmer, &first_order_id);
+    client.mock_all_auths().confirm_receipt(&buyer, &first_order_id);
+
+    assert_eq!(client.get_order_details(&first_order_id).status, OrderStatus::Completed);
+    assert_eq!(client.get_order_details(&second_order_id).status, OrderStatus::Pending);
+    assert_eq!(token.balance(&farmer), 250);
+}
+
+#[test]
+fn test_batch_refund_expired_orders() {
+    let (env, client, buyer, farmer, token, _) = setup_test();
+    let contract_address = client.address.clone();
+
+    let first_order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &200);
+    let second_order_id = client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &300);
+
+    assert_eq!(token.balance(&buyer), 500);
+    assert_eq!(token.balance(&contract_address), 500);
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 345601);
+    let mut order_ids = Vec::new(&env);
+    order_ids.push_back(first_order_id);
+    order_ids.push_back(second_order_id);
+    client.mock_all_auths().refund_expired_orders(&order_ids);
+
+    assert_eq!(client.get_order_details(&first_order_id).status, OrderStatus::Refunded);
+    assert_eq!(client.get_order_details(&second_order_id).status, OrderStatus::Refunded);
+    assert_eq!(token.balance(&buyer), 1000);
+    assert_eq!(token.balance(&contract_address), 0);
 }
 
 #[test]
