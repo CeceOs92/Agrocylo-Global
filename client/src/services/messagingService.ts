@@ -1,13 +1,19 @@
-import type { Message, Conversation, TypingIndicator, User } from '../types/messaging';
+import type { Message, Conversation } from '../types/messaging';
+import { API_BASE_URL } from '../lib/apiConfig';
 
-const API_BASE = import.meta.env.PUBLIC_API_URL || '/api';
+const API_BASE = API_BASE_URL;
 
-//  WebSocket Connection 
+interface WebSocketPayload {
+  type: string;
+  payload: unknown;
+}
+
+//  WebSocket Connection
 
 class MessagingWebSocket {
   private ws: WebSocket | null = null;
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
-  private reconnectTimer: ReturnType<<typeof setTimeout> | null = null;
+  private listeners: Map<string, Set<(data: WebSocketPayload) => void>> = new Map();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
 
@@ -23,8 +29,12 @@ class MessagingWebSocket {
     };
 
     this.ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      this.emit(data.type, data.payload);
+      try {
+        const data = JSON.parse(event.data);
+        this.emit(data.type, data.payload);
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err);
+      }
     };
 
     this.ws.onclose = () => {
@@ -46,24 +56,24 @@ class MessagingWebSocket {
     }, Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000));
   }
 
-  on(event: string, callback: (data: any) => void) {
+  on(event: string, callback: (data: WebSocketPayload) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(callback);
-    
+
     return () => this.off(event, callback);
   }
 
-  off(event: string, callback: (data: any) => void) {
+  off(event: string, callback: (data: WebSocketPayload) => void) {
     this.listeners.get(event)?.delete(callback);
   }
 
-  private emit(event: string, data: any) {
+  private emit(event: string, data: WebSocketPayload) {
     this.listeners.get(event)?.forEach(cb => cb(data));
   }
 
-  send(type: string, payload: any) {
+  send(type: string, payload: unknown) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type, payload }));
     }
@@ -80,7 +90,7 @@ export const messagingSocket = new MessagingWebSocket();
 
 //  REST API Methods 
 
-export async function fetchConversations(): Promise<<Conversation[]> {
+export async function fetchConversations(): Promise<Conversation[]> {
   const res = await fetch(`${API_BASE}/conversations`, {
     credentials: 'include',
   });

@@ -23,6 +23,7 @@ import type {
   ProductUnit,
 } from "@/types/product";
 import type { BarterOfferItem } from "@/types/barter";
+import { createBarterOffer } from "@/services/barterService";
 
 const CATEGORIES: ProductCategory[] = [
   "Vegetables",
@@ -282,10 +283,7 @@ export default function BarterOfferForm({
     setSaveError(null);
 
     try {
-      // TODO: when /barter is exposed on the backend, replace the simulated
-      // delay with a real createBarterOffer(walletAddress, payload) call.
-      const _payload = {
-        proposer_wallet: walletAddress,
+      const payload = {
         recipient_wallet: recipientWallet.trim(),
         offer_items: offerItems.map((i) => ({
           ...i,
@@ -302,9 +300,8 @@ export default function BarterOfferForm({
         collateral_currency: includeCollateral ? collateralCurrency : null,
         notes: notes.trim() || null,
       };
-      void _payload;
 
-      await new Promise((r) => setTimeout(r, 500));
+      await createBarterOffer(payload);
       await onSuccess();
       onClose();
     } catch (err) {
