@@ -39,6 +39,14 @@ export function useSocket() {
         }
       }
 
+      // Re-subscribe to all active order subscriptions
+      listenersRef.current.forEach((_, event) => {
+        if (event.startsWith("order:")) {
+          const orderId = event.split(":")[1];
+          socket.send(JSON.stringify({ type: "subscribe", orderId }));
+        }
+      });
+
       // Start heartbeat
       heartbeatTimer.current = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -107,20 +115,6 @@ export function useSocket() {
     };
   }, [connect]);
 
-  const on = useCallback((event: string, callback: (data: unknown) => void) => {
-    const map = listenersRef.current;
-    if (!map.has(event)) map.set(event, new Set());
-    map.get(event)!.add(callback);
-
-    return () => {
-      const listeners = map.get(event);
-      if (listeners) {
-        listeners.delete(callback);
-        if (listeners.size === 0) map.delete(event);
-      }
-    };
-  }, []);
-
   const emit = useCallback((type: string, payload: Record<string, unknown>) => {
     const msg = { type, ...payload };
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -129,6 +123,32 @@ export function useSocket() {
       messageQueue.current.push(msg);
     }
   }, []);
+
+  const on = useCallback((event: string, callback: (data: unknown) => void) => {
+    const map = listenersRef.current;
+    if (!map.has(event)) {
+      map.set(event, new Set());
+      if (event.startsWith("order:")) {
+        const orderId = event.split(":")[1];
+        emit("subscribe", { orderId });
+      }
+    }
+    map.get(event)!.add(callback);
+
+    return () => {
+      const listeners = map.get(event);
+      if (listeners) {
+        listeners.delete(callback);
+        if (listeners.size === 0) {
+          map.delete(event);
+          if (event.startsWith("order:")) {
+            const orderId = event.split(":")[1];
+            emit("unsubscribe", { orderId });
+          }
+        }
+      }
+    };
+  }, [emit]);
 
   return { isConnected, on, emit };
 }
