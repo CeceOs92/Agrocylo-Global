@@ -1,24 +1,23 @@
-import { rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
+import { rpc, scValToNative } from "@stellar/stellar-sdk";
 import logger from "../config/logger.js";
 import { config } from "../config/index.js";
 import { prisma } from "../config/database.js";
 import { NotificationService } from "./notificationService.js";
 import { wsManager } from "./wsManager.js";
-import { BlockchainEventIngestionService } from "./events/blockchainEventIngestionService.js";
-import { EscrowEventIngestionService } from "./events/escrowEventIngestionService.js";
+import type { RawRpcEvent } from "../types/rawRpcEvent.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const CHECKPOINT_SERVICE_NAME = "contract-watcher";
 
-function decodeScVal(base64: string): unknown {
-  return scValToNative(xdr.ScVal.fromXDR(base64, "base64"));
-}
-
-function decodeEvent(event: any): { action: string; data: unknown[] } | null {
+/**
+ * Extracts the action string and decoded data array from a raw RPC event.
+ * Topics layout: [entity, action, ...]
+ */
+function decodeEvent(event: RawRpcEvent): { action: string; data: unknown[] } | null {
   try {
-    const topics = (event.topic as string[]).map(decodeScVal);
+    const topics = event.topic.map((t) => scValToNative(t));
     const action = String(topics[1] ?? "").toLowerCase();
-    const raw = decodeScVal(event.value as string);
+    const raw = scValToNative(event.value);
     const data = Array.isArray(raw) ? raw : [raw];
     return { action, data };
   } catch (err) {
@@ -27,7 +26,16 @@ function decodeEvent(event: any): { action: string; data: unknown[] } | null {
   }
 }
 
-function handleEvent(event: any): void {
+/**
+ * Dispatches a decoded event to the notification service and WebSocket broadcast.
+ *
+ * Contract event signatures (from escrow/src/lib.rs):
+ *   OrderCreated  / FundsLocked  → (order, created)   → data: [order_id, buyer, farmer, amount, token]
+ *   DeliveryConfirmed            → (order, confirmed)  → data: [order_id, buyer, farmer]
+ *   RefundIssued                 → (order, refunded)   → data: [order_id, buyer]
+ *   (internal)                   → (order, delivered)  → data: [order_id, farmer, buyer, delivery_ts]
+ */
+function handleEvent(event: RawRpcEvent): void {
   const decoded = decodeEvent(event);
   if (!decoded) return;
   dispatchEvent(decoded.action, decoded.data, event.ledger);
@@ -35,8 +43,8 @@ function handleEvent(event: any): void {
 
 /**
  * Dispatches a decoded escrow event to the notification service and WebSocket
- * broadcast. Split out from {@link handleEvent} (which handles XDR decoding) so
- * the routing logic can be unit-tested with plain decoded data.
+ * broadcast. Split out from {@link handleEvent} so the routing logic can be
+ * unit-tested with plain decoded data.
  */
 export function dispatchEvent(
   action: string,
