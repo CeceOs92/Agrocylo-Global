@@ -1,14 +1,22 @@
-const CACHE_NAME = 'agrocylo-v1';
+const CACHE_NAME = 'agrocylo-v2';
 const OFFLINE_URL = '/offline';
+const PRECACHE_URLS = [
+  '/',
+  OFFLINE_URL,
+  '/favicon.svg',
+  '/icon-192x192.svg',
+  '/icon-512x512.svg',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll([
-        '/',
-        '/offline'
-      ]);
-    })
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(PRECACHE_URLS))
+      .catch(() => {
+        // Precache failure is non-fatal — app still works online.
+        // Offline fallback may not be available on first install.
+        console.warn('SW: precache skipped some resources');
+      })
   );
   self.skipWaiting();
 });
@@ -17,7 +25,9 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
       );
     })
   );
@@ -29,7 +39,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request).catch(() => {
         return caches.open(CACHE_NAME).then((cache) => {
-          return cache.match(OFFLINE_URL);
+          return cache.match(OFFLINE_URL).catch(() => {
+            return new Response('Offline', { status: 503 });
+          });
         });
       })
     );
@@ -41,8 +53,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Agrocylo Global';
   const options = {
     body: data.body || 'You have a new notification.',
-    icon: '/icon-192x192.png',
-    badge: '/icon-192x192.png',
+    icon: '/icon-192x192.svg',
+    badge: '/favicon.svg',
     data: data.url || '/'
   };
 
@@ -60,7 +72,6 @@ self.addEventListener('notificationclick', (event) => {
 
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-updates') {
-    // Background sync logic
     console.log('Syncing in background');
   }
 });

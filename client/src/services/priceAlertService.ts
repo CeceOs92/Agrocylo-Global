@@ -1,4 +1,5 @@
 import type { PriceAlert, PriceAlertCreateInput } from "@/types/priceAlert";
+import { apiRequest } from "@/lib/apiHelper";
 
 export const priceAlertService = {
   async getAlerts(filters?: {
@@ -9,39 +10,30 @@ export const priceAlertService = {
     if (filters?.status) query.append("status", filters.status);
     if (filters?.category) query.append("category", filters.category);
 
-    const response = await fetch(`/api/price-alerts?${query.toString()}`);
-    if (!response.ok) throw new Error("Failed to fetch alerts");
-    return response.json();
+    return apiRequest<PriceAlert[]>(`/price-alerts?${query.toString()}`);
   },
 
   async createAlert(alert: PriceAlertCreateInput): Promise<PriceAlert> {
-    const response = await fetch("/api/price-alerts", {
+    return apiRequest<PriceAlert>("/price-alerts", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(alert),
+      body: alert,
     });
-    if (!response.ok) throw new Error("Failed to create alert");
-    return response.json();
   },
 
   async updateAlert(
     id: string,
     updates: Partial<PriceAlertCreateInput>
   ): Promise<PriceAlert> {
-    const response = await fetch(`/api/price-alerts/${id}`, {
+    return apiRequest<PriceAlert>(`/price-alerts/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
+      body: updates,
     });
-    if (!response.ok) throw new Error("Failed to update alert");
-    return response.json();
   },
 
   async deleteAlert(id: string): Promise<void> {
-    const response = await fetch(`/api/price-alerts/${id}`, {
+    await apiRequest<void>(`/price-alerts/${id}`, {
       method: "DELETE",
     });
-    if (!response.ok) throw new Error("Failed to delete alert");
   },
 
   async toggleAlert(id: string, enabled: boolean): Promise<PriceAlert> {
@@ -52,11 +44,9 @@ export const priceAlertService = {
     productId: string,
     days: 7 | 30 | 90 = 30
   ): Promise<Array<{ timestamp: number; price: number }>> {
-    const response = await fetch(
-      `/api/price-history/${productId}?days=${days}`
+    return apiRequest<Array<{ timestamp: number; price: number }>>(
+      `/price-history/${productId}?days=${days}`
     );
-    if (!response.ok) throw new Error("Failed to fetch price history");
-    return response.json();
   },
 
   async getPriceComparison(
@@ -73,10 +63,12 @@ export const priceAlertService = {
     if (regions) {
       regions.forEach((r) => query.append("regions", r));
     }
-    const response = await fetch(
-      `/api/price-comparison/${productId}?${query.toString()}`
-    );
-    if (!response.ok) throw new Error("Failed to fetch price comparison");
-    return response.json();
+    return apiRequest<
+      Array<{
+        region: string;
+        price: number;
+        timestamp: number;
+      }>
+    >(`/price-comparison/${productId}?${query.toString()}`);
   },
 };
