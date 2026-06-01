@@ -79,18 +79,18 @@ model BuyerDemand {
 }
 
 model FarmerSupply {
-  id                 String    @id @default(uuid())
-  farmerWallet       String    @map("farmer_wallet")
-  cropName           String    @map("crop_name")
-  quantityAvailable  String    @map("quantity_available")
-  unit               String?
-  pricePerUnit       String?   @map("price_per_unit")
-  currency           String?
-  availableFrom      DateTime? @map("available_from")
-  availableUntil     DateTime? @map("available_until")
-  notes              String?
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  farmerWallet      String    @map("farmer_wallet")
+  cropName          String    @map("crop_name")
+  quantityAvailable String    @map("quantity_available")
+  unit              String?
+  pricePerUnit      String?   @map("price_per_unit")
+  currency          String?
+  availableFrom     DateTime? @map("available_from")
+  availableUntil    DateTime? @map("available_until")
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([farmerWallet])
   @@map("farmer_supplies")
@@ -100,9 +100,9 @@ model Product {
   id           String   @id @default(uuid())
   farmerWallet String
   name         String
-  pricePerUnit String
+  pricePerUnit String   @map("price_per_unit")
   currency     String
-  isAvailable  Boolean  @default(true)
+  isAvailable  Boolean  @default(true) @map("is_available")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -233,8 +233,8 @@ model Profile {
 
 model Location {
   wallet_address String   @id
-  lat            Float
-  lng            Float
+  lat            Float    @map("latitude")
+  lng            Float    @map("longitude")
   is_public      Boolean  @default(true)
   profile        Profile? @relation(fields: [wallet_address], references: [wallet_address])
 
@@ -252,7 +252,7 @@ model OrderMetadata {
 
 model ContractWatcherCheckpoint {
   service    String   @id
-  lastLedger Int
+  lastLedger Int      @map("last_ledger")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
