@@ -70,7 +70,7 @@ export async function verifySignature(
   await query(`delete from public."Nonce" where "walletAddress" = $1`, [walletAddress]);
 
   // Issue tokens
-  const accessToken = jwt.sign({ walletAddress }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const accessToken = jwt.sign({ walletAddress, role: 'USER' }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
   const refreshToken = crypto.randomBytes(40).toString('hex');
   const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
@@ -97,7 +97,7 @@ export async function refreshAccessToken(
     throw new ApiError(401, 'Unauthorized', 'Refresh token expired');
   }
 
-  const accessToken = jwt.sign({ walletAddress: row.walletAddress }, JWT_SECRET, {
+  const accessToken = jwt.sign({ walletAddress: row.walletAddress, role: 'USER' }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   });
 
