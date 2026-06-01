@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
-import { RefreshCw, WifiOff } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { RefreshCw, Search, WifiOff } from "lucide-react";
 
 import Wrapper from "@/components/shared/wrapper";
 import { useWallet } from "@/hooks/useWallet";
@@ -22,22 +23,26 @@ function isNetworkError(error: unknown): boolean {
   return /failed to fetch|network|fetch failed/i.test(message);
 }
 
+const CATEGORIES: Array<ProductCategory | "All"> = [
+  "All",
+  "Vegetables",
+  "Fruits",
+  "Grains",
+  "Tubers",
+  "Livestock",
+  "Other",
+];
+
+type SortKey = "newest" | "price_asc" | "price_desc";
+
 export default function MarketPage() {
   const { connected } = useWallet();
   const { cart, setQuantityForProduct } = useCart();
-  const search = useSearch();
-  const [view, setView] = useState<"grid" | "list">(() => {
-    if (typeof window === "undefined") return "grid";
-    return (window.localStorage.getItem(VIEW_MODE_KEY) as "grid" | "list") ?? "grid";
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(VIEW_MODE_KEY, view);
-    }
-  }, [view]);
-
-  const { filters, debouncedFilters, setFilters } = search;
+  const [category, setCategory] = useState<ProductCategory | "All">("All");
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("newest");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
 
   const { data, isLoading, error, refetch, isFetching } = useProducts({
     page: debouncedFilters.page,
@@ -70,46 +75,25 @@ export default function MarketPage() {
     return map;
   }, [cart.groups]);
 
-  const renderActions = (p: (typeof products)[number]) => {
-    const currentQty = quantityByProductId.get(p.id) ?? 0;
-    if (currentQty > 0) {
-      return (
-        <div className="bg-secondary flex w-fit items-center gap-1 rounded-full p-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-8 rounded-full"
-            disabled={!connected}
-            onClick={() => setQuantityForProduct(p.id, currentQty - 1)}
-          >
-            −
-          </Button>
-          <span className="min-w-6 text-center text-sm font-medium">
-            {currentQty}
-          </span>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="size-8 rounded-full"
-            disabled={!connected}
-            onClick={() => setQuantityForProduct(p.id, currentQty + 1)}
-          >
-            +
-          </Button>
-        </div>
-      );
-    }
-    return (
-      <Button
-        size="sm"
-        disabled={!connected}
-        onClick={() => setQuantityForProduct(p.id, 1)}
-        className="w-full sm:w-auto"
-      >
-        {connected ? "Add to cart" : "Connect to buy"}
-      </Button>
-    );
-  };
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let result = q
+      ? products.filter((p) => p.name.toLowerCase().includes(q))
+      : products;
+
+    // Price range filter
+    const min = parseFloat(minPrice);
+    const max = parseFloat(maxPrice);
+    if (!isNaN(min)) result = result.filter((p) => parseFloat(p.price_per_unit) >= min);
+    if (!isNaN(max)) result = result.filter((p) => parseFloat(p.price_per_unit) <= max);
+
+    // Sort
+    return [...result].sort((a, b) => {
+      if (sortKey === "price_asc") return parseFloat(a.price_per_unit) - parseFloat(b.price_per_unit);
+      if (sortKey === "price_desc") return parseFloat(b.price_per_unit) - parseFloat(a.price_per_unit);
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [products, search, sortKey, minPrice, maxPrice]);
 
   return (
     <div className="flex flex-col">
@@ -143,22 +127,67 @@ export default function MarketPage() {
 
       {/* Search + advanced filters */}
       <Wrapper className="-mt-8 md:-mt-12">
-        <div className="bg-card relative z-10 rounded-2xl border p-4 shadow-sm md:p-6">
-          <SearchFilters
-            filters={filters}
-            setFilters={setFilters}
-            reset={search.reset}
-            activeFilterCount={search.activeFilterCount}
-            history={search.history}
-            recordSearch={search.recordSearch}
-            clearHistory={search.clearHistory}
-            saved={search.saved}
-            savedLoading={search.savedLoading}
-            saveCurrent={search.saveCurrent}
-            removeSaved={search.removeSaved}
-            toggleAlerts={search.toggleAlerts}
-            applySaved={search.applySaved}
-          />
+        <div className="bg-card relative z-10 flex flex-col gap-3 rounded-2xl border p-4 shadow-sm md:p-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+            <div className="relative flex-1">
+              <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by product name…"
+                className="pl-10"
+              />
+            </div>
+            {/* Sort */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="border-input bg-background rounded-md border px-3 py-2 text-sm"
+              aria-label="Sort by"
+            >
+              <option value="newest">Newest first</option>
+              <option value="price_asc">Price: low → high</option>
+              <option value="price_desc">Price: high → low</option>
+            </select>
+            {/* Price range */}
+            <div className="flex items-center gap-1 text-sm">
+              <Input
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                placeholder="Min price"
+                className="w-24"
+                type="number"
+                min={0}
+                aria-label="Minimum price"
+              />
+              <span className="text-muted-foreground">–</span>
+              <Input
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                placeholder="Max price"
+                className="w-24"
+                type="number"
+                min={0}
+                aria-label="Maximum price"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 overflow-x-auto md:flex-wrap">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCategory(c)}
+                className="cursor-pointer"
+              >
+                <Badge
+                  variant={category === c ? "default" : "outline"}
+                  className="px-3 py-1 text-xs"
+                >
+                  {c}
+                </Badge>
+              </button>
+            ))}
+          </div>
         </div>
       </Wrapper>
 
