@@ -49,18 +49,33 @@ async function ensureCartActive(client: PoolClient, cartId: string, buyerWallet:
   if (status.rows[0].status !== 'active') throw new ApiError(409, 'Conflict', 'Cart is checked out and read-only');
 }
 
+/**
+ * Convert a decimal string to minor units (7 decimal places) as a BigInt,
+ * avoiding floating-point precision loss.
+ * e.g. "1.25" → 12_500_000n
+ */
+function toMinorUnits(value: string): bigint {
+  const DECIMALS = 7;
+  const [intPart = '0', fracPart = ''] = value.split('.');
+  const frac = fracPart.padEnd(DECIMALS, '0').slice(0, DECIMALS);
+  return BigInt(intPart) * BigInt(10 ** DECIMALS) + BigInt(frac);
+}
+
 function groupRows(rows: CartItemRow[]) {
-  const groups = new Map<string, { farmer_wallet: string; farmer_name: string; currency: string; subtotal: string; items: unknown[] }>();
+  const groups = new Map<string, { farmer_wallet: string; farmer_name: string; currency: string; subtotal: bigint; items: unknown[] }>();
   for (const row of rows) {
     const key = `${row.farmer_wallet}|${row.currency}`;
-    const lineAmount = BigInt(Math.trunc(Number(row.quantity) * Number(row.unit_price) * 1_000_000)) / 1_000_000n;
+    const qtyMinor = toMinorUnits(row.quantity);
+    const priceMinor = toMinorUnits(row.unit_price);
+    // lineAmount in minor units: (qty * price) / 10^7
+    const lineAmount = (qtyMinor * priceMinor) / BigInt(10 ** 7);
     const existing = groups.get(key);
     if (!existing) {
       groups.set(key, {
         farmer_wallet: row.farmer_wallet,
         farmer_name: row.farmer_name,
         currency: row.currency,
-        subtotal: lineAmount.toString(),
+        subtotal: lineAmount,
         items: [{
           id: row.item_id,
           product_id: row.product_id,
@@ -72,7 +87,7 @@ function groupRows(rows: CartItemRow[]) {
       });
       continue;
     }
-    existing.subtotal = (BigInt(existing.subtotal) + lineAmount).toString();
+    existing.subtotal += lineAmount;
     existing.items.push({
       id: row.item_id,
       product_id: row.product_id,
@@ -82,7 +97,7 @@ function groupRows(rows: CartItemRow[]) {
       unit_price: row.unit_price,
     });
   }
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map((g) => ({ ...g, subtotal: g.subtotal.toString() }));
 }
 
 async function fetchCartRows(cartId: string) {
