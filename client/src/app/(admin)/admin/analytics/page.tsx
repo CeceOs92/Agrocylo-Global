@@ -12,7 +12,14 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
-import { BarChart3, TrendingUp, Users, ShoppingBag, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  BarChart3,
+  Globe,
+  ShoppingBag,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
@@ -61,16 +68,21 @@ function buildDailySeries(
     }),
     value,
 import {
+  CategoryPieChart,
   EarningsLineChart,
   OrdersBarChart,
+  UsersGrowthChart,
 } from "@/components/shared/charts";
 import {
   fetchAnalyticsData,
+  fetchExtendedAnalytics,
   type AnalyticsData,
+  type ExtendedAnalytics,
 } from "@/services/adminService";
 
 export default function AdminAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [extended, setExtended] = useState<ExtendedAnalytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,11 +90,15 @@ export default function AdminAnalyticsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const analyticsData = await fetchAnalyticsData();
-      setData(analyticsData);
+      const [analytics, ext] = await Promise.all([
+        fetchAnalyticsData(),
+        fetchExtendedAnalytics(),
+      ]);
+      setData(analytics);
+      setExtended(ext);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load analytics data"
+        err instanceof Error ? err.message : "Failed to load analytics data",
       );
       setData(null);
     } finally {
@@ -94,93 +110,29 @@ export default function AdminAnalyticsPage() {
     void loadData();
   }, [loadData]);
 
-  const series = data?.series ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m) => ({
-    month: m,
-    gross: 0,
-    net: 0,
-  }));
+  const series =
+    data?.series ??
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m) => ({
+      month: m,
+      gross: 0,
+      net: 0,
+    }));
 
-  const ordersSeries = data?.ordersSeries ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m) => ({
-    month: m,
-    completed: 0,
-    pending: 0,
-    refunded: 0,
-  }));
-}
-
-function formatPercent(value: number) {
-  return `${Math.round(value * 100)}%`;
-}
-
-export default function AdminAnalyticsPage() {
-  const {
-    consent,
-    metrics,
-    events,
-    snapshot,
-    setConsent,
-    exportJson,
-    exportCsv,
-    refresh,
-    trackFeatureAdoption,
-  } = useAnalytics();
-
-  const dailySeries = useMemo(() => buildDailySeries(events), [events]);
-
-  const recentEvents = useMemo(() => events.slice(-12).reverse(), [events]);
-
-  const topFeatures = metrics.featureUsage.slice(0, 5);
-
-  const funnelRows = Object.entries(metrics.funnels).map(([name, funnel]) => {
-    const dropOff = funnel.started > 0 ? 1 - funnel.completed / funnel.started : 0;
-    return {
-      name,
-      started: funnel.started,
-      completed: funnel.completed,
-      dropOff,
-      steps: funnel.steps,
-    };
-  });
-
-  function handleExport(kind: "json" | "csv") {
-    trackFeatureAdoption("analytics_export", { kind });
-    if (kind === "json") {
-      downloadFile(
-        `agrocylo-analytics-${snapshot.updatedAt.slice(0, 10)}.json`,
-        exportJson(),
-        "application/json",
-      );
-      return;
-    }
-
-    downloadFile(
-      `agrocylo-analytics-${snapshot.updatedAt.slice(0, 10)}.csv`,
-      exportCsv(),
-      "text/csv",
-    );
-  }
+  const ordersSeries =
+    data?.ordersSeries ??
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m) => ({
+      month: m,
+      completed: 0,
+      pending: 0,
+      refunded: 0,
+    }));
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Analytics"
-        description="Real-time user behavior, funnel health, and privacy controls."
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => void refresh()}>
-            <TimerReset className="size-4" />
-            Refresh
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport("json")}>
-            <FileJson className="size-4" />
-            Export JSON
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport("csv")}>
-            <FileSpreadsheet className="size-4" />
-            Export CSV
-          </Button>
-        </div>
-      </PageHeader>
+        description="Platform-wide trends, growth, and revenue breakdowns."
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -459,48 +411,68 @@ export default function AdminAnalyticsPage() {
         </div>
       </div>
 
-      <section className="rounded-2xl border bg-card p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Recent Events</h2>
-            <p className="text-muted-foreground text-sm">
-              Latest captured interactions with anonymized metadata.
-            </p>
-          </div>
-          <Badge variant="outline">{recentEvents.length} recent</Badge>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-2xl border bg-card p-6">
+          <h2 className="mb-4 font-semibold">User Growth</h2>
+          {isLoading || !extended ? (
+            <div className="bg-secondary/50 rounded-lg h-64 animate-pulse" />
+          ) : (
+            <UsersGrowthChart data={extended.userGrowth} />
+          )}
         </div>
-        <Separator className="my-4" />
-        {recentEvents.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border">
-            <div className="grid grid-cols-4 bg-secondary/60 px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              <span>Time</span>
-              <span>Event</span>
-              <span>Path</span>
-              <span>Properties</span>
-            </div>
-            <div className="divide-y">
-              {recentEvents.map((event) => (
-                <div key={event.id} className="grid grid-cols-4 gap-4 px-4 py-3 text-sm">
-                  <span className="text-muted-foreground">
-                    {new Date(event.timestamp).toLocaleTimeString()}
-                  </span>
-                  <span className="font-medium">{event.name}</span>
-                  <span className="truncate text-muted-foreground">{event.path}</span>
-                  <span className="truncate text-muted-foreground">
-                    {Object.entries(event.properties)
-                      .map(([key, value]) => `${key}: ${String(value)}`)
-                      .join(" · ") || "—"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="rounded-2xl border bg-card p-6">
+          <h2 className="mb-4 font-semibold">Product Category Performance</h2>
+          {isLoading || !extended ? (
+            <div className="bg-secondary/50 rounded-lg h-64 animate-pulse" />
+          ) : (
+            <CategoryPieChart data={extended.categoryPerformance} />
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border bg-card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Globe className="text-primary size-4" />
+          <h2 className="font-semibold">Geographic Distribution</h2>
+        </div>
+        {isLoading || !extended ? (
+          <div className="bg-secondary/50 rounded-lg h-40 animate-pulse" />
         ) : (
-          <div className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
-            No analytics events captured yet.
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-muted-foreground text-xs uppercase">
+                <tr className="border-b">
+                  <th className="px-3 py-2 font-semibold">Region</th>
+                  <th className="px-3 py-2 font-semibold">Users</th>
+                  <th className="px-3 py-2 font-semibold">Revenue</th>
+                  <th className="px-3 py-2 font-semibold">Share</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {extended.geography.map((g) => {
+                  const totalUsers = extended.geography.reduce(
+                    (s, r) => s + r.users,
+                    0,
+                  );
+                  const share = totalUsers
+                    ? ((g.users / totalUsers) * 100).toFixed(1)
+                    : "0";
+                  return (
+                    <tr key={g.region}>
+                      <td className="px-3 py-3 font-medium">{g.region}</td>
+                      <td className="px-3 py-3">{g.users.toLocaleString()}</td>
+                      <td className="px-3 py-3">
+                        ${g.revenue.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3">{share}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }
