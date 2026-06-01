@@ -23,6 +23,7 @@ import type {
   ProductUnit,
 } from "@/types/product";
 import type { BarterOfferItem } from "@/types/barter";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { createBarterOffer } from "@/services/barterService";
 
 const CATEGORIES: ProductCategory[] = [
@@ -138,7 +139,7 @@ function ItemFieldset({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Category</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={item.category}
                     onChange={(e) =>
                       update(idx, {
@@ -168,7 +169,7 @@ function ItemFieldset({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Unit</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={item.unit}
                     onChange={(e) =>
                       update(idx, { unit: e.target.value as ProductUnit })
@@ -207,6 +208,8 @@ export default function BarterOfferForm({
   onClose,
   onSuccess,
 }: BarterOfferFormProps) {
+  const { trackFunnelStep, trackFormSubmission, trackTransactionAttempt } =
+    useAnalytics();
   const [recipientWallet, setRecipientWallet] = useState("");
   const [offerItems, setOfferItems] = useState<BarterOfferItem[]>([
     emptyItem(),
@@ -281,6 +284,14 @@ export default function BarterOfferForm({
 
     setSaving(true);
     setSaveError(null);
+    trackFormSubmission("barter_offer_form", {
+      walletAddress,
+      collateral: includeCollateral,
+      expiryHours,
+    });
+    trackTransactionAttempt("barter", "started", {
+      recipientWallet: recipientWallet.trim(),
+    });
 
     try {
       const payload = {
@@ -301,10 +312,20 @@ export default function BarterOfferForm({
         notes: notes.trim() || null,
       };
 
+      await new Promise((r) => setTimeout(r, 500));
+      trackTransactionAttempt("barter", "confirmed", {
+        recipientWallet: recipientWallet.trim(),
+      });
+      trackFunnelStep("barter_creation", "submitted", {
+        includeCollateral,
+      });
       await createBarterOffer(payload);
       await onSuccess();
       onClose();
     } catch (err) {
+      trackTransactionAttempt("barter", "failed", {
+        recipientWallet: recipientWallet.trim(),
+      });
       setSaveError(
         err instanceof Error ? err.message : "Failed to submit barter offer.",
       );
@@ -356,7 +377,7 @@ export default function BarterOfferForm({
           <div className="grid gap-1.5">
             <Label>Offer expires in</Label>
             <select
-              className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+              className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
               value={expiryHours}
               onChange={(e) => setExpiryHours(Number(e.target.value))}
             >
@@ -384,7 +405,7 @@ export default function BarterOfferForm({
             </div>
 
             {includeCollateral && (
-              <div className="grid grid-cols-2 gap-3 pl-7">
+              <div className="grid grid-cols-1 gap-3 pl-7 sm:grid-cols-2">
                 <Input
                   label="Collateral amount"
                   type="number"
@@ -398,7 +419,7 @@ export default function BarterOfferForm({
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Currency</Label>
                   <select
-                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-10 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
+                    className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 h-12 w-full rounded-md border px-3 text-sm focus-visible:ring-[3px] focus-visible:outline-none"
                     value={collateralCurrency}
                     onChange={(e) =>
                       setCollateralCurrency(

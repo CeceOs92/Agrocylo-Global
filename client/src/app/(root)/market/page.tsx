@@ -2,6 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
+
+import { RefreshCw, WifiOff } from "lucide-react";
 import { useMemo, useState } from "react";
 import { RefreshCw, Search, WifiOff } from "lucide-react";
 
@@ -40,6 +44,8 @@ export default function MarketPage() {
   const { cart, setQuantityForProduct } = useCart();
   const [category, setCategory] = useState<ProductCategory | "All">("All");
   const [search, setSearch] = useState("");
+  const { trackFilterUsage, trackSearchQuery, trackFeatureAdoption } =
+    useAnalytics();
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -94,6 +100,27 @@ export default function MarketPage() {
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [products, search, sortKey, minPrice, maxPrice]);
+
+  useEffect(() => {
+    trackFilterUsage("market_category", category, {
+      source: "market-page",
+    });
+  }, [category, trackFilterUsage]);
+
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (!trimmed) return;
+    const timer = setTimeout(() => {
+      trackSearchQuery(trimmed, { source: "market-search" });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search, trackSearchQuery]);
+
+  useEffect(() => {
+    if (connected) {
+      trackFeatureAdoption("market_browse_connected");
+    }
+  }, [connected, trackFeatureAdoption]);
 
   return (
     <div className="flex flex-col">
@@ -177,11 +204,11 @@ export default function MarketPage() {
               <button
                 key={c}
                 onClick={() => setCategory(c)}
-                className="cursor-pointer"
+                className="inline-flex min-h-11 cursor-pointer items-center"
               >
                 <Badge
                   variant={category === c ? "default" : "outline"}
-                  className="px-3 py-1 text-xs"
+                  className="px-3 py-2 text-xs"
                 >
                   {c}
                 </Badge>

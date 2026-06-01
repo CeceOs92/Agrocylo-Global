@@ -4,6 +4,8 @@ import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { useEffect } from "react";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 interface CompleteProps {
   role: "farmer" | "buyer";
@@ -11,6 +13,11 @@ interface CompleteProps {
 
 export default function Complete({ role }: CompleteProps) {
   const isFarmer = role === "farmer";
+  const { trackFunnelStep } = useAnalytics();
+
+  useEffect(() => {
+    trackFunnelStep("onboarding_completion", "completed", { role });
+  }, [role, trackFunnelStep]);
 
   return (
     <Card className="mx-auto max-w-md">
@@ -30,12 +37,22 @@ export default function Complete({ role }: CompleteProps) {
         <div className="mt-2 flex w-full flex-col gap-2 sm:flex-row">
           <Link
             href={isFarmer ? "/dashboard" : "/market"}
+            onClick={() =>
+              trackFunnelStep("onboarding_completion", "post_completion_primary", {
+                role,
+              })
+            }
             className={buttonVariants({ className: "flex-1" })}
           >
             {isFarmer ? "Go to Dashboard" : "Browse Marketplace"}
           </Link>
           <Link
             href="/map"
+            onClick={() =>
+              trackFunnelStep("onboarding_completion", "post_completion_map", {
+                role,
+              })
+            }
             className={buttonVariants({ variant: "outline", className: "flex-1" })}
           >
             View Farmer Map

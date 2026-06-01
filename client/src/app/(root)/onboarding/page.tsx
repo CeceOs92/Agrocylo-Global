@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useWallet } from "@/hooks/useWallet";
 import { useProfile } from "@/context/ProfileContext";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { createProfile, registerLocation } from "@/services/profileService";
 import StepProgress from "@/components/onboarding/StepProgress";
 import ConnectWallet from "@/components/onboarding/ConnectWallet";
@@ -13,9 +13,9 @@ import LocationConsent from "@/components/onboarding/LocationConsent";
 import Complete from "@/components/onboarding/Complete";
 
 export default function OnboardingPage() {
-  const router = useRouter();
   const { address } = useWallet();
   const { setProfile } = useProfile();
+  const { trackFunnelStep, trackFeatureAdoption } = useAnalytics();
 
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<"farmer" | "buyer" | null>(null);
@@ -23,6 +23,18 @@ export default function OnboardingPage() {
   const [bio, setBio] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trackFunnelStep("onboarding_completion", "started", {
+      step,
+    });
+  }, [step, trackFunnelStep]);
+
+  useEffect(() => {
+    trackFeatureAdoption("onboarding_flow", {
+      step,
+    });
+  }, [step, trackFeatureAdoption]);
 
   async function handleLocationComplete(
     location: {
@@ -63,6 +75,10 @@ export default function OnboardingPage() {
         );
       }
 
+      trackFunnelStep("onboarding_completion", "completed", {
+        role,
+        hasLocation: Boolean(location),
+      });
       setStep(5);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

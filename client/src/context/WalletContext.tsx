@@ -6,6 +6,10 @@ import { getXlmBalance } from "../lib/stellar";
 import { signAndSubmitTransaction } from "../lib/signTransaction";
 import type { SignAndSubmitResult } from "../lib/signTransaction";
 import {
+  trackWalletConnected,
+  trackWalletDisconnected,
+} from "@/lib/analytics";
+import {
   WALLET_ADAPTERS,
   getPreferredAdapter,
   savePreferredAdapter,
@@ -155,6 +159,10 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       setNetwork(networkName);
       setConnected(true);
       setActiveWalletId(adapter.id);
+      trackWalletConnected(pub, {
+        network: networkName,
+        adapter: adapter.name,
+      });
 
       localStorage.setItem("walletAddress", pub);
       localStorage.setItem("walletNetwork", networkName);
@@ -175,6 +183,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
+  const disconnect = () => {
+    if (address) {
+      trackWalletDisconnected({
+        network: network ?? undefined,
+        adapter: activeWalletId ?? undefined,
+      });
+    }
   const disconnect = useCallback(() => {
     setAddress(null);
     setBalance(null);

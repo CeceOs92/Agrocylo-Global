@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import BarterOfferForm from "@/components/BarterOfferForm";
 import { useWallet } from "@/hooks/useWallet";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { listBarterOffers } from "@/services/barterService";
 import type { BarterOffer } from "@/types/barter";
 
@@ -16,6 +17,7 @@ export default function BarterPage() {
   const { address, connected } = useWallet();
   const [showForm, setShowForm] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const { trackFunnelStep, trackFeatureAdoption } = useAnalytics();
   const [offers, setOffers] = useState<BarterOffer[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,7 @@ export default function BarterPage() {
 
   function handleSuccess() {
     setSuccessMessage("Barter offer submitted successfully!");
+    trackFunnelStep("barter_creation", "completed");
     setTimeout(() => setSuccessMessage(null), 5000);
     void fetchOffers();
   }
@@ -53,7 +56,13 @@ export default function BarterPage() {
         description="Propose goods-for-goods trades with other farmers. The chain settles only the optional collateral; the goods exchange is coordinated off-chain."
       >
         {connected && (
-          <Button onClick={() => setShowForm(true)}>
+          <Button
+            onClick={() => {
+              trackFeatureAdoption("barter_offer_entry");
+              trackFunnelStep("barter_creation", "opened");
+              setShowForm(true);
+            }}
+          >
             <Plus className="size-4" />
             New Barter Offer
           </Button>
@@ -100,7 +109,13 @@ export default function BarterPage() {
             title="No active barter offers yet"
             description={'Click "New Barter Offer" to propose a goods-for-goods trade.'}
             action={
-              <Button onClick={() => setShowForm(true)}>
+              <Button
+                onClick={() => {
+                  trackFeatureAdoption("barter_offer_entry");
+                  trackFunnelStep("barter_creation", "opened");
+                  setShowForm(true);
+                }}
+              >
                 <Plus className="size-4" />
                 New Barter Offer
               </Button>
