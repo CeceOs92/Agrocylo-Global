@@ -24,6 +24,7 @@ export default function RootLayout({
         tabIndex={-1}
         className="flex-1 overflow-x-clip pb-[calc(env(safe-area-inset-bottom)+4.5rem)] md:pb-0"
       >
+      <main className="flex-1 overflow-x-clip pb-[calc(env(safe-area-inset-bottom)+4.5rem)] md:pb-0">
         {children}
       </main>
       <MobileBottomNav />

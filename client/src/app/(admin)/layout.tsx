@@ -3,6 +3,7 @@ import { AdminSidebar } from "./_components/admin-sidebar";
 import { AdminHeader } from "./_components/admin-header";
 import { DashboardFooter } from "@/components/shared/dashboard-footer";
 import { SkipLink } from "@/components/shared/skip-link";
+import { AdminShell } from "./_components/admin-shell";
 
 export const metadata = {
   title: {
@@ -11,8 +12,6 @@ export const metadata = {
   },
 };
 
-// Admin pages currently require any onboarded user; tighten to a dedicated
-// `admin` role once the backend models it.
 export default function AdminLayout({
   children,
 }: {
@@ -38,4 +37,5 @@ export default function AdminLayout({
       </div>
     </div>
   );
+  return <AdminShell>{children}</AdminShell>;
 }
