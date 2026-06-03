@@ -254,7 +254,7 @@ export default function PriceAlertManager() {
                 alert={alert}
                 onDismiss={(id) => deleteAlert(id).catch(console.error)}
                 onAction={() => {
-                  handleToggle(id, !alert.enabled).catch(console.error);
+                  handleToggle(alert.id, !alert.enabled).catch(console.error);
                 }}
               />
             </div>

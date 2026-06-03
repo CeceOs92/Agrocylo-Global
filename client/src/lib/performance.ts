@@ -1,4 +1,5 @@
-import { onCLS, onINP, onLCP, onTTFB, onFCP, Metric } from 'web-vitals';
+import { onCLS, onINP, onLCP, onTTFB, onFCP } from 'next/dist/compiled/web-vitals';
+import type { Metric } from 'next/dist/compiled/web-vitals';
 
 export function reportWebVitals(metric: Metric) {
   const body = JSON.stringify(metric);

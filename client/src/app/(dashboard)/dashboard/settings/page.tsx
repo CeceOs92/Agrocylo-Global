@@ -80,8 +80,8 @@ export default function SettingsPage() {
 
     try {
       const updated = await updateProfile(address, {
-        display_name: displayName.trim(),
-        bio: bio.trim() || null,
+        displayName: displayName.trim(),
+        bio: bio.trim(),
       });
       setProfile(updated);
       toast.success("Profile updated");

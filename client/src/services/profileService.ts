@@ -128,12 +128,12 @@ export interface ReviewDraft {
 
 export interface ProfileUpdateInput {
   displayName: string;
-  bio: string;
-  avatarUrl: string | null;
-  location: string;
-  socialLinks: SocialLink[];
-  privacy: UserProfileInfo["privacy"];
-  verificationRequested: boolean;
+  bio?: string;
+  avatarUrl?: string | null;
+  location?: string;
+  socialLinks?: SocialLink[];
+  privacy?: UserProfileInfo["privacy"];
+  verificationRequested?: boolean;
 }
 
 function mapProfile(raw: Record<string, unknown>): Profile {
@@ -591,12 +591,12 @@ export async function updateUserProfile(
     profile: {
       ...current.profile,
       displayName: input.displayName.trim() || current.profile.displayName,
-      bio: input.bio.trim(),
-      avatarUrl: input.avatarUrl,
-      location: input.location.trim(),
-      socialLinks: input.socialLinks.filter((link) => link.label.trim() && link.url.trim()),
-      privacy: input.privacy,
-      verificationRequested: input.verificationRequested,
+      bio: input.bio?.trim() ?? current.profile.bio,
+      avatarUrl: input.avatarUrl ?? current.profile.avatarUrl,
+      location: input.location?.trim() ?? current.profile.location,
+      socialLinks: input.socialLinks ?? current.profile.socialLinks,
+      privacy: input.privacy ?? current.profile.privacy,
+      verificationRequested: input.verificationRequested ?? current.profile.verificationRequested,
     },
   });
 

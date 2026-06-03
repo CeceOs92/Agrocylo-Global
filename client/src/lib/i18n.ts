@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 const locales = ['en', 'fr', 'es'] as const;
 
-export default getRequestConfig(async ({ locale }) => {
+export default getRequestConfig(async ({ locale }: { locale?: string }) => {
   const activeLocale = locale || 'en';
   if (!locales.includes(activeLocale as typeof locales[number])) notFound();
 
