@@ -8,11 +8,13 @@ interface WebSocketPayload {
   payload: unknown;
 }
 
+type WebSocketListener<T = unknown> = (data: T) => void;
+
 //  WebSocket Connection
 
 class MessagingWebSocket {
   private ws: WebSocket | null = null;
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
+  private listeners: Map<string, Set<WebSocketListener<unknown>>> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -56,20 +58,20 @@ class MessagingWebSocket {
     }, Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000));
   }
 
-  on(event: string, callback: (data: any) => void) {
+  on<T = unknown>(event: string, callback: WebSocketListener<T>) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
-    this.listeners.get(event)!.add(callback);
+    this.listeners.get(event)!.add(callback as WebSocketListener<unknown>);
 
     return () => this.off(event, callback);
   }
 
-  off(event: string, callback: (data: any) => void) {
-    this.listeners.get(event)?.delete(callback);
+  off<T = unknown>(event: string, callback: WebSocketListener<T>) {
+    this.listeners.get(event)?.delete(callback as WebSocketListener<unknown>);
   }
 
-  private emit(event: string, data: any) {
+  private emit<T = unknown>(event: string, data: T) {
     this.listeners.get(event)?.forEach(cb => cb(data));
   }
 
