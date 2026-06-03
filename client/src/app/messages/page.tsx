@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from 'react';
 import { useMessaging } from '../../hooks/useMessaging';
 import ConversationList from '../../components/ConversationList';

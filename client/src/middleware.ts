@@ -1,11 +1,9 @@
-import createMiddleware from 'next-intl/middleware';
+import { NextResponse } from 'next/server';
 
-export default createMiddleware({
-  locales: ['en', 'fr', 'es'],
-  defaultLocale: 'en'
-});
+export default function middleware() {
+  return NextResponse.next();
+}
 
 export const config = {
-  // Match only internationalized pathnames
-  matcher: ['/', '/(fr|en|es)/:path*']
+  matcher: ['/:path*'],
 };

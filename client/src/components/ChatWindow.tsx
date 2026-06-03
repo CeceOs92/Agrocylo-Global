@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Message, User } from '../types/messaging';
 
