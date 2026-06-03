@@ -183,14 +183,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  const disconnect = () => {
+  const disconnect = useCallback(() => {
     if (address) {
       trackWalletDisconnected({
         network: network ?? undefined,
         adapter: activeWalletId ?? undefined,
       });
     }
-  const disconnect = useCallback(() => {
     setAddress(null);
     setBalance(null);
     setConnected(false);

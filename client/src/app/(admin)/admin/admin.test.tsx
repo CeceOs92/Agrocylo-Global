@@ -5,7 +5,13 @@ import * as adminService from "@/services/adminService";
 
 vi.mock("@/services/adminService");
 vi.mock("next/link", () => ({
-  default: ({ children, href }: any) => <a href={href}>{children}</a>,
+  default: ({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) => <a href={href}>{children}</a>,
 }));
 
 describe("AdminOverviewPage", () => {

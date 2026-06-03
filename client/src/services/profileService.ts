@@ -134,10 +134,6 @@ export interface ProfileUpdateInput {
   socialLinks: SocialLink[];
   privacy: UserProfileInfo["privacy"];
   verificationRequested: boolean;
-export interface ProfileUpdateInput {
-  display_name?: string;
-  bio?: string | null;
-  avatar_url?: string | null;
 }
 
 function mapProfile(raw: Record<string, unknown>): Profile {

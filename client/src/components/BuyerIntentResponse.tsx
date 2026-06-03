@@ -187,7 +187,7 @@ export default function BuyerIntentResponse({
               Propose Terms
             </Badge>
             <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
-              Respond to {intent.buyer_name}'s Intent
+              Respond to {intent.buyer_name}&apos;s Intent
             </h2>
             <p className="text-muted-foreground text-xs mt-1 leading-normal">
               Propose unit pricing, delivery schedules, and quantity adjustments for <strong>{intent.product_name}</strong>.
@@ -404,7 +404,7 @@ export default function BuyerIntentResponse({
                   <History className="size-10 text-muted-foreground/35 mx-auto" />
                   <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-350">No Proposal History</p>
                   <p className="text-xs text-muted-foreground leading-normal">
-                    You haven't proposed any terms or saved drafts for this buyer intent yet.
+                    You haven&apos;t proposed any terms or saved drafts for this buyer intent yet.
                   </p>
                 </div>
               ) : (

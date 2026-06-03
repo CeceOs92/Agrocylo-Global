@@ -2,8 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useSocket } from "./useSocket";
 
+type MockSocket = {
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  readyState: number;
+  onopen: ((event: Event) => void) | null;
+  onclose: ((event: Event) => void) | null;
+  onmessage: ((event: MessageEvent<string>) => void) | null;
+};
+
 describe("useSocket Hook", () => {
-  let mockWs: any;
+  let mockWs: MockSocket;
+  let webSocketCtor: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -13,9 +23,13 @@ describe("useSocket Hook", () => {
       send: vi.fn(),
       close: vi.fn(),
       readyState: 1, // WebSocket.OPEN
+      onopen: null,
+      onclose: null,
+      onmessage: null,
     };
 
-    global.WebSocket = vi.fn().mockImplementation(() => mockWs) as any;
+    webSocketCtor = vi.fn(() => mockWs as unknown as WebSocket);
+    global.WebSocket = webSocketCtor as unknown as typeof WebSocket;
   });
 
   afterEach(() => {
@@ -34,7 +48,8 @@ describe("useSocket Hook", () => {
     const { result } = renderHook(() => useSocket());
     
     act(() => {
-      (global.WebSocket as any).mock.results[0].value.onopen();
+      const socket = webSocketCtor.mock.results[0]?.value as MockSocket;
+      socket.onopen?.(new Event("open"));
     });
 
     expect(result.current.isConnected).toBe(true);
@@ -44,7 +59,8 @@ describe("useSocket Hook", () => {
     const { result } = renderHook(() => useSocket());
     
     act(() => {
-      (global.WebSocket as any).mock.results[0].value.onopen();
+      const socket = webSocketCtor.mock.results[0]?.value as MockSocket;
+      socket.onopen?.(new Event("open"));
     });
 
     act(() => {
@@ -60,7 +76,8 @@ describe("useSocket Hook", () => {
     const { result } = renderHook(() => useSocket());
     
     act(() => {
-      (global.WebSocket as any).mock.results[0].value.onopen();
+      const socket = webSocketCtor.mock.results[0]?.value as MockSocket;
+      socket.onopen?.(new Event("open"));
     });
 
     let unsub: () => void = () => {};

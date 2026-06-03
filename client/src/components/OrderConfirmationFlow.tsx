@@ -283,7 +283,7 @@ export default function OrderConfirmationFlow({
           <div className="rounded-3xl border border-border bg-secondary/40 p-5 text-sm leading-6 text-muted-foreground">
             <p className="font-semibold">Dispute prevention</p>
             <p className="mt-2">
-              Compare received goods with the seller's listing and only confirm once the order matches the expected quality and quantity.
+              Compare received goods with the seller&apos;s listing and only confirm once the order matches the expected quality and quantity.
             </p>
             <p className="mt-2">
               Confirming means funds are released. If you disagree with the delivery, choose dispute instead of confirming immediately.

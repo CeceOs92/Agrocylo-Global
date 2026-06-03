@@ -55,7 +55,7 @@ export default function ChooseRoleStep({
               />
             </div>
             <div>
-              <h3 className="font-semibold text-lg mb-1">I'm a Buyer</h3>
+              <h3 className="font-semibold text-lg mb-1">I&apos;m a Buyer</h3>
               <p className="text-sm text-muted-foreground">
                 Purchase fresh produce directly from farmers
               </p>
@@ -95,7 +95,7 @@ export default function ChooseRoleStep({
               />
             </div>
             <div>
-              <h3 className="font-semibold text-lg mb-1">I'm a Farmer</h3>
+              <h3 className="font-semibold text-lg mb-1">I&apos;m a Farmer</h3>
               <p className="text-sm text-muted-foreground">
                 Sell your produce directly to buyers
               </p>

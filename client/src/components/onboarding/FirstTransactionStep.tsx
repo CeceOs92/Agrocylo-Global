@@ -67,7 +67,7 @@ export default function FirstTransactionStep({
         <div className="inline-flex p-3 rounded-full bg-primary/10 mb-4">
           <CheckCircle className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="text-2xl font-bold mb-2">You're All Set!</h2>
+        <h2 className="text-2xl font-bold mb-2">You&apos;re All Set!</h2>
         <p className="text-muted-foreground">
           {role === "BUYER"
             ? "Start exploring and make your first purchase"

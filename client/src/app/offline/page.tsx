@@ -8,10 +8,10 @@ export default function OfflinePage() {
         <WifiOff className="h-10 w-10 text-muted-foreground" />
       </div>
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold">You're offline</h1>
+        <h1 className="text-2xl font-bold">You&apos;re offline</h1>
         <p className="max-w-md text-sm text-muted-foreground">
           Please check your internet connection and try again. Some features may
-          be unavailable until you're back online.
+          be unavailable until you&apos;re back online.
         </p>
       </div>
       <Link
