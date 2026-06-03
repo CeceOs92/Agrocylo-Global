@@ -12,7 +12,7 @@ interface WebSocketPayload {
 
 class MessagingWebSocket {
   private ws: WebSocket | null = null;
-  private listeners: Map<string, Set<(data: WebSocketPayload) => void>> = new Map();
+  private listeners: Map<string, Set<(data: any) => void>> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -56,7 +56,7 @@ class MessagingWebSocket {
     }, Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000));
   }
 
-  on(event: string, callback: (data: WebSocketPayload) => void) {
+  on(event: string, callback: (data: any) => void) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
@@ -65,11 +65,11 @@ class MessagingWebSocket {
     return () => this.off(event, callback);
   }
 
-  off(event: string, callback: (data: WebSocketPayload) => void) {
+  off(event: string, callback: (data: any) => void) {
     this.listeners.get(event)?.delete(callback);
   }
 
-  private emit(event: string, data: WebSocketPayload) {
+  private emit(event: string, data: any) {
     this.listeners.get(event)?.forEach(cb => cb(data));
   }
 

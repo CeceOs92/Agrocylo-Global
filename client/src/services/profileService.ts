@@ -217,11 +217,11 @@ export async function updateProfile(
     return {
       wallet_address: walletAddress,
       role: existing?.role ?? "farmer",
-      display_name: data.display_name ?? existing?.display_name ?? "Test Farmer",
-      bio: data.bio !== undefined ? data.bio : (existing?.bio ?? null),
+      display_name: data.displayName ?? existing?.display_name ?? "Test Farmer",
+      bio: data.bio !== undefined ? data.bio : existing?.bio ?? null,
       avatar_url:
-        data.avatar_url !== undefined
-          ? data.avatar_url
+        data.avatarUrl !== undefined
+          ? data.avatarUrl
           : (existing?.avatar_url ?? null),
     };
   }

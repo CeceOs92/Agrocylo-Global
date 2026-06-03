@@ -20,8 +20,8 @@ export function useMessaging(conversationId?: string) {
   const [hasMore, setHasMore] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const cursorRef = useRef<string | undefined>();
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const cursorRef = useRef<string | undefined>(undefined);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const loadConversations = useCallback(async () => {
     try {

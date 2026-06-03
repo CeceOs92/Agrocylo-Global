@@ -15,7 +15,7 @@ export default function ConnectWalletStep({
   onBack,
   onSkip,
 }: ConnectWalletStepProps) {
-  const { address, connect, isConnecting } = useWallet();
+  const { address, connect, loading } = useWallet();
 
   const handleConnect = async () => {
     try {
@@ -57,11 +57,11 @@ export default function ConnectWalletStep({
 
           <Button
             onClick={handleConnect}
-            disabled={isConnecting}
+            disabled={loading}
             className="w-full"
             size="lg"
           >
-            {isConnecting ? "Connecting..." : "Connect Freighter Wallet"}
+            {loading ? "Connecting..." : "Connect Freighter Wallet"}
           </Button>
         </div>
       ) : (
@@ -102,7 +102,7 @@ export default function ConnectWalletStep({
           <Button variant="ghost" onClick={onSkip}>
             Skip
           </Button>
-          <Button onClick={onNext} disabled={!address}>
+          <Button onClick={onNext} disabled={!address || loading}>
             Continue
           </Button>
         </div>
