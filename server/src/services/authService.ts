@@ -80,6 +80,8 @@ export async function verifySignature(
   ]);
 
   // Issue tokens
+  const accessToken = jwt.sign({ walletAddress, role: 'USER' }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const refreshToken = crypto.randomBytes(40).toString('hex');
   const accessToken = jwt.sign({ walletAddress }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   });
@@ -111,6 +113,9 @@ export async function refreshAccessToken(
     throw new ApiError(401, "Unauthorized", "Refresh token expired");
   }
 
+  const accessToken = jwt.sign({ walletAddress: row.walletAddress, role: 'USER' }, JWT_SECRET, {
+    expiresIn: JWT_EXPIRES_IN,
+  });
   const accessToken = jwt.sign(
     { walletAddress: row.walletAddress },
     JWT_SECRET,
