@@ -44,7 +44,7 @@ export default function DisputePage() {
         throw new Error(res.error || "Failed to fetch order");
       }
       setOrder(res.data);
-      setHasExistingDispute(res.data.disputeId !== undefined);
+      setHasExistingDispute(res.data.status === "Disputed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load order");
     } finally {
@@ -157,7 +157,7 @@ export default function DisputePage() {
                 </div>
               ) : (
                 <DisputeForm
-                  isLoading={disputeState.loading}
+                  isLoading={disputeState.isLoading}
                   error={error || disputeState.error || null}
                   onSubmit={handleDisputeSubmit}
                   onCancel={() => router.back()}

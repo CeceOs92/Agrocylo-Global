@@ -105,6 +105,7 @@ export function useSocket() {
 
   useEffect(() => {
     unmounted.current = false;
+    connectRef.current = connect;
     connect();
 
     return () => {

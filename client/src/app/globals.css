@@ -122,7 +122,24 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground min-h-dvh overflow-x-clip;
+  }
+
+  :where(
+      a,
+      button,
+      input,
+      select,
+      textarea,
+      summary,
+      [role="button"],
+      [role="link"],
+      [role="tab"],
+      [role="switch"],
+      [role="checkbox"]
+    ):focus-visible {
+    outline: 3px solid var(--ring) !important;
+    outline-offset: 3px !important;
   }
 }
 
@@ -130,6 +147,24 @@ html {
   scroll-behavior: smooth;
 }
 
+body {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 @layer base {
   :root {

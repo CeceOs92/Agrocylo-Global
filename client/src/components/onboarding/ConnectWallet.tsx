@@ -2,6 +2,7 @@
 
 import { Wallet, CheckCircle2 } from "lucide-react";
 import { useWallet } from "@/hooks/useWallet";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +22,7 @@ function truncateAddress(addr: string): string {
 
 export default function ConnectWallet({ onNext }: ConnectWalletProps) {
   const { address, connected, loading, connect } = useWallet();
+  const { trackFunnelStep } = useAnalytics();
 
   return (
     <Card className="mx-auto max-w-md">
@@ -43,13 +45,24 @@ export default function ConnectWallet({ onNext }: ConnectWalletProps) {
                 </p>
               </div>
             </div>
-            <Button onClick={onNext} className="w-full">
+            <Button
+              onClick={() => {
+                trackFunnelStep("onboarding_completion", "wallet_confirmed", {
+                  connected: true,
+                });
+                onNext();
+              }}
+              className="w-full"
+            >
               Continue
             </Button>
           </>
         ) : (
           <Button
-            onClick={() => void connect()}
+            onClick={() => {
+              trackFunnelStep("onboarding_completion", "wallet_connect_started");
+              void connect();
+            }}
             isLoading={loading}
             className="w-full"
           >

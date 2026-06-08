@@ -1,12 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+
 import { montserratAlternates } from "@/fonts";
 import { siteConfig } from "@/config/site.config";
 import { GlobalProvider } from "@/components/providers/global-provider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
-import React from 'react';
-import { ThemeProvider } from '../context/ThemeContext';
-import { themeScript } from '../theme/theme-script';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
@@ -40,25 +38,11 @@ export const metadata: Metadata = {
   },
 };
 
-interface RootLayoutProps {
-  children: React.ReactNode;
-}
-
-export default function RootLayout({ children }: RootLayoutProps) {
-  return (
-    <html lang="en" suppressHydrationWarning className="no-transitions">
-      <head>
-        {/* Inline theme script to prevent flash */}
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body className="min-h-screen bg-background text-foreground antialiased">
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
-      </body>
-    </html>
-  );
-}
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export default function RootLayout({
   children,
@@ -68,7 +52,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body
-        className={`${montserratAlternates.variable} flex min-h-screen flex-col font-sans antialiased`}
+        className={`${montserratAlternates.variable} flex min-h-dvh flex-col bg-background font-sans antialiased`}
       >
         <ErrorBoundary>
           <GlobalProvider>{children}</GlobalProvider>

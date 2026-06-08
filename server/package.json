@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "setup": "npm install && npx prisma generate",
     "dev": "tsx watch src/index.ts",
     "worker:dev": "tsx watch src/worker.ts",
     "build": "tsc",

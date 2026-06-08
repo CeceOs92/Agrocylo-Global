@@ -1,5 +1,7 @@
 import Header from "./_components/header";
 import Footer from "./_components/footer";
+import { MobileBottomNav } from "./_components/mobile-bottom-nav";
+import { SkipLink } from "@/components/shared/skip-link";
 
 /**
  * Public-site shell — renders the fixed Header at the top of every (root)
@@ -15,8 +17,16 @@ export default function RootLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col">
+      <SkipLink />
       <Header />
-      <main className="flex-1 overflow-x-clip">{children}</main>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 overflow-x-clip pb-[calc(env(safe-area-inset-bottom)+4.5rem)] md:pb-0"
+      >
+        {children}
+      </main>
+      <MobileBottomNav />
       <Footer />
     </div>
   );

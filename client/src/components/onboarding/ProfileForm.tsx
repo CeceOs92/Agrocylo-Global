@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 interface ProfileFormProps {
   displayName: string;
@@ -31,13 +32,20 @@ export default function ProfileForm({
   onBack,
 }: ProfileFormProps) {
   const [nameError, setNameError] = useState<string | undefined>();
+  const { trackFunnelStep } = useAnalytics();
 
   function handleNext() {
     if (!displayName.trim()) {
       setNameError("Display name is required");
+      trackFunnelStep("onboarding_completion", "profile_validation_failed", {
+        reason: "missing_display_name",
+      });
       return;
     }
     setNameError(undefined);
+    trackFunnelStep("onboarding_completion", "profile_completed", {
+      hasBio: Boolean(bio.trim()),
+    });
     onNext();
   }
 
@@ -77,7 +85,14 @@ export default function ProfileForm({
         </div>
 
         <div className="flex gap-3">
-          <Button variant="outline" onClick={onBack} className="flex-1">
+          <Button
+            variant="outline"
+            onClick={() => {
+              trackFunnelStep("onboarding_completion", "profile_step_back");
+              onBack();
+            }}
+            className="flex-1"
+          >
             Back
           </Button>
           <Button onClick={handleNext} className="flex-[2]">

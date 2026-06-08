@@ -219,6 +219,27 @@ server/
 
 ## Contributing
 
+### Contributor Setup Checklist
+
+Before running `npm run build` or `npm test`, complete these steps or they will fail:
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Generate the Prisma client (required before build/test)
+npx prisma generate
+
+# 3. Copy and fill in environment variables
+cp .env.example .env
+# Edit .env with your DATABASE_URL, JWT_SECRET, etc.
+
+# 4. Apply database migrations
+npx prisma migrate dev
+```
+
+> **Shortcut:** `npm run setup` runs steps 1 and 2 for you.
+
 ### Fixing a Server Issue
 
 1. **Reproduce** — run \`npm run dev\` and confirm the bug locally.

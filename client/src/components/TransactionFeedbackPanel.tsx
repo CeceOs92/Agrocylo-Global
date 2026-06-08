@@ -110,13 +110,16 @@ export function TransactionFeedbackPanel({
   const reset = context?.reset;
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (state === "success" && autoDismissMs > 0) {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         reset?.();
         onClose?.();
       }, autoDismissMs);
-      return () => clearTimeout(timer);
     }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, [state, autoDismissMs, reset, onClose]);
 
   const handleCopy = useCallback(async () => {

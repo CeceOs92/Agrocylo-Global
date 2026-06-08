@@ -1,20 +1,13 @@
 "use client";
 
-/**
- * NotificationPreferences — per-type toggles, delivery methods, quiet hours.
- * Loads from the backend; localStorage is used only as an offline read fallback.
- */
-
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Bell, Mail, Monitor, Volume2, VolumeX } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { useWallet } from "@/hooks/useWallet";
+import { cn } from "@/lib/utils";
 import {
   DEFAULT_NOTIFICATION_PREFS,
   getNotificationPreferences,
@@ -24,12 +17,17 @@ import {
 
 const STORAGE_KEY = "agrocylo:notification-prefs";
 
+export interface NotificationPreferencesProps {
+  embedded?: boolean;
+}
+
 function loadOfflinePrefs(): NotificationPrefs | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return { ...DEFAULT_NOTIFICATION_PREFS, ...JSON.parse(raw) } as NotificationPrefs;
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw
+      ? ({ ...DEFAULT_NOTIFICATION_PREFS, ...JSON.parse(raw) } as NotificationPrefs)
+      : null;
   } catch {
     return null;
   }
@@ -37,73 +35,49 @@ function loadOfflinePrefs(): NotificationPrefs | null {
 
 function saveOfflinePrefs(prefs: NotificationPrefs) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-}
-
-function Toggle({
-  checked,
-  onChange,
-  id,
-  disabled,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  id: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? "bg-primary" : "bg-muted"
-      }`}
-    >
-      <span
-        className={`inline-block size-3.5 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-4" : "translate-x-0.5"
-        }`}
-      />
-    </button>
-  );
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
 }
 
 function Row({
+  id,
   label,
   description,
   checked,
   onChange,
-  id,
   disabled,
 }: {
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
   id: string;
+  label: ReactNode;
+  description?: ReactNode;
+  checked: boolean;
+  onChange: (value: boolean) => void;
   disabled?: boolean;
 }) {
+  const labelId = `${id}-label`;
+  const descriptionId = description ? `${id}-description` : undefined;
+
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
-      <div>
-        <label htmlFor={id} className="cursor-pointer text-sm font-medium">
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0 flex-1">
+        <span id={labelId} className="block text-sm font-medium">
           {label}
-        </label>
-        {description && (
-          <p className="text-muted-foreground text-xs">{description}</p>
-        )}
+        </span>
+        {description ? (
+          <p id={descriptionId} className="text-muted-foreground mt-0.5 text-xs">
+            {description}
+          </p>
+        ) : null}
       </div>
-      <Toggle id={id} checked={checked} onChange={onChange} disabled={disabled} />
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
+        aria-labelledby={labelId}
+        aria-describedby={descriptionId}
+        disabled={disabled}
+      />
     </div>
   );
-}
-
-interface NotificationPreferencesProps {
-  embedded?: boolean;
 }
 
 export function NotificationPreferences({ embedded = false }: NotificationPreferencesProps) {
@@ -113,7 +87,10 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
+
+  useEffect(() => {
+    prefsRef.current = prefs;
+  }, [prefs]);
 
   useEffect(() => {
     if (!connected || !address) {
@@ -169,9 +146,7 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
       } catch (err) {
         setPrefs(previous);
         saveOfflinePrefs(previous);
-        setError(
-          err instanceof Error ? err.message : "Failed to save notification preferences.",
-        );
+        setError(err instanceof Error ? err.message : "Failed to save notification preferences.");
       } finally {
         setSaving(false);
       }
@@ -179,13 +154,13 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
     [address, connected],
   );
 
-  function setType(key: keyof NotificationPrefs["types"], value: boolean) {
+  const setType = (key: keyof NotificationPrefs["types"], value: boolean) => {
     void persist({ ...prefs, types: { ...prefs.types, [key]: value } });
-  }
+  };
 
-  function setDelivery(method: keyof NotificationPrefs["delivery"], value: boolean) {
+  const setDelivery = (method: keyof NotificationPrefs["delivery"], value: boolean) => {
     void persist({ ...prefs, delivery: { ...prefs.delivery, [method]: value } });
-  }
+  };
 
   const disabled = loading || saving;
 
@@ -202,11 +177,45 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
           Notification types
         </p>
         <div className="divide-y">
-          <Row id="pref-orders" label="Order updates" description="Status changes for your orders" checked={prefs.types.orders} onChange={(v) => setType("orders", v)} disabled={disabled} />
-          <Row id="pref-disputes" label="Disputes" description="New and resolved disputes" checked={prefs.types.disputes} onChange={(v) => setType("disputes", v)} disabled={disabled} />
-          <Row id="pref-price" label="Price alerts" description="When commodities hit your targets" checked={prefs.types.priceAlerts} onChange={(v) => setType("priceAlerts", v)} disabled={disabled} />
-          <Row id="pref-system" label="System announcements" checked={prefs.types.system} onChange={(v) => setType("system", v)} disabled={disabled} />
-          <Row id="pref-demand" label="Demand signals" description="New buyer intents in your area" checked={prefs.types.demandSignals} onChange={(v) => setType("demandSignals", v)} disabled={disabled} />
+          <Row
+            id="pref-orders"
+            label="Order updates"
+            description="Status changes for your orders"
+            checked={prefs.types.orders}
+            onChange={(v) => setType("orders", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="pref-disputes"
+            label="Disputes"
+            description="New and resolved disputes"
+            checked={prefs.types.disputes}
+            onChange={(v) => setType("disputes", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="pref-price"
+            label="Price alerts"
+            description="When commodities hit your targets"
+            checked={prefs.types.priceAlerts}
+            onChange={(v) => setType("priceAlerts", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="pref-system"
+            label="System announcements"
+            checked={prefs.types.system}
+            onChange={(v) => setType("system", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="pref-demand"
+            label="Demand signals"
+            description="New buyer intents in your area"
+            checked={prefs.types.demandSignals}
+            onChange={(v) => setType("demandSignals", v)}
+            disabled={disabled}
+          />
         </div>
       </div>
 
@@ -217,9 +226,38 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
           Delivery methods
         </p>
         <div className="divide-y">
-          <Row id="del-toast" label="In-app toast" description="Instant notifications in the UI" checked={prefs.delivery.toast} onChange={(v) => setDelivery("toast", v)} disabled={disabled} />
-          <Row id="del-email" label="Email" description="Notifications sent to your email" checked={prefs.delivery.email} onChange={(v) => setDelivery("email", v)} disabled={disabled} />
-          <Row id="del-push" label="Browser push" description="Browser push notifications" checked={prefs.delivery.push} onChange={(v) => setDelivery("push", v)} disabled={disabled} />
+          <Row
+            id="del-toast"
+            label="In-app toast"
+            description="Instant notifications in the UI"
+            checked={prefs.delivery.toast}
+            onChange={(v) => setDelivery("toast", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="del-email"
+            label={
+              <span className="flex items-center gap-1.5">
+                <Mail className="size-3.5" />
+                Email
+              </span>
+            }
+            checked={prefs.delivery.email}
+            onChange={(v) => setDelivery("email", v)}
+            disabled={disabled}
+          />
+          <Row
+            id="del-push"
+            label={
+              <span className="flex items-center gap-1.5">
+                <Monitor className="size-3.5" />
+                Browser push
+              </span>
+            }
+            checked={prefs.delivery.push}
+            onChange={(v) => setDelivery("push", v)}
+            disabled={disabled}
+          />
         </div>
       </div>
 
@@ -227,11 +265,16 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
 
       <div>
         <p className="text-muted-foreground mb-3 text-xs font-semibold uppercase tracking-wide">
-          Sound & quiet hours
+          Sound and quiet hours
         </p>
         <Row
           id="pref-sound"
-          label="Notification sounds"
+          label={
+            <span className="flex items-center gap-1.5">
+              {prefs.sound ? <Volume2 className="size-3.5" /> : <VolumeX className="size-3.5" />}
+              Notification sounds
+            </span>
+          }
           checked={prefs.sound}
           onChange={(v) => void persist({ ...prefs, sound: v })}
           disabled={disabled}
@@ -244,10 +287,11 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
           onChange={(v) => void persist({ ...prefs, quietHoursEnabled: v })}
           disabled={disabled}
         />
+
         {prefs.quietHoursEnabled && (
-          <div className="mt-3 flex items-center gap-3 text-sm">
-            <div className="flex items-center gap-2">
-              <label htmlFor="quiet-start" className="text-muted-foreground text-xs">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <label htmlFor="quiet-start" className="text-muted-foreground text-xs font-medium">
                 From
               </label>
               <input
@@ -256,11 +300,14 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
                 value={prefs.quietStart}
                 disabled={disabled}
                 onChange={(e) => void persist({ ...prefs, quietStart: e.target.value })}
-                className="border-input rounded-md border bg-transparent px-2 py-1 text-sm"
+                className={cn(
+                  "border-input bg-background text-foreground h-11 w-full rounded-md border px-3 text-sm shadow-xs",
+                  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none",
+                )}
               />
             </div>
-            <div className="flex items-center gap-2">
-              <label htmlFor="quiet-end" className="text-muted-foreground text-xs">
+            <div className="grid gap-1.5">
+              <label htmlFor="quiet-end" className="text-muted-foreground text-xs font-medium">
                 To
               </label>
               <input
@@ -269,7 +316,10 @@ export function NotificationPreferences({ embedded = false }: NotificationPrefer
                 value={prefs.quietEnd}
                 disabled={disabled}
                 onChange={(e) => void persist({ ...prefs, quietEnd: e.target.value })}
-                className="border-input rounded-md border bg-transparent px-2 py-1 text-sm"
+                className={cn(
+                  "border-input bg-background text-foreground h-11 w-full rounded-md border px-3 text-sm shadow-xs",
+                  "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none",
+                )}
               />
             </div>
           </div>

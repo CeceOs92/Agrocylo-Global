@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useEscrowContract } from "@/hooks/useEscrowContract";
 import { useWallet } from "@/hooks/useWallet";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { createOrderFormSchema } from "@/lib/validation";
 import { FormError } from "@/components/FormError";
 
@@ -34,6 +35,8 @@ export default function CreateOrderForm() {
 
   const { connected } = useWallet();
   const { createOrder, createState } = useEscrowContract();
+  const { trackFunnelStep, trackTransactionAttempt, trackFormSubmission } =
+    useAnalytics();
 
   const [farmer, setFarmer] = useState(prefilledFarmer);
   const [amount, setAmount] = useState("");
@@ -88,6 +91,18 @@ export default function CreateOrderForm() {
       return;
     }
     try {
+      trackFormSubmission("escrow_order_form", {
+        farmer: farmer.trim(),
+        amount: numAmount,
+      });
+      trackTransactionAttempt("purchase", "started", {
+        farmer: farmer.trim(),
+        amount: numAmount,
+        deadline: deliveryDeadline,
+      });
+      trackFunnelStep("purchase", "checkout_submitted", {
+        amount: numAmount,
+      });
       setTxStep("signing");
       const stroops = BigInt(Math.round(numAmount * 1e7));
       const result = await createOrder(
@@ -98,8 +113,19 @@ export default function CreateOrderForm() {
       );
       setTxStep("done");
       setTxHash(result?.txHash ?? null);
+      trackTransactionAttempt("purchase", "confirmed", {
+        farmer: farmer.trim(),
+        amount: numAmount,
+      });
+      trackFunnelStep("purchase", "checkout_completed", {
+        amount: numAmount,
+      });
     } catch {
       setTxStep("error");
+      trackTransactionAttempt("purchase", "failed", {
+        farmer: farmer.trim(),
+        amount: numAmount,
+      });
     }
   }
 
@@ -136,6 +162,7 @@ export default function CreateOrderForm() {
                 setDeliveryDeadline("");
                 setDescription("");
                 setTxHash(null);
+                trackFunnelStep("purchase", "checkout_reset");
               }}
             >
               Create Another
