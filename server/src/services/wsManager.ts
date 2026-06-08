@@ -1,11 +1,12 @@
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { Server } from "node:http";
+import jwt from "jsonwebtoken";
 import logger from "../config/logger.js";
 import { config } from "../config/index.js";
 
 interface AuthMessage {
   type: "auth";
-  wallet: string;
+  token: string;
 }
 
 interface ClientSocket {
@@ -34,12 +35,14 @@ class WsManager {
       ws.on("message", (raw: RawData) => {
         try {
           const msg = JSON.parse(raw.toString()) as AuthMessage;
-          if (msg.type === "auth" && msg.wallet) {
-            client.wallet = msg.wallet;
-            logger.info(`WebSocket client authenticated: ${msg.wallet}`);
+          if (msg.type === "auth" && msg.token) {
+            const payload = jwt.verify(msg.token, String(config.jwtSecret)) as { walletAddress: string };
+            client.wallet = payload.walletAddress;
+            logger.info(`WebSocket client authenticated: ${client.wallet}`);
           }
         } catch {
-          logger.warn("WebSocket received non-JSON message, ignoring");
+          logger.warn("WebSocket auth failed or received non-JSON message");
+          ws.close(4001, "Unauthorized");
         }
       });
 
