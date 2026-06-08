@@ -1,11 +1,19 @@
-import React, { useState } from 'react';
+"use client";
+
+import { useState } from 'react';
 import { useMessaging } from '../../hooks/useMessaging';
 import ConversationList from '../../components/ConversationList';
 import ChatWindow from '../../components/ChatWindow';
 import { blockUser, muteConversation, archiveConversation } from '../../services/messagingService';
 
-export default function MessagesPage() {
-  const [activeConversationId, setActiveConversationId] = useState<string>();
+interface MessagesPageProps {
+  initialConversationId?: string;
+}
+
+export default function MessagesPage({ initialConversationId }: MessagesPageProps) {
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
+    initialConversationId,
+  );
   const {
     conversations,
     messages,

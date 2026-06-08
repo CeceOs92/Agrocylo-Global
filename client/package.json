@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:a11y": "vitest run src/a11y.test.tsx"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.3.2",
@@ -59,6 +60,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.6.3",
@@ -68,6 +70,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.4",
+    "axe-core": "^4.11.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "jsdom": "^26.0.0",

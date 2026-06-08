@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+"use client";
+
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Message, User } from '../types/messaging';
 
 interface ChatWindowProps {
@@ -9,8 +11,8 @@ interface ChatWindowProps {
   hasMore: boolean;
   typingUsers: Set<string>;
   onLoadMore: () => void;
-  onSend: (content: string, file?: File) => Promise<void>;
-  onEdit: (messageId: string, content: string) => Promise<void>;
+  onSend: (content: string, file?: File) => Promise<Message | undefined>;
+  onEdit: (messageId: string, content: string) => Promise<Message | undefined>;
   onDelete: (messageId: string) => Promise<void>;
   onReact: (messageId: string, emoji: string) => void;
   onTyping: () => void;
@@ -48,9 +50,9 @@ export default function ChatWindow({
   const [searchResults, setSearchResults] = useState<Message[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const messagesEndRef = useRef<<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<<HTMLDivElement>(null);
-  const fileInputRef = useRef<<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {

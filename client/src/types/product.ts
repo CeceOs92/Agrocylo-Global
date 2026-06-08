@@ -16,7 +16,6 @@ export type ProductUnit =
   | "litre"
   | "dozen"
   | "bunch";
-export type ProductUnit = "kg" | "bag" | "crate" | "piece" | "litre" | "dozen" | "bunch";
 
 export interface Product {
   id: string;

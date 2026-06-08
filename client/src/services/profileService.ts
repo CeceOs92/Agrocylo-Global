@@ -18,10 +18,122 @@ export interface LocationData {
   is_public: boolean;
 }
 
+export interface SocialLink {
+  label: string;
+  url: string;
+}
+
+export interface ReviewResponse {
+  message: string;
+  responderName: string;
+  respondedAt: string;
+}
+
+export interface UserReview {
+  id: string;
+  reviewerName: string;
+  reviewerRole: "farmer" | "buyer";
+  reviewerWallet: string;
+  rating: number;
+  title: string;
+  body: string;
+  createdAt: string;
+  transactionHash: string;
+  verifiedTransaction: boolean;
+  helpfulVotes: number;
+  helpfulVoteWallets: string[];
+  evidence: string[];
+  response?: ReviewResponse | null;
+}
+
+export interface ReputationHistoryEntry {
+  label: string;
+  score: number;
+  note: string;
+}
+
+export interface ActivityEntry {
+  id: string;
+  kind: "sale" | "purchase" | "review" | "dispute" | "profile";
+  title: string;
+  description: string;
+  occurredAt: string;
+}
+
+export interface TrustIndicator {
+  label: string;
+  value: string;
+  description: string;
+}
+
+export interface UserProfileStats {
+  totalSales: number;
+  totalPurchases: number;
+  transactionCount: number;
+  responseRate: number;
+  responseTimeHours: number;
+  onTimeDeliveryRate: number;
+  averageRating: number;
+  disputeRate: number;
+  reviewCount: number;
+  helpfulVotesReceived: number;
+}
+
+export interface UserProfileReputation {
+  score: number;
+  badge: "new" | "trusted" | "top seller" | "legend";
+  badgeDescription: string;
+  history: ReputationHistoryEntry[];
+}
+
+export interface UserProfileInfo {
+  walletAddress: string;
+  displayName: string;
+  bio: string;
+  avatarUrl: string | null;
+  location: string;
+  memberSince: string;
+  role: "farmer" | "buyer";
+  socialLinks: SocialLink[];
+  verificationRequested: boolean;
+  sellerBadge: string;
+  buyerBadge: string;
+  privacy: {
+    showLocation: boolean;
+    showContactLinks: boolean;
+  };
+}
+
+export interface UserProfileData {
+  walletAddress: string;
+  profile: UserProfileInfo;
+  stats: UserProfileStats;
+  reputation: UserProfileReputation;
+  trustIndicators: TrustIndicator[];
+  activityTimeline: ActivityEntry[];
+  reviews: UserReview[];
+}
+
+export interface ReviewDraft {
+  reviewerName: string;
+  reviewerRole: "farmer" | "buyer";
+  reviewerWallet: string;
+  rating: number;
+  title: string;
+  body: string;
+  transactionHash: string;
+  verifiedTransaction: boolean;
+  evidence: string[];
+}
+
 export interface ProfileUpdateInput {
-  display_name?: string;
-  bio?: string | null;
-  avatar_url?: string | null;
+  displayName: string;
+  bio?: string;
+  avatarUrl?: string | null;
+  location?: string;
+  socialLinks?: SocialLink[];
+  privacy?: UserProfileInfo["privacy"];
+  verificationRequested?: boolean;
 }
 
 function mapProfile(raw: Record<string, unknown>): Profile {
@@ -105,11 +217,11 @@ export async function updateProfile(
     return {
       wallet_address: walletAddress,
       role: existing?.role ?? "farmer",
-      display_name: data.display_name ?? existing?.display_name ?? "Test Farmer",
-      bio: data.bio !== undefined ? data.bio : (existing?.bio ?? null),
+      display_name: data.displayName ?? existing?.display_name ?? "Test Farmer",
+      bio: data.bio !== undefined ? data.bio : existing?.bio ?? null,
       avatar_url:
-        data.avatar_url !== undefined
-          ? data.avatar_url
+        data.avatarUrl !== undefined
+          ? data.avatarUrl
           : (existing?.avatar_url ?? null),
     };
   }
@@ -479,12 +591,12 @@ export async function updateUserProfile(
     profile: {
       ...current.profile,
       displayName: input.displayName.trim() || current.profile.displayName,
-      bio: input.bio.trim(),
-      avatarUrl: input.avatarUrl,
-      location: input.location.trim(),
-      socialLinks: input.socialLinks.filter((link) => link.label.trim() && link.url.trim()),
-      privacy: input.privacy,
-      verificationRequested: input.verificationRequested,
+      bio: input.bio?.trim() ?? current.profile.bio,
+      avatarUrl: input.avatarUrl ?? current.profile.avatarUrl,
+      location: input.location?.trim() ?? current.profile.location,
+      socialLinks: input.socialLinks ?? current.profile.socialLinks,
+      privacy: input.privacy ?? current.profile.privacy,
+      verificationRequested: input.verificationRequested ?? current.profile.verificationRequested,
     },
   });
 

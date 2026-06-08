@@ -23,7 +23,7 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-11 px-4 sm:h-11 sm:px-5 has-[>svg]:px-3",
-        sm: "h-11 px-3.5 text-xs has-[>svg]:px-2.5",
+        sm: "min-h-11 px-3.5 text-xs has-[>svg]:px-2.5",
         lg: "h-14 md:h-16 rounded-[25px] px-6 sm:px-8 has-[>svg]:px-4 text-base",
         icon: "size-11",
       },
@@ -55,6 +55,7 @@ function Button({
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       disabled={isLoading || props.disabled}
+      aria-busy={isLoading || undefined}
       {...props}
     >
       {isLoading ? (

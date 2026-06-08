@@ -15,7 +15,7 @@ export default function ConnectWalletStep({
   onBack,
   onSkip,
 }: ConnectWalletStepProps) {
-  const { address, connect, isConnecting } = useWallet();
+  const { address, connect, loading } = useWallet();
 
   const handleConnect = async () => {
     try {
@@ -33,7 +33,7 @@ export default function ConnectWalletStep({
         </div>
         <h2 className="text-2xl font-bold mb-2">Connect Your Wallet</h2>
         <p className="text-muted-foreground">
-          You'll need a Stellar wallet to use AgroCylo. We recommend Freighter.
+          You&apos;ll need a Stellar wallet to use AgroCylo. We recommend Freighter.
         </p>
       </div>
 
@@ -43,7 +43,7 @@ export default function ConnectWalletStep({
             <h3 className="font-semibold mb-2">What is Freighter?</h3>
             <p className="text-sm text-muted-foreground mb-3">
               Freighter is a browser extension wallet for the Stellar network.
-              It's secure, easy to use, and free.
+               It&apos;s secure, easy to use, and free.
             </p>
             <a
               href="https://www.freighter.app/"
@@ -57,11 +57,11 @@ export default function ConnectWalletStep({
 
           <Button
             onClick={handleConnect}
-            disabled={isConnecting}
+            disabled={loading}
             className="w-full"
             size="lg"
           >
-            {isConnecting ? "Connecting..." : "Connect Freighter Wallet"}
+            {loading ? "Connecting..." : "Connect Freighter Wallet"}
           </Button>
         </div>
       ) : (
@@ -102,7 +102,7 @@ export default function ConnectWalletStep({
           <Button variant="ghost" onClick={onSkip}>
             Skip
           </Button>
-          <Button onClick={onNext} disabled={!address}>
+          <Button onClick={onNext} disabled={!address || loading}>
             Continue
           </Button>
         </div>
