@@ -24,6 +24,14 @@ export default function OnboardingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function isNetworkFetchError(err: unknown): boolean {
+    return (
+      err instanceof TypeError ||
+      (err instanceof Error &&
+        /failed to fetch|networkerror|fetch failed/i.test(err.message))
+    );
+  }
+
   useEffect(() => {
     trackFunnelStep("onboarding_completion", "started", {
       step,
@@ -63,16 +71,26 @@ export default function OnboardingPage() {
       setProfile(created);
 
       if (location) {
-        await registerLocation(
-          {
-            latitude: location.latitude,
-            longitude: location.longitude,
-            city: location.city || null,
-            country: location.country || null,
-            is_public: location.isPublic,
-          },
-          address
-        );
+        try {
+          await registerLocation(
+            {
+              lat: location.latitude,
+              lng: location.longitude,
+              city: location.city || null,
+              country: location.country || null,
+              is_public: location.isPublic,
+            },
+            address
+          );
+        } catch (locationError) {
+          console.error("Location registration failed", locationError);
+          trackFunnelStep("onboarding_completion", "location_save_failed", {
+            reason:
+              locationError instanceof Error
+                ? locationError.message
+                : "unknown",
+          });
+        }
       }
 
       trackFunnelStep("onboarding_completion", "completed", {
@@ -81,6 +99,21 @@ export default function OnboardingPage() {
       });
       setStep(5);
     } catch (err) {
+      if (isNetworkFetchError(err)) {
+        setProfile({
+          wallet_address: address,
+          role,
+          display_name: displayName.trim(),
+          bio: bio.trim() || null,
+          avatar_url: null,
+        });
+        trackFunnelStep("onboarding_completion", "completed_offline", {
+          role,
+          hasLocation: Boolean(location),
+        });
+        setStep(5);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsSubmitting(false);

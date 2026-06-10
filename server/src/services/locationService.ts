@@ -3,9 +3,40 @@ import { ApiError } from '../http/errors.js';
 import { z } from 'zod';
 
 const setLocationSchema = z.object({
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  city: z.string().trim().max(120).optional().nullable(),
+  country: z.string().trim().max(120).optional().nullable(),
   is_public: z.boolean().default(true),
+}).transform((value, ctx) => {
+  const lat = value.lat ?? value.latitude;
+  const lng = value.lng ?? value.longitude;
+
+  if (lat === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['lat'],
+      message: 'lat or latitude is required',
+    });
+  }
+
+  if (lng === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['lng'],
+      message: 'lng or longitude is required',
+    });
+  }
+
+  return {
+    lat: lat ?? 0,
+    lng: lng ?? 0,
+    city: value.city ?? null,
+    country: value.country ?? null,
+    is_public: value.is_public,
+  };
 });
 
 const proximitySchema = z.object({
@@ -37,7 +68,17 @@ export async function getFarmerLocations(query: unknown) {
     locations = locations.filter((l) => haversine(lat, lng, l.lat, l.lng) <= radius);
   }
   const total = locations.length;
-  return { data: locations.slice(skip, skip + limit), meta: { total, page, limit, pages: Math.ceil(total / limit) } };
+  const farmers = locations.slice(skip, skip + limit).map((location) => ({
+    wallet_address: location.wallet_address,
+    display_name: location.profile?.name ?? 'Farmer',
+    bio: location.profile?.bio ?? null,
+    avatar_url: location.profile?.avatar_url ?? null,
+    latitude: location.lat,
+    longitude: location.lng,
+    city: location.city ?? null,
+    country: location.country ?? null,
+  }));
+  return { data: farmers, farmers, meta: { total, page, limit, pages: Math.ceil(total / limit) } };
 }
 
 export async function setLocation(walletAddress: string, body: unknown) {
