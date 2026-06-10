@@ -235,6 +235,8 @@ model Location {
   wallet_address String   @id
   lat            Float    @map("latitude")
   lng            Float    @map("longitude")
+  city           String?
+  country        String?
   is_public      Boolean  @default(true)
   profile        Profile? @relation(fields: [wallet_address], references: [wallet_address])
 

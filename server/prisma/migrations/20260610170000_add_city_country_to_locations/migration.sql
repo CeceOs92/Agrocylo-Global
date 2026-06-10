@@ -1,0 +1,2 @@
+ALTER TABLE "locations" ADD COLUMN IF NOT EXISTS "city" TEXT;
+ALTER TABLE "locations" ADD COLUMN IF NOT EXISTS "country" TEXT;

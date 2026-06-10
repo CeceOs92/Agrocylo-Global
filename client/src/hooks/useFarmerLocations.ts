@@ -15,6 +15,11 @@ export interface FarmerLocation {
   distance_km?: number;
 }
 
+interface FarmerLocationResponse {
+  data?: FarmerLocation[];
+  farmers?: FarmerLocation[];
+}
+
 interface UseFarmerLocationsOptions {
   latitude?: number | null;
   longitude?: number | null;
@@ -43,8 +48,8 @@ export function useFarmerLocations(opts: UseFarmerLocationsOptions = {}) {
       const url = `${API_BASE}/locations/farmers${qs ? `?${qs}` : ""}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Failed to fetch farmers: ${res.status}`);
-      const data = await res.json();
-      setFarmers(data.farmers ?? []);
+      const data = (await res.json()) as FarmerLocationResponse;
+      setFarmers(data.farmers ?? data.data ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setFarmers([]);
