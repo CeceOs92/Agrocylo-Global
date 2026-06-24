@@ -22,3 +22,10 @@ export async function createOrder(data: {
   // retries: 0 prevents double-submission on a non-idempotent POST
   return api.post<Order>(`/orders`, sanitized, { retries: 0 });
 }
+
+export async function updateOrderWithTxHash(orderId: string, txHash: string): Promise<Order> {
+  const sanitized = {
+    txHash: txHash.replace(/[^a-zA-Z0-9]/g, ""),
+  };
+  return api.put<Order>(`/orders/${orderId}`, sanitized);
+}
