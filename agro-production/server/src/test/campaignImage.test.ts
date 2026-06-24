@@ -20,19 +20,27 @@ const mockStorageFrom = {
   getPublicUrl: vi.fn(() => ({ data: { publicUrl: 'https://supabase.co/storage/v1/object/public/campaign-images/farmer/campaign/thumbnail_800x800.webp' } })),
 };
 
-vi.mock('../config/supabase.js', () => ({
-  getSupabaseAdmin: vi.fn(() => ({
-    storage: {
-      from: vi.fn(() => mockStorageFrom),
-    },
-  })),
-}));
+vi.mock('../config/supabase.js', () => {
+  let cached: ReturnType<ReturnType<typeof vi.fn>> | null = null;
+  return {
+    getSupabaseAdmin: vi.fn(() => {
+      if (!cached) {
+        cached = {
+          storage: {
+            from: vi.fn(() => mockStorageFrom),
+          },
+        };
+      }
+      return cached;
+    }),
+  };
+});
 
 vi.mock('../config/database.js', () => ({
   query: vi.fn(),
 }));
 
-import app from '../index.js';
+import app from '../app.js';
 import { query } from '../config/database.js';
 import { getSupabaseAdmin } from '../config/supabase.js';
 import sharp from 'sharp';
@@ -47,6 +55,13 @@ function fakeImageBuffer(): Buffer {
 describe('Campaign Image Upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (sharp as unknown as ReturnType<typeof vi.fn>)().metadata.mockResolvedValue({ width: 800, height: 600 });
+    (sharp as unknown as ReturnType<typeof vi.fn>)().toBuffer.mockResolvedValue(Buffer.from('fake-thumbnail'));
+    mockStorageFrom.upload.mockResolvedValue({ error: null });
+    mockStorageFrom.list.mockResolvedValue({ data: [], error: null });
+    mockStorageFrom.remove.mockResolvedValue({ error: null });
+    mockStorageFrom.getPublicUrl.mockReturnValue({ data: { publicUrl: 'https://supabase.co/storage/v1/object/public/campaign-images/farmer/campaign/thumbnail_800x800.webp' } });
+    (getSupabaseAdmin().storage.from as ReturnType<typeof vi.fn>).mockReturnValue(mockStorageFrom);
   });
 
   describe('POST /campaigns/:campaign_id/image', () => {

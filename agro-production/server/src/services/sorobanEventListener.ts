@@ -149,7 +149,7 @@ async function pollContract(
  * missed during runtime. A production deployment should persist it to the DB
  * so the listener can resume after a restart without gaps.
  */
-export async function startSorobanEventListener(): Promise<void> {
+export async function startSorobanEventListener(): Promise<ReturnType<typeof setInterval> | null> {
   const contracts = buildContracts();
 
   if (contracts.length === 0) {
@@ -157,7 +157,7 @@ export async function startSorobanEventListener(): Promise<void> {
       'No contract IDs configured (ESCROW_CONTRACT_ID / PRODUCTION_ESCROW_CONTRACT_ID). ' +
       'Event listener will not start.',
     );
-    return;
+    return null;
   }
 
   logger.info(
@@ -171,11 +171,13 @@ export async function startSorobanEventListener(): Promise<void> {
     contracts.map((c) => [c.id, latestLedger.sequence]),
   );
 
-  setInterval(async () => {
+  const interval = setInterval(async () => {
     for (const contract of contracts) {
       const lastLedger = watermarks.get(contract.id) ?? latestLedger.sequence;
       const newWatermark = await pollContract(contract, lastLedger);
       watermarks.set(contract.id, newWatermark);
     }
   }, 5_000);
+
+  return interval;
 }

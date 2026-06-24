@@ -20,6 +20,7 @@ export function generateOpenApiDocument() {
       { name: "Campaigns" },
       { name: "Investments" },
       { name: "Orders" },
+      { name: "Transactions" },
       { name: "Campaign Images" },
     ],
   });
