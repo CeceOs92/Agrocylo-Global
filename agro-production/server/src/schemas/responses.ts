@@ -6,7 +6,6 @@ import {
   uuidParam,
 } from "./common.js";
 
-/** Accepts ISO strings or Date instances from Prisma. */
 const dateField = z.union([
   z.string().datetime(),
   z.date().transform((d) => d.toISOString()),
@@ -49,9 +48,16 @@ export const CampaignListResponseSchema = z.object({
   }),
 });
 
-export const CampaignDetailSchema = CampaignSchema.extend({
-  investments: z.array(z.lazy(() => InvestmentSchema)).optional(),
-  orders: z.array(z.lazy(() => OrderSchema)).optional(),
+export const CampaignRefSchema = CampaignSchema.pick({
+  id: true,
+  onChainId: true,
+  farmerAddress: true,
+  tokenAddress: true,
+  targetAmount: true,
+  totalRaised: true,
+  totalRevenue: true,
+  status: true,
+  deadline: true,
 });
 
 export const InvestmentSchema = z.object({
@@ -62,17 +68,13 @@ export const InvestmentSchema = z.object({
   ledger: z.number().int(),
   txHash: z.string().nullable().optional(),
   createdAt: dateField,
-  campaign: CampaignSchema.pick({
-    id: true,
-    onChainId: true,
-    farmerAddress: true,
-    tokenAddress: true,
-    targetAmount: true,
-    totalRaised: true,
-    totalRevenue: true,
-    status: true,
-    deadline: true,
-  }).optional(),
+  campaign: CampaignRefSchema.optional(),
+});
+
+export const OrderCampaignRefSchema = z.object({
+  farmerAddress: stellarAddress,
+  tokenAddress: stellarAddress,
+  onChainId: z.string(),
 });
 
 export const OrderSchema = z.object({
@@ -86,13 +88,12 @@ export const OrderSchema = z.object({
   txHash: z.string().nullable().optional(),
   createdAt: dateField,
   updatedAt: dateField,
-  campaign: z
-    .object({
-      farmerAddress: stellarAddress,
-      tokenAddress: stellarAddress,
-      onChainId: z.string(),
-    })
-    .optional(),
+  campaign: OrderCampaignRefSchema.optional(),
+});
+
+export const CampaignDetailSchema = CampaignSchema.extend({
+  investments: z.array(InvestmentSchema).optional(),
+  orders: z.array(OrderSchema).optional(),
 });
 
 export const ValidationErrorSchema = z.object({

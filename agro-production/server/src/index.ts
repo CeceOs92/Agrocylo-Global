@@ -6,24 +6,32 @@ import { connectDB } from './db/client.js';
 import { startSorobanEventListener } from './services/sorobanEventListener.js';
 import { startProductionWatcher } from './events/watcher.js';
 import { attachWebSocketServer } from './services/wsServer.js';
+import { registerHttpServer, registerWatcher, shutdown } from './services/lifecycle.js';
 
 async function bootstrap() {
   try {
     await connectDB();
 
-    // Multi-contract listener — watches both EscrowContract and ProductionEscrowContract
-    await startSorobanEventListener();
+    let sorobanInterval: ReturnType<typeof setInterval> | null = null;
+    if (config.escrowContractId || config.productionEscrowContractId) {
+      sorobanInterval = await startSorobanEventListener();
+      if (sorobanInterval) {
+        registerWatcher(sorobanInterval);
+      }
+    }
 
-    // Single-contract watcher (Prisma-backed, resumes from last persisted ledger)
+    let watcherInterval: ReturnType<typeof setInterval> | null = null;
     if (config.contractId && config.contractId !== 'C...') {
-      startProductionWatcher().catch((err) =>
-        logger.error('Production watcher failed to start', err),
-      );
+      watcherInterval = await startProductionWatcher();
+      if (watcherInterval) {
+        registerWatcher(watcherInterval);
+      }
     } else {
       logger.warn('PRODUCTION_CONTRACT_ID not set — single-contract watcher disabled');
     }
 
     const server = http.createServer(app);
+    registerHttpServer(server);
     attachWebSocketServer(server);
 
     server.listen(config.port, () => {
@@ -36,5 +44,13 @@ async function bootstrap() {
     process.exit(1);
   }
 }
+
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM').then(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  shutdown('SIGINT').then(() => process.exit(0));
+});
 
 bootstrap();
