@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useCallback } from "react";
 
-const WS_URL =
-  process.env.NEXT_PUBLIC_WS_URL ??
-  (typeof window !== "undefined"
-    ? `ws://${window.location.hostname}:3001/ws`
-    : "ws://localhost:3001/ws");
+function getWebSocketUrl(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window === "undefined") return "ws://localhost:5001/ws";
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${scheme}://${window.location.hostname}:5001/ws`;
+}
 
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
@@ -26,6 +27,7 @@ export function useWebSocket(onMessage: Handler) {
   const attemptRef = useRef(0);
   const messageQueueRef = useRef<string[]>([]);
   const unmountedRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   handlerRef.current = onMessage;
 
@@ -41,7 +43,7 @@ export function useWebSocket(onMessage: Handler) {
   const connect = useCallback(() => {
     if (typeof window === "undefined" || unmountedRef.current) return;
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getWebSocketUrl());
     socketRef.current = ws;
 
     ws.onopen = () => {
@@ -63,7 +65,7 @@ export function useWebSocket(onMessage: Handler) {
       const attempt = attemptRef.current;
       const delay = Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_MAX_MS);
       attemptRef.current = attempt + 1;
-      setTimeout(connect, delay);
+      reconnectTimerRef.current = setTimeout(connect, delay);
     };
 
     ws.onerror = () => {
@@ -88,6 +90,7 @@ export function useWebSocket(onMessage: Handler) {
     connect();
     return () => {
       unmountedRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       socketRef.current?.close();
     };
   }, [connect]);

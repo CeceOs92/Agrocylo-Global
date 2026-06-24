@@ -2,6 +2,8 @@
 name = "production_escrow"
 version = "0.1.0"
 edition = "2021"
+description = "Canonical Soroban production escrow contract for Agrocylo"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

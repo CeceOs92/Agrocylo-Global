@@ -40,6 +40,7 @@ export class ProductionEventParser {
       eventIndex: parseEventIndex(raw.id),
       timestamp: new Date(raw.ledgerClosedAt),
       rawId: raw.id,
+      txHash: raw.txHash,
     };
 
     switch (action) {

@@ -100,6 +100,7 @@ async function handleCampaignCreated(event: CampaignCreatedEvent) {
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -173,6 +174,7 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
         investorAddress: event.investor,
         amount: event.amount,
         ledger: event.ledger,
+        txHash: event.txHash,
       },
       update: {},
     });
@@ -182,6 +184,7 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
       investorAddress: event.investor,
       amount: event.amount,
       totalRaised: event.totalRaised,
+      txHash: event.txHash,
     });
 
     await tx.transaction.create({
@@ -191,6 +194,7 @@ async function handleCampaignInvested(event: CampaignInvestedEvent) {
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -231,6 +235,7 @@ async function handleCampaignSettled(event: CampaignSettledEvent) {
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -261,8 +266,19 @@ async function handleOrderCreated(event: OrderCreatedEvent) {
         amount: event.amount,
         status: "PENDING",
         ledger: event.ledger,
+        txHash: event.txHash,
       },
       update: {},
+    });
+
+    broadcast("order.created", {
+      orderId: event.orderId,
+      campaignId: campaign.id,
+      buyerAddress: event.buyer,
+      farmerAddress: campaign.farmerAddress,
+      amount: event.amount,
+      status: "PENDING",
+      txHash: event.txHash,
     });
 
     await tx.transaction.create({
@@ -272,6 +288,7 @@ async function handleOrderCreated(event: OrderCreatedEvent) {
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -291,23 +308,13 @@ async function handleOrderConfirmed(event: OrderConfirmedEvent) {
       return;
     }
 
-    const updatedOrder = await tx.order.update({
+    await tx.order.update({
       where: { onChainId: event.orderId },
       data: { status: "CONFIRMED" },
     });
 
-    // Add revenue to the campaign.
-    await tx.campaign.update({
-      where: { id: order.campaignId },
-      data: {
-        totalRevenue: {
-          // Prisma doesn't support string arithmetic; we use raw increment via a
-          // separate query or handle in application logic. For safety, fetch
-          // and update.
-        },
-      },
-    });
-
+    // Prisma cannot add string-backed i128 values; calculate with BigInt and
+    // write the exact decimal string once the authoritative event is indexed.
     const campaign = await tx.campaign.findUnique({ where: { id: order.campaignId } });
     if (campaign) {
       const prev = BigInt(campaign.totalRevenue);
@@ -318,6 +325,14 @@ async function handleOrderConfirmed(event: OrderConfirmedEvent) {
       });
     }
 
+    broadcast("order.confirmed", {
+      orderId: event.orderId,
+      campaignId: order.campaignId,
+      buyerAddress: event.buyer,
+      status: "CONFIRMED",
+      txHash: event.txHash,
+    });
+
     await tx.transaction.create({
       data: {
         campaignId: order.campaignId,
@@ -325,6 +340,7 @@ async function handleOrderConfirmed(event: OrderConfirmedEvent) {
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -354,6 +370,7 @@ async function updateCampaignStatus(
         payload: toEventPayload(event),
         ledger: event.ledger,
         eventIndex: event.eventIndex,
+        txHash: event.txHash,
       },
     });
   });
@@ -367,6 +384,7 @@ async function recordTransaction(event: ParsedEvent, campaignId: string | null) 
       payload: toEventPayload(event),
       ledger: event.ledger,
       eventIndex: event.eventIndex,
+      txHash: event.txHash,
     },
   });
 }

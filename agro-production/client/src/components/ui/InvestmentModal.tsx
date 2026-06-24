@@ -1,20 +1,32 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useInvest } from '@/hooks/useInvest';
-import { validateAmount } from '@/lib/validation';
-import { ButtonSpinner } from '@/components/Skeletons';
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useInvest } from "@/hooks/useInvest";
+import { parseXlmToStroops } from "@/lib/validation";
+import { ButtonSpinner } from "@/components/Skeletons";
 
 interface InvestmentModalProps {
   open: boolean;
   onClose: () => void;
-  productId: string;
+  campaignId: string;
+  onChainCampaignId: string;
+  investorAddress: string;
+  onIndexed: () => void;
 }
 
-export default function InvestmentModal({ open, onClose, productId }: InvestmentModalProps) {
-  const [amount, setAmount] = useState('');
+export default function InvestmentModal({
+  open,
+  onClose,
+  campaignId,
+  onChainCampaignId,
+  investorAddress,
+  onIndexed,
+}: InvestmentModalProps) {
+  const [amount, setAmount] = useState("");
   const [amountError, setAmountError] = useState<string | null>(null);
-  const { invest, loading, error, success } = useInvest();
+  const { invest, retryIndexing, loading, error, success, phase, txHash } = useInvest();
   const modalRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const amountResult = parseXlmToStroops(amount);
+  const awaitingIndex = phase === "awaiting_index";
 
   function handleAmountChange(raw: string) {
     setAmount(raw);
@@ -22,34 +34,38 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
       setAmountError(null);
       return;
     }
-    const result = validateAmount(raw, 0);
+    const result = parseXlmToStroops(raw);
     setAmountError(result.valid ? null : result.error);
   }
 
-  const isFormValid = !!amount && !amountError && validateAmount(amount, 0).valid;
+  const isFormValid = amountResult.valid && !amountError;
 
   const handleInvest = async () => {
-    const result = validateAmount(amount, 0);
+    const result = parseXlmToStroops(amount);
     if (!result.valid) {
       setAmountError(result.error);
       return;
     }
     setAmountError(null);
-    const value = Number(result.sanitized);
-    if (!value || value <= 0) return;
-    await invest(productId, value);
+    await invest({
+      campaignId,
+      onChainCampaignId,
+      investorAddress,
+      amount: result.stroops,
+    });
   };
 
   useEffect(() => {
     if (success) {
+      onIndexed();
       const timer = setTimeout(() => {
         onClose();
-        setAmount('');
+        setAmount("");
         setAmountError(null);
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [success, onClose]);
+  }, [success, onClose, onIndexed]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape" && !loading) {
@@ -94,12 +110,12 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
       className="fixed inset-0 flex items-center justify-center bg-black/30 backdrop-blur-sm z-50"
       role="dialog"
       aria-modal="true"
-      aria-label="Invest in product"
+      aria-label="Invest in campaign"
       onClick={(e) => { if (e.target === e.currentTarget && !loading) onClose(); }}
     >
       <div ref={modalRef} className="bg-background text-foreground p-6 rounded-lg shadow-xl max-w-sm w-full">
         <h2 className="text-xl font-semibold mb-4 text-primary-600">
-          Invest in product
+          Invest in campaign
         </h2>
         <div>
           <label htmlFor="invest-amount" className="block text-sm font-medium text-foreground mb-1">
@@ -107,8 +123,10 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
           </label>
           <input
             id="invest-amount"
-            type="number"
-            min="1"
+            type="text"
+            inputMode="decimal"
+            min="0.0000001"
+            step="0.0000001"
             placeholder="Amount"
             value={amount}
             onChange={e => handleAmountChange(e.target.value)}
@@ -122,18 +140,31 @@ export default function InvestmentModal({ open, onClose, productId }: Investment
         </div>
         <button
           onClick={handleInvest}
-          disabled={loading || !isFormValid}
-          aria-label={loading ? "Processing investment" : !isFormValid ? "Enter a valid amount to invest" : "Invest"}
+          disabled={loading || awaitingIndex || !isFormValid}
+          aria-label={loading ? "Processing investment" : !isFormValid ? "Enter a valid amount to invest" : "Invest in campaign"}
           className="w-full py-2 bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
         >
           {loading && <ButtonSpinner />}
-          {loading ? 'Investing…' : 'Invest'}
+          {loading ? `${phase.replace("_", " ")}…` : "Invest"}
         </button>
         {error && (
           <p className="mt-2 text-sm text-error" role="alert">{error}</p>
         )}
         {success && (
-          <p className="mt-2 text-sm text-success" role="status">Investment successful!</p>
+          <p className="mt-2 text-sm text-success" role="status">Investment confirmed and indexed.</p>
+        )}
+        {awaitingIndex && (
+          <div className="mt-3 rounded border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800" role="status">
+            <p>Your investment is confirmed on-chain and is waiting for the indexer.</p>
+            {txHash && <p className="mt-1 break-all font-mono text-xs">Transaction: {txHash}</p>}
+            <button
+              onClick={() => void retryIndexing()}
+              className="mt-2 text-sm font-medium underline"
+              aria-label="Refresh investment indexing status"
+            >
+              Refresh status
+            </button>
+          </div>
         )}
         <button
           ref={closeRef}
