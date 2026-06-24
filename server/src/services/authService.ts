@@ -82,10 +82,6 @@ export async function verifySignature(
   // Issue tokens
   const accessToken = jwt.sign({ walletAddress, role: 'USER' }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
   const refreshToken = crypto.randomBytes(40).toString('hex');
-  const accessToken = jwt.sign({ walletAddress }, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
-  const refreshToken = crypto.randomBytes(40).toString("hex");
   const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   await query(
@@ -116,13 +112,6 @@ export async function refreshAccessToken(
   const accessToken = jwt.sign({ walletAddress: row.walletAddress, role: 'USER' }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   });
-  const accessToken = jwt.sign(
-    { walletAddress: row.walletAddress },
-    JWT_SECRET,
-    {
-      expiresIn: JWT_EXPIRES_IN,
-    },
-  );
 
   return { accessToken };
 }
