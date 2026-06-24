@@ -56,14 +56,14 @@ async function reconcileGap(server: rpc.Server, lastLedger: number): Promise<num
   return lastLedger;
 }
 
-export async function startProductionWatcher(): Promise<void> {
+export async function startProductionWatcher(): Promise<ReturnType<typeof setInterval>> {
   const server = new rpc.Server(config.rpcUrl);
   logger.info("Production contract watcher started", { contractId: config.contractId });
 
   let lastLedger = await loadCheckpoint(server);
   lastLedger = await reconcileGap(server, lastLedger);
 
-  setInterval(async () => {
+  const interval = setInterval(async () => {
     try {
       const response = await server.getEvents({
         startLedger: lastLedger,
@@ -105,4 +105,6 @@ export async function startProductionWatcher(): Promise<void> {
       logger.error("Production watcher poll error", { error: err });
     }
   }, POLL_INTERVAL_MS);
+
+  return interval;
 }

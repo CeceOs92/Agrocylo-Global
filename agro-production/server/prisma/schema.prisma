@@ -88,20 +88,24 @@ model Order {
 }
 
 model Transaction {
-  id         String   @id @default(uuid())
-  campaignId String?
-  eventType  String   // campaign.created | campaign.invested | campaign.settled | order.created | order.confirmed
-  payload    Json
-  ledger     Int
-  eventIndex Int
-  txHash     String?
-  processedAt DateTime @default(now())
+  id            String            @id @default(uuid())
+  campaignId    String?
+  walletAddress String?
+  eventType     String
+  status        TransactionStatus @default(submitted)
+  payload       Json
+  ledger        Int
+  eventIndex    Int
+  txHash        String?
+  processedAt   DateTime          @default(now())
 
   campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@unique([ledger, eventIndex])
   @@index([campaignId])
   @@index([eventType])
+  @@index([walletAddress])
+  @@index([txHash])
   @@map("transactions")
 }
 
@@ -113,6 +117,14 @@ enum CampaignStatus {
   SETTLED
   FAILED
   DISPUTED
+}
+
+enum TransactionStatus {
+  awaiting_signature
+  submitted
+  confirmed
+  indexed
+  failed
 }
 
 enum OrderStatus {

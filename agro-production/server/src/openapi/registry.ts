@@ -14,7 +14,11 @@ import {
   CampaignImageParamSchema,
   CampaignImageUploadResponseSchema,
 } from "../schemas/campaignImage.js";
-import { HealthResponseSchema } from "../schemas/health.js";
+import {
+  HealthResponseSchema,
+  LivezResponseSchema,
+  ReadyzResponseSchema,
+} from "../schemas/health.js";
 import {
   ConfirmOrderSchema,
   CreateOrderSchema,
@@ -30,6 +34,11 @@ import {
   ProblemDetailSchema,
   ValidationErrorSchema,
 } from "../schemas/responses.js";
+import {
+  TransactionIntentCreateSchema,
+  TransactionRequestIdParamSchema,
+  TransactionStatusResponseSchema,
+} from "../schemas/transaction.js";
 
 extendZodWithOpenApi(z);
 
@@ -54,6 +63,36 @@ registry.registerPath({
     200: {
       description: "Service is running",
       content: { "application/json": { schema: HealthResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/livez",
+  tags: ["Health"],
+  summary: "Liveness probe",
+  responses: {
+    200: {
+      description: "Service is alive",
+      content: { "application/json": { schema: LivezResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/readyz",
+  tags: ["Health"],
+  summary: "Readiness probe",
+  responses: {
+    200: {
+      description: "Service is ready",
+      content: { "application/json": { schema: ReadyzResponseSchema } },
+    },
+    503: {
+      description: "Service is not ready",
+      content: { "application/json": { schema: ReadyzResponseSchema } },
     },
   },
 });
@@ -220,6 +259,68 @@ registry.registerPath({
     403: problemResponse,
     404: problemResponse,
     409: problemResponse,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/transactions",
+  tags: ["Transactions"],
+  summary: "Submit a transaction intent for tracking",
+  request: {
+    headers: z.object({
+      "x-wallet-address": z.string().openapi({ description: "Initiator Stellar wallet address" }),
+    }),
+    body: {
+      content: { "application/json": { schema: TransactionIntentCreateSchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Transaction intent submitted",
+      content: { "application/json": { schema: TransactionStatusResponseSchema } },
+    },
+    202: {
+      description: "Transaction intent accepted (async processing)",
+      content: { "application/json": { schema: TransactionStatusResponseSchema } },
+    },
+    400: validationResponse,
+    409: problemResponse,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/transactions",
+  tags: ["Transactions"],
+  summary: "List transactions for the authenticated wallet",
+  request: {
+    headers: z.object({
+      "x-wallet-address": z.string().openapi({ description: "Initiator Stellar wallet address" }),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Transaction list",
+      content: { "application/json": { schema: z.array(TransactionStatusResponseSchema) } },
+    },
+    400: validationResponse,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/transactions/{requestId}",
+  tags: ["Transactions"],
+  summary: "Get transaction status by request ID",
+  request: { params: TransactionRequestIdParamSchema },
+  responses: {
+    200: {
+      description: "Transaction status",
+      content: { "application/json": { schema: TransactionStatusResponseSchema } },
+    },
+    400: validationResponse,
+    404: problemResponse,
   },
 });
 
