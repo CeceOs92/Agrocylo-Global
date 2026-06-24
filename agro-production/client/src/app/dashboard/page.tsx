@@ -42,6 +42,10 @@ export default function DashboardPage() {
       <section aria-label="Quick links">
         <h2 className="text-lg font-semibold text-foreground mb-4">Quick Links</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Link href="/farmer-dashboard" className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block" aria-label="Open farmer dashboard">
+            <h3 className="font-semibold text-foreground mb-1">Farmer Dashboard</h3>
+            <p className="text-sm text-muted">Manage incoming campaign orders and confirmed revenue.</p>
+          </Link>
           <Link href="/orders" className="bg-surface border border-border rounded-xl p-5 hover:border-primary-400 transition-colors block" aria-label="View my orders">
             <h3 className="font-semibold text-foreground mb-1">My Orders</h3>
             <p className="text-sm text-muted">View your purchase history and order status.</p>

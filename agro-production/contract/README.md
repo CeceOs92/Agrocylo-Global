@@ -1,31 +1,24 @@
-# Agro Production Contracts
+# Agro-production contracts
 
-This workspace contains the Soroban contracts for the agro-production flow.
+The canonical production escrow contract is
+[`production_escrow`](./production_escrow). It is the only production escrow
+crate in the workspace and is the contract targeted by
+`NEXT_PUBLIC_PRODUCTION_CONTRACT_ID` and `PRODUCTION_ESCROW_CONTRACT_ID`.
 
-## Registry Contract
-
-The `registry` crate stores:
-
-- farmer registrations
-- campaign registrations
-- campaign indexing by farmer
-- authorized contract references for escrow and production flows
-
-Run tests with:
-
-```bash
-cargo test
-```
-# Agro Production Contract
-
-This Soroban smart contract manages agricultural campaign funding and investments.
-
-## Features
-- Create campaigns with target amounts and deadlines.
-- Invest in campaigns using supported tokens.
-- Track investor positions and calculate proportional shares.
-- Event emission for tracking on-chain activity.
+It manages campaign funding, investor positions, production lifecycle events,
+orders, settlement, refunds, and disputes. The `registry` crate stores farmer
+and campaign registration metadata.
 
 ## Commands
-- `cargo test`: Run unit tests.
-- `cargo build --target wasm32-unknown-unknown --release`: Build the contract.
+
+Run the canonical escrow unit suite from the repository root:
+
+```bash
+cargo test -p production_escrow
+```
+
+Build its deployable Wasm artifact:
+
+```bash
+cargo build -p production_escrow --target wasm32-unknown-unknown --release
+```

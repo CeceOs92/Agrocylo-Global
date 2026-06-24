@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCampaign, fundingProgress, formatAmount } from "@/services/campaignService";
 import { trackCampaignViewed } from "@/lib/analytics";
 import { classifyError, logErrorWithContext } from "@/lib/errorHandling";
 import { CampaignDetailSkeleton } from "@/components/Skeletons";
+import InvestmentModal from "@/components/ui/InvestmentModal";
+import { useWallet } from "@/context/WalletContext";
 import type { CampaignDetail } from "@/types";
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -23,26 +25,37 @@ export default function CampaignDetailPage() {
   const [campaign, setCampaign] = useState<CampaignDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [investmentOpen, setInvestmentOpen] = useState(false);
+  const { address, connected, connect, loading: walletLoading } = useWallet();
+
+  const loadCampaign = useCallback(async () => {
+    if (!id) return;
+    try {
+      const loadedCampaign = await fetchCampaign(id);
+      setCampaign(loadedCampaign);
+      setError(null);
+      trackCampaignViewed(id);
+    } catch (err: unknown) {
+      const classified = classifyError(err, "loadCampaign");
+      logErrorWithContext(err, {
+        feature: "campaign-detail",
+        action: "loadCampaign",
+        campaignId: id,
+        category: classified.category,
+      });
+      setError(classified.actionableMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => {
-    if (!id) return;
-    fetchCampaign(id)
-      .then((c) => {
-        setCampaign(c);
-        trackCampaignViewed(id);
-      })
-      .catch((err: unknown) => {
-        const classified = classifyError(err, "loadCampaign");
-        logErrorWithContext(err, {
-          feature: "campaign-detail",
-          action: "loadCampaign",
-          campaignId: id,
-          category: classified.category,
-        });
-        setError(classified.actionableMessage);
-      })
-      .finally(() => setLoading(false));
-  }, [id]);
+    void loadCampaign();
+  }, [loadCampaign]);
+
+  const refreshCampaign = useCallback(() => {
+    void loadCampaign();
+  }, [loadCampaign]);
 
   if (loading) return <CampaignDetailSkeleton />;
 
@@ -55,6 +68,7 @@ export default function CampaignDetailPage() {
   const isExpired = deadline < new Date();
   const daysLeft = Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86_400_000));
   const canOrder = campaign.status === "HARVESTED" || campaign.status === "IN_PRODUCTION";
+  const canInvest = campaign.status === "FUNDING" && !isExpired && campaign.onChainId !== "pending";
 
   return (
     <div className="space-y-6">
@@ -119,11 +133,46 @@ export default function CampaignDetailPage() {
           </div>
         </section>
       )}
+      {canInvest && (
+        <section className="border border-primary-200 bg-primary-50 rounded-xl p-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="font-semibold text-primary-800">Fund this campaign</p>
+            <p className="text-sm text-primary-700 mt-0.5">Invest with your connected wallet. Your contribution appears after on-chain confirmation and indexing.</p>
+          </div>
+          {!connected ? (
+            <button
+              onClick={connect}
+              disabled={walletLoading}
+              className="whitespace-nowrap bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+            >
+              {walletLoading ? "Connecting…" : "Connect Wallet"}
+            </button>
+          ) : (
+            <button
+              onClick={() => setInvestmentOpen(true)}
+              className="whitespace-nowrap bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700"
+              aria-label={`Invest in campaign ${campaign.id.slice(0, 8)}…`}
+            >
+              Invest
+            </button>
+          )}
+        </section>
+      )}
       {canOrder && (
         <div className="border border-primary-200 bg-primary-50 rounded-xl p-5 flex items-center justify-between gap-4">
           <div><p className="font-semibold text-primary-800">Ready to Order</p><p className="text-sm text-primary-700 mt-0.5">This campaign is accepting orders. Place a secure escrow order.</p></div>
           <Link href={`/checkout/${campaign.id}`} className="whitespace-nowrap bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700" aria-label={`Place order for campaign ${campaign.id.slice(0, 8)}…`}>Place Order</Link>
         </div>
+      )}
+      {address && (
+        <InvestmentModal
+          open={investmentOpen}
+          onClose={() => setInvestmentOpen(false)}
+          campaignId={campaign.id}
+          onChainCampaignId={campaign.onChainId}
+          investorAddress={address}
+          onIndexed={refreshCampaign}
+        />
       )}
     </div>
   );

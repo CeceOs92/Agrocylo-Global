@@ -9,6 +9,8 @@ export interface SignAndSubmitResult {
   error?: string;
 }
 
+export type TransactionSubmissionStage = "signing" | "submitting" | "confirming";
+
 const RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
@@ -25,10 +27,12 @@ async function resolveNetworkPassphrase(): Promise<string> {
 
 export async function signAndSubmitTransaction(
   transactionXdr: string,
+  onStage?: (stage: TransactionSubmissionStage) => void,
 ): Promise<SignAndSubmitResult> {
   try {
     const networkPassphrase = await resolveNetworkPassphrase();
 
+    onStage?.("signing");
     const signer = getFreighterSignerFromWindow();
     const signedXdr = signer
       ? await signer.signTransaction(transactionXdr, { networkPassphrase })
@@ -38,6 +42,7 @@ export async function signAndSubmitTransaction(
 
     const server = new rpc.Server(RPC_URL);
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    onStage?.("submitting");
     const sendResponse = await server.sendTransaction(tx);
 
     if (sendResponse.status === "ERROR") {
@@ -46,6 +51,7 @@ export async function signAndSubmitTransaction(
 
     const txHash = sendResponse.hash;
     const deadline = Date.now() + 30_000;
+    onStage?.("confirming");
     let result = await server.getTransaction(txHash);
 
     while (

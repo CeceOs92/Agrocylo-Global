@@ -18,6 +18,8 @@ export interface RawSorobanEvent {
   ledger: number;
   ledgerClosedAt: string;
   contractId: string;
+  /** Hash of the containing Soroban transaction, when supplied by RPC. */
+  txHash?: string;
   topic: string[];  // base64-encoded XDR ScVal[]
   value: string;    // base64-encoded XDR ScVal
 }
@@ -28,6 +30,8 @@ interface BaseEvent {
   eventIndex: number;
   timestamp: Date;
   rawId: string;
+  /** Preserved so API read models can be tied back to the confirmed ledger tx. */
+  txHash?: string;
 }
 
 export interface CampaignCreatedEvent extends BaseEvent {

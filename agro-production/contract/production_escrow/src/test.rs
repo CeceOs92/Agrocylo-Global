@@ -19,7 +19,6 @@ use crate::{
 
 struct TestEnv<'a> {
     env: Env,
-    contract_id: Address,
     client: ProductionEscrowContractClient<'a>,
     token_id: Address,
     admin: Address,
@@ -64,7 +63,6 @@ fn setup() -> TestEnv<'static> {
 
     TestEnv {
         env,
-        contract_id,
         client,
         token_id,
         admin,

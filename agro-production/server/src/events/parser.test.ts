@@ -28,6 +28,7 @@ function makeRaw(
     ledger,
     ledgerClosedAt: new Date("2024-01-01T00:00:00Z").toISOString(),
     contractId: "CTEST",
+    txHash: "a".repeat(64),
     topic: [encodeSymbol(namespace), encodeSymbol(verb)],
     value: encodeVal(dataTuple),
   };
@@ -59,6 +60,7 @@ describe("ProductionEventParser", () => {
         expect(event.investor).toBe("GINVESTOR");
         expect(event.amount).toBe("5000");
         expect(event.totalRaised).toBe("5000");
+        expect(event.txHash).toBe("a".repeat(64));
       }
     });
   });

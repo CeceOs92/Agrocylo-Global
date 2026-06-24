@@ -17,6 +17,7 @@ export default function NavBar() {
           <Link href="/marketplace" className="text-muted hover:text-foreground" aria-label="Browse marketplace">Marketplace</Link>
           <Link href="/campaigns" className="text-muted hover:text-foreground" aria-label="View campaigns">Campaigns</Link>
           <Link href="/orders" className="text-muted hover:text-foreground" aria-label="View orders">Orders</Link>
+          <Link href="/farmer-dashboard" className="text-muted hover:text-foreground" aria-label="Open farmer dashboard">Farmer</Link>
           <Link href="/dashboard" className="text-muted hover:text-foreground" aria-label="View dashboard">Dashboard</Link>
           <button
             onClick={toggleTheme}

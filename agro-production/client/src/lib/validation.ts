@@ -12,6 +12,64 @@ export type ValidationResult =
   | { valid: true; sanitized: string }
   | { valid: false; error: string };
 
+/** Stellar's native asset uses seven decimal places (one XLM = 10,000,000 stroops). */
+export const STROOPS_PER_XLM = 10_000_000n;
+
+/** Largest signed integer accepted by Soroban's `i128` token amount arguments. */
+export const MAX_I128 = (1n << 127n) - 1n;
+
+export type StroopAmountResult =
+  | { valid: true; sanitized: string; stroops: bigint }
+  | { valid: false; error: string };
+
+// Decimal-only input deliberately excludes scientific notation, signs, and
+// leading zeroes. JavaScript's Number/parseFloat accept all of these and can
+// silently round the value before it reaches an on-chain i128 argument.
+const XLM_DECIMAL_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,7})?$/;
+
+/**
+ * Convert an XLM decimal string to stroops without using floating-point math.
+ *
+ * Inputs are intentionally strict because this is used before an amount is
+ * signed. The returned `sanitized` value is the exact user-entered decimal
+ * representation and `stroops` is safe to pass to Soroban i128 parameters.
+ */
+export function parseXlmToStroops(input: string): StroopAmountResult {
+  if (!input || !input.trim()) {
+    return { valid: false, error: "Amount is required" };
+  }
+
+  if (input !== input.trim() || !XLM_DECIMAL_RE.test(input)) {
+    return {
+      valid: false,
+      error: "Enter a positive XLM amount with up to 7 decimal places",
+    };
+  }
+
+  const [wholePart, fractionalPart = ""] = input.split(".");
+  const stroops =
+    BigInt(wholePart) * STROOPS_PER_XLM +
+    BigInt(fractionalPart.padEnd(7, "0") || "0");
+
+  if (stroops <= 0n) {
+    return { valid: false, error: "Amount must be greater than 0" };
+  }
+
+  if (stroops > MAX_I128) {
+    return { valid: false, error: "Amount exceeds the supported token limit" };
+  }
+
+  return { valid: true, sanitized: input, stroops };
+}
+
+/** Validate an XLM input while preserving the legacy validation result shape. */
+export function validateXlmAmount(input: string): ValidationResult {
+  const parsed = parseXlmToStroops(input);
+  return parsed.valid
+    ? { valid: true, sanitized: parsed.sanitized }
+    : { valid: false, error: parsed.error };
+}
+
 export function sanitizeString(input: string): string {
   return input.replace(XSS_RE, "").trim();
 }
@@ -114,7 +172,7 @@ export function validateProductFilters(filters: {
 export function validateCheckoutInput(input: {
   amountXlm: string;
 }): ValidationResult {
-  return validateAmount(input.amountXlm, 0);
+  return validateXlmAmount(input.amountXlm);
 }
 
 export function validateCampaignTimestamps(deadline: string): ValidationResult {

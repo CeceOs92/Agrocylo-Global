@@ -8,7 +8,7 @@ import { fetchCampaign, formatAmount } from "@/services/campaignService";
 import { createOrder } from "@/services/orderService";
 import { buildCreateOrder } from "@/lib/contractService";
 import { signAndSubmitTransaction } from "@/lib/signTransaction";
-import { validateAmount, validateStellarAddress, sanitizeString } from "@/lib/validation";
+import { parseXlmToStroops, validateStellarAddress, sanitizeString } from "@/lib/validation";
 import { trackOrderPlaced } from "@/lib/analytics";
 import { classifyError, logErrorWithContext } from "@/lib/errorHandling";
 import { ButtonSpinner } from "@/components/Skeletons";
@@ -45,15 +45,16 @@ export default function CheckoutPage() {
       .finally(() => setCampaignLoading(false));
   }, [campaignId]);
 
-  const amountStroops = amountXlm ? BigInt(Math.floor(parseFloat(amountXlm) * 1e7)) : 0n;
+  const amountResult = parseXlmToStroops(amountXlm);
+  const amountStroops = amountResult.valid ? amountResult.stroops : 0n;
   const isIdle = tx.phase === "idle" || tx.phase === "failed";
   const isInFlight = tx.phase === "recording" || tx.phase === "signing" || tx.phase === "submitting" || tx.phase === "confirming";
-  const canSubmit = connected && campaign && amountXlm && parseFloat(amountXlm) > 0 && isIdle && !amountError;
+  const canSubmit = Boolean(connected && campaign && amountResult.valid && isIdle && !amountError);
 
   function handleAmountChange(value: string) {
     setAmountXlm(value);
     if (value) {
-      const result = validateAmount(value, 0);
+      const result = parseXlmToStroops(value);
       setAmountError(result.valid ? null : result.error);
     } else {
       setAmountError(null);
@@ -221,7 +222,7 @@ export default function CheckoutPage() {
             {amountError && (
               <p id="order-amount-error" className="text-xs text-error mt-1" role="alert">{amountError}</p>
             )}
-            {amountXlm && parseFloat(amountXlm) > 0 && !amountError && (
+            {amountResult.valid && !amountError && (
               <p className="text-xs text-muted mt-1">= {amountStroops.toLocaleString()} stroops</p>
             )}
           </div>
