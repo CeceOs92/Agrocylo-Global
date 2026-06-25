@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import Image from "next/image";
 import { Heart } from "lucide-react";
 import type { Product } from "@/types/product";
 import {
@@ -34,11 +35,16 @@ export function ProductCard({ product, favorited, onToggleFavorite, children }: 
     <Card className="flex h-full flex-col gap-0 overflow-hidden p-0 transition-shadow hover:shadow-md">
       <div className="bg-secondary relative aspect-video w-full overflow-hidden">
         {product.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={product.image_url}
             alt={product.name}
-            className="h-full w-full object-cover transition-transform hover:scale-105"
+            fill
+            className="object-cover transition-transform hover:scale-105"
+            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
           />
         ) : (
           <div className="grid h-full w-full place-content-center text-5xl">
