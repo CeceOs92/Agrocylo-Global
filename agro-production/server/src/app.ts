@@ -19,8 +19,13 @@ import { serveOpenApiDocument } from './openapi/document.js';
 import { getRateLimitMetrics } from './middleware/rateLimitMetrics.js';
 import { getEventMetrics } from './events/metrics.js';
 import { prisma } from './db/client.js';
+import { server as sorobanRpcServer } from './services/sorobanEventListener.js';
+import { getWsClientCount } from './services/wsServer.js';
 
 const app = express();
+
+// Simple lifetime counter for api_requests_total Prometheus metric.
+let _requestTotal = 0;
 
 const corsOptions: cors.CorsOptions = {
   origin:
@@ -37,6 +42,7 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(defaultLimiter);
+app.use((_req: Request, _res: Response, next: express.NextFunction) => { _requestTotal++; next(); });
 
 app.use((req: Request, _res: Response, next: express.NextFunction) => {
   if (isGracefullyShuttingDown() && req.method !== 'GET') {
@@ -72,6 +78,7 @@ app.get('/livez', async (_req: Request, res: Response) => {
 
 app.get('/readyz', async (_req: Request, res: Response) => {
   const checks: Record<string, { status: string; message?: string }> = {};
+  let lastLedger = 0;
 
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -80,17 +87,45 @@ app.get('/readyz', async (_req: Request, res: Response) => {
     checks.database = { status: 'DOWN', message: (err as Error).message };
   }
 
+  try {
+    const latest = await sorobanRpcServer.getLatestLedger();
+    lastLedger = latest.sequence;
+    checks.rpc = { status: 'UP' };
+  } catch (err) {
+    checks.rpc = { status: 'DOWN', message: (err as Error).message };
+  }
+
   const ready = Object.values(checks).every((c) => c.status === 'UP');
   const statusCode = ready ? 200 : 503;
 
   jsonValidated(res, ReadyzResponseSchema, statusCode, {
     status: ready ? 'ready' : 'not_ready',
     checks,
+    lastLedger,
     timestamp: new Date().toISOString(),
   });
 });
 
 app.get('/api/docs/openapi.json', serveOpenApiDocument);
+
+app.get('/metrics', requireMetricsAuth, (_req: Request, res: Response) => {
+  const em = getEventMetrics();
+  const lines = [
+    '# HELP events_processed_total Total events indexed from Soroban contracts',
+    '# TYPE events_processed_total counter',
+    `events_processed_total ${em.processed}`,
+    '# HELP last_indexed_ledger Last Soroban ledger sequence number indexed',
+    '# TYPE last_indexed_ledger gauge',
+    `last_indexed_ledger ${em.last_processed_ledger}`,
+    '# HELP ws_clients_connected Current number of connected WebSocket clients',
+    '# TYPE ws_clients_connected gauge',
+    `ws_clients_connected ${getWsClientCount()}`,
+    '# HELP api_requests_total Total HTTP requests received since server start',
+    '# TYPE api_requests_total counter',
+    `api_requests_total ${_requestTotal}`,
+  ];
+  res.set('Content-Type', 'text/plain; version=0.0.4').send(lines.join('\n') + '\n');
+});
 
 app.get('/metrics/rate-limits', requireMetricsAuth, (_req: Request, res: Response) => {
   res.status(200).json(getRateLimitMetrics());
