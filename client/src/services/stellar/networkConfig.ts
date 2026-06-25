@@ -77,6 +77,33 @@ export function requireContractId(): string {
 }
 
 /**
+ * Validates that the native token contract ID is configured.
+ * Throws a user-readable error naming the missing env var before any signing starts.
+ */
+export function requireNativeTokenContractId(): string {
+  const id = process.env.NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID ?? "";
+  if (!id) {
+    throw new Error(
+      "Native token contract ID is not configured. " +
+        "Set NEXT_PUBLIC_NATIVE_TOKEN_CONTRACT_ID in your environment. " +
+        "Native XLM token operations will be unavailable until this is set.",
+    );
+  }
+  return id;
+}
+
+/**
+ * One-stop helper: given a currency code, returns the corresponding token
+ * contract ID. Throws when the currency is unknown or not configured.
+ *
+ * Use this from cart checkout, escrow pages, and any contract service call
+ * so that token resolution is always consistent.
+ */
+export function getTokenContractId(currency: string): string {
+  return requireTokenContractId(currency);
+}
+
+/**
  * Checks whether the contract ID environment variable is configured,
  * without throwing. Useful for UI guards that want to show a fallback
  * message instead of crashing.
