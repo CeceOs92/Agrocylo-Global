@@ -11,6 +11,7 @@ export type WsEventName =
   | "campaign.created"
   | "campaign.invested"
   | "campaign.settled"
+  | "investment.indexed"
   | "order.created"
   | "order.confirmed"
   | "error";
@@ -116,6 +117,10 @@ export function attachWebSocketServer(server: Server): void {
 /** Broadcast an indexer event to currently connected clients. */
 export function broadcast(event: WsEventName, payload: unknown): void {
   activeServer?.broadcast(event, payload);
+}
+
+export function getWsClientCount(): number {
+  return activeServer?.clientCount ?? 0;
 }
 
 export function closeWebSocketServer(): Promise<void> {

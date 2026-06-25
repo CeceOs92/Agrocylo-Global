@@ -18,7 +18,15 @@ interface ParsedEvent {
   txHash: string;
 }
 
-const server = new rpc.Server(config.rpcUrl);
+/** Per-contract polling state including replay-safe cursor and backoff tracking. */
+interface ContractState {
+  ledger: number;
+  failureCount: number;
+  /** Epoch ms after which the next poll attempt is allowed; 0 = no backoff active. */
+  backoffUntil: number;
+}
+
+export const server = new rpc.Server(config.rpcUrl);
 
 // Topic base64 encoding for "order" and "campaign" symbols.
 const ORDER_TOPIC = 'AAAADwAAAAVvcmRlcg==';
@@ -140,6 +148,14 @@ async function handleEvent(parsed: ParsedEvent): Promise<void> {
   await persistEvent(parsed);
 }
 
+/**
+ * Poll a single contract for new events starting at `lastLedger`.
+ * Returns the new high-watermark ledger.
+ *
+ * Throws on RPC-level failures (e.g. network error, rate-limit) so the
+ * caller can apply exponential backoff. Per-event parse/persist errors are
+ * caught internally and do not abort the batch.
+ */
 async function pollContract(
   contract: ContractConfig,
   lastLedger: number,
@@ -147,34 +163,31 @@ async function pollContract(
   let highWatermark = lastLedger;
 
   for (const topicFilter of contract.topicFilters) {
-    try {
-      const response = await server.getEvents({
-        startLedger: lastLedger,
-        filters: [
-          {
-            type: 'contract',
-            contractIds: [contract.id],
-            topics: [topicFilter],
-          },
-        ],
-      });
+    // RPC errors propagate to the caller — do not catch here.
+    const response = await server.getEvents({
+      startLedger: lastLedger,
+      filters: [
+        {
+          type: 'contract',
+          contractIds: [contract.id],
+          topics: [topicFilter],
+        },
+      ],
+    });
 
-      for (const event of response.events) {
-        const parsed = parseEvent(event, contract.label);
-        if (parsed) {
-          try {
-            await handleEvent(parsed);
-          } catch {
-            // Do not advance watermark past failed events
-            continue;
-          }
-        }
-        if (event.ledger > highWatermark) {
-          highWatermark = event.ledger + 1;
+    for (const event of response.events) {
+      const parsed = parseEvent(event, contract.label);
+      if (parsed) {
+        try {
+          await handleEvent(parsed);
+        } catch {
+          // Do not advance watermark past a failed persist — retry next poll.
+          continue;
         }
       }
-    } catch (err) {
-      logger.error(`Poll error for ${contract.label} (filter: ${topicFilter}):`, err);
+      if (event.ledger > highWatermark) {
+        highWatermark = event.ledger + 1;
+      }
     }
   }
 
@@ -182,11 +195,22 @@ async function pollContract(
 }
 
 /**
+ * Compute the next backoff delay with jitter to avoid thundering-herd
+ * when multiple contracts fail simultaneously.
+ */
+function backoffDelayMs(failureCount: number): number {
+  const base = Math.min(1_000 * 2 ** failureCount, 60_000);
+  return base + Math.random() * 500;
+}
+
+/**
  * Start the Soroban event listener.
  *
  * Persists per-contract replay-safe cursors in the database within the same
  * transaction as the event record, ensuring no events are skipped on restart.
- * On failure, the cursor is not advanced so the next poll retries the batch.
+ * On RPC failure the affected contract backs off exponentially (up to ~60 s)
+ * while other contracts continue polling normally. Polling resumes
+ * automatically once the RPC endpoint recovers.
  */
 export async function startSorobanEventListener(): Promise<ReturnType<typeof setInterval> | null> {
   const contracts = buildContracts();
@@ -205,17 +229,43 @@ export async function startSorobanEventListener(): Promise<ReturnType<typeof set
   );
 
   // Load persisted cursors for each contract
-  const watermarks = new Map<string, number>();
+  const states = new Map<string, ContractState>();
   for (const contract of contracts) {
-    const cursor = await loadCursor(contract.id);
-    watermarks.set(contract.id, cursor);
+    const ledger = await loadCursor(contract.id);
+    states.set(contract.id, { ledger, failureCount: 0, backoffUntil: 0 });
   }
 
   const interval = setInterval(async () => {
     for (const contract of contracts) {
-      const lastLedger = watermarks.get(contract.id) ?? 0;
-      const newWatermark = await pollContract(contract, lastLedger);
-      watermarks.set(contract.id, newWatermark);
+      const state = states.get(contract.id)!;
+
+      // Skip if still in backoff window
+      if (state.backoffUntil > Date.now()) {
+        logger.debug(`Soroban listener: ${contract.label} is backing off, skipping poll`, {
+          backoffRemainingMs: state.backoffUntil - Date.now(),
+        });
+        continue;
+      }
+
+      try {
+        const newWatermark = await pollContract(contract, state.ledger);
+        // Successful poll: reset backoff
+        if (state.failureCount > 0) {
+          logger.info(`Soroban listener: ${contract.label} recovered after ${state.failureCount} failure(s)`);
+        }
+        state.ledger = newWatermark;
+        state.failureCount = 0;
+        state.backoffUntil = 0;
+      } catch (err) {
+        state.failureCount += 1;
+        const delay = backoffDelayMs(state.failureCount);
+        state.backoffUntil = Date.now() + delay;
+        logger.warn(
+          `Soroban listener: ${contract.label} poll failed (attempt ${state.failureCount}), ` +
+          `backing off for ${Math.round(delay)}ms`,
+          { error: err instanceof Error ? err.message : String(err) },
+        );
+      }
     }
   }, 5_000);
 
