@@ -37,7 +37,7 @@ import {
   createOrderWithOrderId,
   approveToken,
 } from "@/services/stellar/contractService";
-import { getNetworkConfig } from "@/services/stellar/networkConfig";
+import { getNetworkConfig, requireTokenContractId } from "@/services/stellar/networkConfig";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { cn } from "@/lib/utils";
 
@@ -52,17 +52,6 @@ const BPS_DENOM = BigInt(10_000);
 
 function feeFromGross(gross: bigint) {
   return (gross * PLATFORM_FEE_BPS) / BPS_DENOM;
-}
-
-function currencyToTokenContract(currency: string) {
-  switch (currency) {
-    case "STRK":
-      return process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ID_STRK ?? "";
-    case "USDC":
-      return process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ID_USDC ?? "";
-    default:
-      return "";
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,8 +133,10 @@ export default function CartDrawer() {
 
         setProgressMessage(`Creating order ${idxLabel}…`);
 
-        const tokenContractId = currencyToTokenContract(group.currency);
-        if (!tokenContractId) {
+        let tokenContractId: string;
+        try {
+          tokenContractId = requireTokenContractId(group.currency);
+        } catch {
           const error = `Missing token contract for ${group.currency}.`;
           setFailedOrders((prev) => [...prev, { farmerWallet, error }]);
           setGroupProgress((prev) => ({ ...prev, [farmerWallet]: "error" }));

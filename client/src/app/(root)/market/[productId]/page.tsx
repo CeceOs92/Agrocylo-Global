@@ -184,39 +184,47 @@ export default function ProductDetailPage() {
 
           {connected ? (
             currentQty > 0 ? (
-              <div className="flex items-center justify-between gap-3">
-                <div className="bg-secondary flex items-center gap-2 rounded-full p-1">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-11 rounded-full"
-                    onClick={() => {
-                      trackFunnelStep("purchase", "quantity_decremented", {
-                        productId: product.id,
-                      });
-                      setQuantityForProduct(product.id, currentQty - 1);
-                    }}
-                  >
-                    −
-                  </Button>
-                  <span className="min-w-8 text-center font-medium">
-                    {currentQty}
-                  </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-11 rounded-full"
-                    onClick={() => {
-                      trackFunnelStep("purchase", "quantity_incremented", {
-                        productId: product.id,
-                      });
-                      setQuantityForProduct(product.id, currentQty + 1);
-                    }}
-                  >
-                    +
-                  </Button>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="bg-secondary flex items-center gap-2 rounded-full p-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-11 rounded-full"
+                      onClick={() => {
+                        trackFunnelStep("purchase", "quantity_decremented", {
+                          productId: product.id,
+                        });
+                        setQuantityForProduct(product.id, currentQty - 1);
+                      }}
+                    >
+                      −
+                    </Button>
+                    <span className="min-w-8 text-center font-medium">
+                      {currentQty}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-11 rounded-full"
+                      onClick={() => {
+                        trackFunnelStep("purchase", "quantity_incremented", {
+                          productId: product.id,
+                        });
+                        setQuantityForProduct(product.id, currentQty + 1);
+                      }}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-sm">In your cart</p>
                 </div>
-                <p className="text-muted-foreground text-sm">In your cart</p>
+                <p className="text-right text-lg font-semibold">
+                  Total: {(
+                    Number(product.price_per_unit) * currentQty
+                  ).toFixed(2)}{" "}
+                  {product.currency}
+                </p>
               </div>
             ) : (
               <Button
