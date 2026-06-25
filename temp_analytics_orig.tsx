@@ -16,28 +16,7 @@ import {
   Users,
 } from "lucide-react";
 
-import dynamic from "next/dynamic";
-import { Skeleton } from "@/components/ui/skeleton";
-
-const CategoryPieChart = dynamic(
-  () => import("@/components/shared/charts").then((m) => ({ default: m.CategoryPieChart })),
-  { ssr: false, loading: () => <Skeleton className="h-80 w-full" /> }
-);
-
-const EarningsLineChart = dynamic(
-  () => import("@/components/shared/charts").then((m) => ({ default: m.EarningsLineChart })),
-  { ssr: false, loading: () => <Skeleton className="h-80 w-full" /> }
-);
-
-const OrdersBarChart = dynamic(
-  () => import("@/components/shared/charts").then((m) => ({ default: m.OrdersBarChart })),
-  { ssr: false, loading: () => <Skeleton className="h-80 w-full" /> }
-);
-
-const UsersGrowthChart = dynamic(
-  () => import("@/components/shared/charts").then((m) => ({ default: m.UsersGrowthChart })),
-  { ssr: false, loading: () => <Skeleton className="h-80 w-full" /> }
-);
+import { CategoryPieChart, EarningsLineChart, OrdersBarChart, UsersGrowthChart } from "@/components/shared/charts";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { Badge } from "@/components/ui/badge";
