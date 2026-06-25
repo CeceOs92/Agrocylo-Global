@@ -44,6 +44,7 @@ model Campaign {
   orders       Order[]
   transactions Transaction[]
   disputes     Dispute[]
+  products     Product[]
 
   @@index([farmerAddress])
   @@index([status])
@@ -109,6 +110,27 @@ model Transaction {
   @@index([walletAddress])
   @@index([txHash])
   @@map("transactions")
+}
+
+model Product {
+  id              String    @id @default(uuid())
+  name            String
+  description     String
+  imageUrl        String?
+  priceTokens     BigInt    // i64: price in the contract token's smallest unit
+  campaignId      String?
+  inventoryCount  Int
+  category        String    // GRAINS, VEGETABLES, FRUITS, LIVESTOCK, DAIRY, OTHER
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([category])
+  @@index([isActive])
+  @@map("products")
 }
 
 enum CampaignStatus {
