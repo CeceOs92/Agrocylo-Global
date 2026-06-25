@@ -9,6 +9,7 @@ import {
   incrementRequestCount,
   incrementErrorCount,
 } from "./services/metricsService.js";
+import { ApiError, sendProblem } from "./http/errors.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import productImageRoutes, {
@@ -112,10 +113,14 @@ app.use(locationErrorHandler);
 app.use(orderErrorHandler);
 app.use(notificationErrorHandler);
 app.use(adminErrorHandler);
-app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
+app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
   incrementErrorCount();
-  logger.error("Request failed", err);
-  res.status(500).json({ message: "Internal server error" });
+  if (err instanceof ApiError) {
+    sendProblem(res, req, err);
+    return;
+  }
+  logger.error("Unhandled request error", err);
+  sendProblem(res, req, new ApiError(500, "Internal Server Error", "An unexpected error occurred"));
 });
 
 export default app;
