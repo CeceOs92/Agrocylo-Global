@@ -6,6 +6,7 @@ import { defaultLimiter } from './middleware/rateLimit.js';
 import { jsonValidated } from './middleware/validate.js';
 import { requireMetricsAuth } from './middleware/metricsAuth.js';
 import { isGracefullyShuttingDown } from './services/lifecycle.js';
+import authRoutes from './routes/auth.js';
 import campaignImageRoutes, {
   campaignImageErrorHandler,
 } from './routes/campaignImageRoutes.js';
@@ -29,7 +30,7 @@ const corsOptions: cors.CorsOptions = {
         ? false
         : '*',
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-wallet-address', 'x-metrics-api-key', 'x-request-id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-wallet-address', 'x-metrics-api-key', 'x-request-id'],
   credentials: config.nodeEnv === 'production' && config.corsOrigins.length > 0,
 };
 
@@ -45,6 +46,7 @@ app.use((req: Request, _res: Response, next: express.NextFunction) => {
   next();
 });
 
+app.use(authRoutes);
 app.use(campaignImageRoutes);
 app.use('/api/v1', campaignRoutes);
 app.use('/api/v1', orderRoutes);
