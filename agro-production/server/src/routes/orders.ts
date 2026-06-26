@@ -10,8 +10,8 @@ import {
 } from "../middleware/validate.js";
 import { problemDetail } from "../middleware/errors.js";
 import { writeLimiter } from "../middleware/rateLimit.js";
+import { requireWallet, type WalletRequest } from "../middleware/walletAuth.js";
 import {
-  ConfirmOrderSchema,
   CreateOrderSchema,
   ListOrdersQuerySchema,
   OrderIdParamSchema,
@@ -57,14 +57,16 @@ router.get(
   },
 );
 
-// POST /orders
+// POST /orders — requires authenticated session; buyerAddress derived from session
 router.post(
   "/orders",
+  requireWallet,
   writeLimiter,
-  validateBody(CreateOrderSchema),
+  validateBody(CreateOrderSchema.omit({ buyerAddress: true })),
   validateResponse(OrderSchema),
-  async (req: Request, res: Response) => {
-    const { buyerAddress, campaignId, amount } = req.body;
+  async (req: WalletRequest, res: Response) => {
+    const buyerAddress = req.walletAddress!;
+    const { campaignId, amount } = req.body;
 
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) {
@@ -117,12 +119,12 @@ router.get(
   },
 );
 
-// PATCH /orders/:id/confirm
-router.patch(
-  "/orders/:id/confirm",
+// PUT /orders/:id — update txHash after on-chain confirmation
+router.put(
+  "/orders/:id",
   writeLimiter,
   validateParams(OrderIdParamSchema),
-  validateBody(ConfirmOrderSchema),
+  validateBody(z.object({ txHash: z.string() })),
   validateResponse(OrderSchema),
   async (req: Request, res: Response) => {
     const order = await prisma.order.findUnique({ where: { id: req.params.id } });
@@ -130,7 +132,33 @@ router.patch(
       problemDetail(res, req, 404, "Order Not Found", `No order with id ${req.params.id}`);
       return;
     }
-    if (order.buyerAddress !== req.body.buyerAddress) {
+
+    const updated = await prisma.order.update({
+      where: { id: order.id },
+      data: { txHash: req.body.txHash },
+    });
+
+    jsonValidated(res, OrderSchema, 200, updated);
+  },
+);
+
+// PATCH /orders/:id/confirm
+// PATCH /orders/:id/confirm — requires authenticated session; buyerAddress derived from session
+router.patch(
+  "/orders/:id/confirm",
+  requireWallet,
+  writeLimiter,
+  validateParams(OrderIdParamSchema),
+  validateResponse(OrderSchema),
+  async (req: WalletRequest, res: Response) => {
+    const walletAddress = req.walletAddress!;
+
+    const order = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!order) {
+      problemDetail(res, req, 404, "Order Not Found", `No order with id ${req.params.id}`);
+      return;
+    }
+    if (order.buyerAddress !== walletAddress) {
       problemDetail(res, req, 403, "Forbidden", "Not the buyer for this order");
       return;
     }
