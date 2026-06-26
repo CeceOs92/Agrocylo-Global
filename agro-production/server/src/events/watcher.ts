@@ -7,7 +7,7 @@ import { EventPersister } from "./persister.js";
 import { recordPersistError } from "./metrics.js";
 import type { RawSorobanEvent } from "./types.js";
 
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = parseInt(process.env["EVENT_POLL_INTERVAL_MS"] ?? "5000", 10);
 const MAX_BACKFILL_BATCH = 100;
 // base64 encoding of "campaign" and "order" short symbols
 const CAMPAIGN_TOPIC = "AAAADwAAAAhjYW1wYWlnbg==";
@@ -166,7 +166,9 @@ async function pollEvents(
 }
 
 export async function startProductionWatcher(): Promise<ReturnType<typeof setInterval>> {
-  const server = new rpc.Server(config.rpcUrl);
+  // Read at call time so integration tests can override via process.env before calling.
+  const rpcUrl = process.env["RPC_URL"] ?? config.rpcUrl;
+  const server = new rpc.Server(rpcUrl);
   logger.info("Production contract watcher started", { contractId: CONTRACT_ID });
 
   const cursor = await loadCursor(server);
@@ -212,7 +214,7 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
             );
           } catch (persistErr) {
             recordPersistError();
-            await recordDeadLetter(rawEvent, persistErr);
+            await recordDeadLetter(rawEvent as unknown as RawSorobanEvent, persistErr);
             // Do not advance cursor past a failed event — this ensures
             // no events are skipped and operators can replay after fixing
             // the issue.
