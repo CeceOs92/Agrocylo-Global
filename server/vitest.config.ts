@@ -7,5 +7,12 @@ export default defineConfig({
       SUPABASE_URL: "https://test.supabase.co",
       SUPABASE_ANON_KEY: "test-anon-key",
     },
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/index.ts", "src/worker.ts"],
+      thresholds: { lines: 40, functions: 35, branches: 25, statements: 38 },
+      reporter: ["text", "lcov"],
+    },
   },
 });

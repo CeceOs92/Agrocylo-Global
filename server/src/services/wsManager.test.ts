@@ -3,11 +3,11 @@ import http from "http";
 import WebSocket from "ws";
 import jwt from "jsonwebtoken";
 
+const JWT_SECRET = vi.hoisted(() => "test-secret-at-least-32-chars-long!!");
+
 vi.mock("../config/logger.js", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-
-const JWT_SECRET = "test-secret-at-least-32-chars-long!!";
 
 vi.mock("../config/index.js", () => ({
   config: { wsPath: "/ws", jwtSecret: JWT_SECRET },
