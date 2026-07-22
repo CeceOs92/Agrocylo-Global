@@ -5,7 +5,7 @@ import { config } from './config/index.js';
 import { defaultLimiter } from './middleware/rateLimit.js';
 import { jsonValidated } from './middleware/validate.js';
 import { requireMetricsAuth } from './middleware/metricsAuth.js';
-import { isGracefullyShuttingDown } from './services/lifecycle.js';
+import { isGracefullyShuttingDown, getShutdownPhase, getShutdownSignal } from './services/lifecycle.js';
 import authRoutes from './routes/auth.js';
 import campaignImageRoutes, {
   campaignImageErrorHandler,
@@ -46,9 +46,12 @@ app.use(defaultLimiter);
 app.use((_req: Request, _res: Response, next: express.NextFunction) => { _requestTotal++; next(); });
 
 app.use((req: Request, _res: Response, next: express.NextFunction) => {
-  if (isGracefullyShuttingDown() && req.method !== 'GET') {
-    _res.status(503).json({ message: 'Server is shutting down' });
-    return;
+  if (isGracefullyShuttingDown()) {
+    _res.setHeader('Connection', 'close');
+    if (req.method !== 'GET') {
+      _res.status(503).json({ message: 'Server is shutting down' });
+      return;
+    }
   }
   next();
 });
@@ -79,6 +82,16 @@ app.get('/livez', async (_req: Request, res: Response) => {
 });
 
 app.get('/readyz', async (_req: Request, res: Response) => {
+  if (isGracefullyShuttingDown()) {
+    jsonValidated(res, ReadyzResponseSchema, 503, {
+      status: 'not_ready',
+      checks: { shutdown: { status: 'DOWN', message: `Server shutting down: ${getShutdownPhase()}` } },
+      lastLedger: 0,
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
   const checks: Record<string, { status: string; message?: string }> = {};
   let lastLedger = 0;
 
@@ -86,7 +99,10 @@ app.get('/readyz', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     checks.database = { status: 'UP' };
   } catch (err) {
-    checks.database = { status: 'DOWN', message: (err as Error).message };
+    checks.database = {
+      status: 'DOWN',
+      message: err instanceof Error ? 'database unreachable' : 'database unreachable',
+    };
   }
 
   try {
@@ -94,7 +110,10 @@ app.get('/readyz', async (_req: Request, res: Response) => {
     lastLedger = latest.sequence;
     checks.rpc = { status: 'UP' };
   } catch (err) {
-    checks.rpc = { status: 'DOWN', message: (err as Error).message };
+    checks.rpc = {
+      status: 'DOWN',
+      message: err instanceof Error ? 'RPC endpoint unreachable' : 'RPC endpoint unreachable',
+    };
   }
 
   const ready = Object.values(checks).every((c) => c.status === 'UP');
