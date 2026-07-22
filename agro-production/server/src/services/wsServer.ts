@@ -18,6 +18,7 @@ export type WsEventType =
   | "dispute.evidence_submitted"
   | "dispute.resolved"
   | "dispute.dismissed"
+  | "transaction.status"
   | "error";
 
 export interface WsEventEnvelope<T = unknown> {
