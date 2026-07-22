@@ -38,6 +38,8 @@ import {
   TransactionIntentCreateSchema,
   TransactionRequestIdParamSchema,
   TransactionStatusResponseSchema,
+  TransactionStatusUpdateSchema,
+  TransactionReconciliationResponseSchema,
 } from "../schemas/transaction.js";
 
 extendZodWithOpenApi(z);
@@ -361,5 +363,42 @@ registry.registerPath({
     204: { description: "Image deleted" },
     400: validationResponse,
     401: problemResponse,
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/transactions/{requestId}/status",
+  tags: ["Transactions"],
+  summary: "Update transaction status",
+  request: {
+    params: TransactionRequestIdParamSchema,
+    body: { content: { "application/json": { schema: TransactionStatusUpdateSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Transaction status updated",
+      content: { "application/json": { schema: TransactionStatusResponseSchema } },
+    },
+    400: validationResponse,
+    403: problemResponse,
+    404: problemResponse,
+    409: problemResponse,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/transactions/{requestId}/reconcile",
+  tags: ["Transactions"],
+  summary: "Reconcile transaction against indexer data",
+  request: { params: TransactionRequestIdParamSchema },
+  responses: {
+    200: {
+      description: "Reconciliation result",
+      content: { "application/json": { schema: TransactionReconciliationResponseSchema } },
+    },
+    400: validationResponse,
+    404: problemResponse,
   },
 });

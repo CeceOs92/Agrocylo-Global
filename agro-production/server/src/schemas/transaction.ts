@@ -39,3 +39,24 @@ export const TransactionStatusResponseSchema = z.object({
 });
 
 export type TransactionStatusResponse = z.infer<typeof TransactionStatusResponseSchema>;
+
+export const TransactionStatusUpdateSchema = z.object({
+  status: z.enum(['submitted', 'confirmed', 'failed']),
+  message: z.string().max(256).optional(),
+});
+
+export type TransactionStatusUpdate = z.infer<typeof TransactionStatusUpdateSchema>;
+
+export const TransactionReconciliationResponseSchema = z.object({
+  requestId: uuidParam,
+  txHash: z.string(),
+  dbStatus: TransactionStatusEnum,
+  reconciledStatus: TransactionStatusEnum,
+  confirmedInLedger: z.boolean(),
+  indexedByWatcher: z.boolean(),
+  latestIndexedLedger: z.number().int().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type TransactionReconciliationResponse = z.infer<typeof TransactionReconciliationResponseSchema>;
