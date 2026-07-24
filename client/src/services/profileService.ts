@@ -11,8 +11,8 @@ export interface Profile {
 }
 
 export interface LocationData {
-  latitude: number;
-  longitude: number;
+  lat: number;
+  lng: number;
   city: string | null;
   country: string | null;
   is_public: boolean;
@@ -127,9 +127,11 @@ export interface ReviewDraft {
 }
 
 export interface ProfileUpdateInput {
-  displayName: string;
+  displayName?: string;
+  display_name?: string;
   bio?: string;
   avatarUrl?: string | null;
+  avatar_url?: string | null;
   location?: string;
   socialLinks?: SocialLink[];
   privacy?: UserProfileInfo["privacy"];
@@ -203,6 +205,18 @@ export async function createProfile(
     },
     body: JSON.stringify(data),
   });
+  if (res.status === 409) {
+    try {
+      return await updateProfile(walletAddress, {
+        displayName: data.display_name,
+        bio: data.bio,
+        avatarUrl: data.avatar_url ?? null,
+      });
+    } catch {
+      const existing = await getProfile(walletAddress);
+      if (existing) return existing;
+    }
+  }
   if (!res.ok) throw new Error(await parseErrorMessage(res));
   const body = (await res.json()) as Record<string, unknown>;
   return mapProfile(body);
@@ -214,17 +228,27 @@ export async function updateProfile(
 ): Promise<Profile> {
   if (isTestMode()) {
     const existing = await getProfile(walletAddress);
+    const displayName = data.displayName ?? data.display_name;
+    const avatarUrl = data.avatarUrl ?? data.avatar_url;
     return {
       wallet_address: walletAddress,
       role: existing?.role ?? "farmer",
-      display_name: data.displayName ?? existing?.display_name ?? "Test Farmer",
+      display_name: displayName ?? existing?.display_name ?? "Test Farmer",
       bio: data.bio !== undefined ? data.bio : existing?.bio ?? null,
       avatar_url:
-        data.avatarUrl !== undefined
-          ? data.avatarUrl
+        avatarUrl !== undefined
+          ? avatarUrl
           : (existing?.avatar_url ?? null),
     };
   }
+
+  const displayName = data.displayName ?? data.display_name;
+  const avatarUrl = data.avatarUrl ?? data.avatar_url;
+  const payload = {
+    ...(displayName !== undefined ? { display_name: displayName } : {}),
+    ...(data.bio !== undefined ? { bio: data.bio } : {}),
+    ...(avatarUrl !== undefined ? { avatar_url: avatarUrl } : {}),
+  };
 
   const res = await fetch(
     `${API_BASE}/profiles/${encodeURIComponent(walletAddress)}`,
@@ -234,7 +258,7 @@ export async function updateProfile(
         "Content-Type": "application/json",
         "x-wallet-address": walletAddress,
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     },
   );
   if (!res.ok) throw new Error(await parseErrorMessage(res));
@@ -252,9 +276,15 @@ export async function registerLocation(
       "Content-Type": "application/json",
       "x-wallet-address": walletAddress,
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      lat: data.lat,
+      lng: data.lng,
+      city: data.city,
+      country: data.country,
+      is_public: data.is_public,
+    }),
   });
-  if (!res.ok) throw new Error(`Failed to register location: ${res.status}`);
+  if (!res.ok) throw new Error(await parseErrorMessage(res));
 }
 
 const USER_PROFILE_PREFIX = "agrocylo:user-profile:";
@@ -590,9 +620,11 @@ export async function updateUserProfile(
     ...current,
     profile: {
       ...current.profile,
-      displayName: input.displayName.trim() || current.profile.displayName,
+      displayName:
+        (input.displayName ?? input.display_name)?.trim() ||
+        current.profile.displayName,
       bio: input.bio?.trim() ?? current.profile.bio,
-      avatarUrl: input.avatarUrl ?? current.profile.avatarUrl,
+      avatarUrl: input.avatarUrl ?? input.avatar_url ?? current.profile.avatarUrl,
       location: input.location?.trim() ?? current.profile.location,
       socialLinks: input.socialLinks ?? current.profile.socialLinks,
       privacy: input.privacy ?? current.profile.privacy,
