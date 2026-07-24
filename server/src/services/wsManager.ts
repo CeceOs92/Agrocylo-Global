@@ -152,6 +152,24 @@ export class WsManager {
   }
 
   /**
+   * Broadcast an event only to clients that have authenticated (wallet !== null).
+   * Use this for sensitive order events containing buyer/seller addresses and amounts.
+   */
+  broadcastAuthenticated(event: string, payload: unknown): void {
+    const message = JSON.stringify({
+      event,
+      payload,
+      timestamp: new Date().toISOString(),
+    });
+
+    for (const client of this.clients.values()) {
+      if (client.wallet !== null) {
+        this.safeSend(client.ws, message);
+      }
+    }
+  }
+
+  /**
    * Broadcast an event only to clients authenticated with the given wallet address.
    */
   broadcastTo(wallet: string, event: string, payload: unknown): void {

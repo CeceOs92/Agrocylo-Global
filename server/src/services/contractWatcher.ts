@@ -71,7 +71,7 @@ export function dispatchEvent(
         token,
       });
 
-      wsManager.broadcast("order:created", { orderId, buyer, farmer, amount, token });
+      wsManager.broadcastAuthenticated("order:created", { orderId, buyer, farmer, amount, token });
       break;
     }
 
@@ -79,7 +79,7 @@ export function dispatchEvent(
       const farmer = String(data[1] ?? "");
       const buyer = String(data[2] ?? "");
 
-      wsManager.broadcast("order:delivered", { orderId, farmer, buyer });
+      wsManager.broadcastAuthenticated("order:delivered", { orderId, farmer, buyer });
       break;
     }
 
@@ -94,7 +94,7 @@ export function dispatchEvent(
         orderId,
       });
 
-      wsManager.broadcast("order:confirmed", { orderId, buyer, farmer });
+      wsManager.broadcastAuthenticated("order:confirmed", { orderId, buyer, farmer });
       break;
     }
 
@@ -107,7 +107,7 @@ export function dispatchEvent(
         orderId,
       });
 
-      wsManager.broadcast("order:refunded", { orderId, buyer });
+      wsManager.broadcastAuthenticated("order:refunded", { orderId, buyer });
       break;
     }
 
