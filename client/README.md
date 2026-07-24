@@ -81,6 +81,48 @@ NEXT_PUBLIC_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
 
 Run the frontend in isolation or alongside the backend. Use `testMode.ts` (if applicable) for mocking wallet behaviors during CI/CD.
 
+## Running Tests
+
+### Unit Tests
+
+```bash
+# Run all unit tests
+npm test
+
+# Run tests in watch mode
+npm run test:ui
+
+# Run accessibility audit tests
+npm run test:a11y
+```
+
+Unit tests use [Vitest](https://vitest.dev/) with jsdom and React Testing Library. Test files are colocated with their source files (`*.test.ts(x)`).
+
+### E2E Tests
+
+```bash
+# Run all E2E tests
+npm run test:e2e
+
+# Run E2E tests with interactive UI
+npm run test:e2e:ui
+```
+
+E2E tests use [Playwright](https://playwright.dev/) and live in `e2e/`. The test suite:
+- Mocks Freighter wallet at the browser level via `addInitScript`
+- Uses `NEXT_PUBLIC_DEMO_MODE=true` for deterministic backend responses
+- Covers wallet connect, product creation, add-to-cart, checkout, order confirmation, and negative-path scenarios
+- Fixtures in `e2e/fixtures/` provide reusable wallet and API mock helpers
+
+CI runs E2E tests on `workflow_dispatch` via `.github/workflows/e2e.yml`.
+
+### Coverage
+
+```bash
+# Server unit tests with coverage
+cd ../server && npm run test:coverage
+```
+
 ## Troubleshooting
 
 ### Missing contract ID errors
