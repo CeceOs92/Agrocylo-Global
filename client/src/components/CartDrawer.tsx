@@ -41,19 +41,18 @@ import { getNetworkConfig, requireTokenContractId } from "@/services/stellar/net
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  PLATFORM_FEE_BPS,
+  BPS_DENOM,
+  xlmToStroops,
+  feeFromGrossStroops,
+} from "@/lib/feeCalculations";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 type OrderSuccess = { orderId: string; farmerWallet: string; txHash: string };
 type OrderFailure = { farmerWallet: string; error: string };
 type GroupStatus = "pending" | "success" | "error";
-
-const PLATFORM_FEE_BPS = BigInt(300); // 3% in basis points
-const BPS_DENOM = BigInt(10_000);
-
-function feeFromGross(gross: bigint) {
-  return (gross * PLATFORM_FEE_BPS) / BPS_DENOM;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -87,7 +86,7 @@ export default function CartDrawer() {
       (acc, g) => acc + (BigInt(g.subtotal) || BigInt(0)),
       BigInt(0),
     );
-    const fee = feeFromGross(gross);
+    const fee = feeFromGrossStroops(gross);
     const net = gross - fee;
     return { gross, fee, net };
   }, [cart.groups]);
@@ -130,7 +129,6 @@ export default function CartDrawer() {
         const idxLabel = `${i + 1} of ${groups.length}`;
 
         const gross = BigInt(group.subtotal || "0");
-        const net = gross - feeFromGross(gross);
 
         setProgressMessage(`Creating order ${idxLabel}…`);
 
@@ -144,8 +142,8 @@ export default function CartDrawer() {
           continue;
         }
 
-        if (net <= BigInt(0)) {
-          const error = "Net amount must be positive.";
+        if (gross <= BigInt(0)) {
+          const error = "Amount must be positive.";
           setFailedOrders((prev) => [...prev, { farmerWallet, error }]);
           setGroupProgress((prev) => ({ ...prev, [farmerWallet]: "error" }));
           continue;
@@ -159,7 +157,7 @@ export default function CartDrawer() {
             address,
             tokenContractId,
             contractId,
-            net,
+            gross,
           );
           if (approval.success && approval.data) {
             setProgressMessage(`Approving escrow (${idxLabel})…`);
@@ -181,7 +179,7 @@ export default function CartDrawer() {
           address,
           farmerWallet,
           tokenContractId,
-          net,
+          gross,
           deadline,
         );
 
@@ -701,7 +699,7 @@ function SubtotalRow({
   gross: bigint;
   currency: string;
 }) {
-  const fee = feeFromGross(gross);
+  const fee = feeFromGrossStroops(gross);
   const net = gross - fee;
   return (
     <div className="space-y-1 text-xs">

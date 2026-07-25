@@ -1,5 +1,6 @@
 import type { IntentResponse, IntentResponseStatus, IntentResponseHistoryItem } from "@/types/intent";
 import { createOrder } from "@/services/stellar/contractService";
+import { xlmToStroops } from "@/lib/feeCalculations";
 
 const STORAGE_KEY = "agrocylo_buyer_intent_responses";
 
@@ -181,7 +182,7 @@ export async function acceptProposal(responseId: string, buyerAddress: string): 
 
   // Auto-create escrow order on acceptance!
   try {
-    const totalStroops = BigInt(Math.floor(prev.pricePerUnit * prev.quantityAvailable * 10_000_000));
+    const totalStroops = xlmToStroops(prev.pricePerUnit * prev.quantityAvailable);
     // Call contract createOrder (simulates order block in testMode!)
     await createOrder(
       buyerAddress,

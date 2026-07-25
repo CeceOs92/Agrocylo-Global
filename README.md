@@ -130,6 +130,31 @@ Enable swift, fair, and transparent trade
     * Writing documentation or tests
     * Please open an issue or submit a pull request.
 
+### 🧪 Running Tests
+
+#### Unit Tests
+```bash
+# Client unit tests (vitest + jsdom)
+cd client && npm test
+
+# Server unit tests (vitest + node)
+cd server && npm run test:coverage
+
+# Contract tests (Rust soroban-sdk)
+cd contracts && cargo test
+```
+
+#### E2E Tests
+```bash
+# Run Playwright E2E tests
+cd client && npm run test:e2e
+
+# Run E2E tests with interactive UI
+cd client && npm run test:e2e:ui
+```
+
+E2E tests mock Freighter wallet and use `NEXT_PUBLIC_DEMO_MODE=true` for deterministic responses. See `.github/workflows/e2e.yml` for CI configuration.
+
 ### 🔌 API Documentation
 
 #### Product Endpoints

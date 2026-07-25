@@ -37,6 +37,12 @@ import {
 } from "@/services/notification";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { cn } from "@/lib/utils";
+import {
+  PLATFORM_FEE_PCT,
+  xlmToStroops,
+  displayFee,
+  displayNet,
+} from "@/lib/feeCalculations";
 
 interface EnhancedEscrowTransactionProps {
   farmerAddress: string;
@@ -55,8 +61,6 @@ interface TransactionStatus {
   message?: string;
   txHash?: string;
 }
-
-const PLATFORM_FEE_PCT = 3;
 
 export default function EnhancedEscrowTransaction({
   farmerAddress,
@@ -78,9 +82,9 @@ export default function EnhancedEscrowTransaction({
 
   const qtyNum = parseFloat(quantity || "0");
   const totalPrice = qtyNum * pricePerUnit;
-  const fee = (totalPrice * PLATFORM_FEE_PCT) / 100;
-  const farmerReceives = totalPrice - fee;
-  const totalStroops = BigInt(Math.floor(totalPrice * 10_000_000));
+  const fee = displayFee(totalPrice);
+  const farmerReceives = displayNet(totalPrice);
+  const totalStroops = xlmToStroops(totalPrice);
 
   const busy = tx.status === "pending" || tx.status === "confirming";
 

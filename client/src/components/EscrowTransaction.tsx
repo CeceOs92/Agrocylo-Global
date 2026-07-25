@@ -31,6 +31,14 @@ import {
 } from "@/services/notification";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { cn } from "@/lib/utils";
+import {
+  STROOPS_PER_XLM,
+  PLATFORM_FEE_PCT,
+  xlmToStroops,
+  feeFromGrossStroops,
+  displayFee,
+  displayNet,
+} from "@/lib/feeCalculations";
 
 interface EscrowTransactionProps {
   farmerAddress: string;
@@ -46,8 +54,6 @@ interface TransactionStatus {
   txHash?: string;
 }
 
-const PLATFORM_FEE_PCT = 3;
-
 export default function EscrowTransaction({
   farmerAddress,
   tokenAddress,
@@ -61,9 +67,9 @@ export default function EscrowTransaction({
 
   const qtyNum = parseFloat(quantity || "0");
   const totalPrice = qtyNum * pricePerUnit;
-  const fee = (totalPrice * PLATFORM_FEE_PCT) / 100;
-  const farmerReceives = totalPrice - fee;
-  const totalStroops = BigInt(Math.floor(totalPrice * 10_000_000));
+  const fee = displayFee(totalPrice);
+  const farmerReceives = displayNet(totalPrice);
+  const totalStroops = xlmToStroops(totalPrice);
 
   const busy = tx.status === "pending" || tx.status === "confirming";
 

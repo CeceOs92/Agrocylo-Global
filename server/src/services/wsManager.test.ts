@@ -166,4 +166,101 @@ describe("WsManager", () => {
       expect(t.droppedMessages).toBeGreaterThanOrEqual(0);
     });
   });
+
+  describe("broadcastAuthenticated", () => {
+    it("delivers to an authenticated client", async () => {
+      const token = jwt.sign({ walletAddress: "GWALLET_AUTH" }, JWT_SECRET);
+      const ws = await openWs();
+      ws.send(JSON.stringify({ type: "auth", token }));
+      await new Promise((r) => setTimeout(r, 60));
+
+      const received: string[] = [];
+      ws.on("message", (data) => received.push(data.toString()));
+
+      manager.broadcastAuthenticated("order:created", { orderId: "1" });
+      await new Promise((r) => setTimeout(r, 60));
+
+      expect(received).toHaveLength(1);
+      await closeWs(ws);
+    });
+
+    it("does NOT deliver to an unauthenticated client", async () => {
+      const ws = await openWs();
+      // Never send auth message — wallet remains null
+
+      const received: string[] = [];
+      ws.on("message", (data) => received.push(data.toString()));
+
+      manager.broadcastAuthenticated("order:created", {
+        orderId: "1",
+        buyer: "GALICE123",
+        seller: "GBOB456",
+        amount: "100",
+      });
+      await new Promise((r) => setTimeout(r, 60));
+
+      expect(received).toHaveLength(0);
+      await closeWs(ws);
+    });
+
+    it("does NOT deliver to clients that failed authentication", async () => {
+      const ws = await openWs();
+
+      // Send an invalid JWT — connection should close
+      const closeCode = await new Promise<number>((resolve) => {
+        ws.on("close", (c) => resolve(c));
+        ws.send(JSON.stringify({ type: "auth", token: "invalid-token" }));
+      });
+
+      expect(closeCode).toBe(4001);
+    });
+
+    it("does not leak order data to unauthenticated connections", async () => {
+      // Connect one authenticated and one unauthenticated client
+      const token = jwt.sign({ walletAddress: "GALICE" }, JWT_SECRET);
+      const authedWs = await openWs();
+      authedWs.send(JSON.stringify({ type: "auth", token }));
+      await new Promise((r) => setTimeout(r, 60));
+
+      const unauthedWs = await openWs();
+
+      const authedReceived: string[] = [];
+      const unauthedReceived: string[] = [];
+      authedWs.on("message", (d) => authedReceived.push(d.toString()));
+      unauthedWs.on("message", (d) => unauthedReceived.push(d.toString()));
+
+      manager.broadcastAuthenticated("order:created", {
+        orderId: "99",
+        buyer: "GALICE",
+        farmer: "GBOB",
+        amount: "50000000",
+      });
+      await new Promise((r) => setTimeout(r, 60));
+
+      // Authenticated client received the order event
+      expect(authedReceived).toHaveLength(1);
+      const parsed = JSON.parse(authedReceived[0]!);
+      expect(parsed.event).toBe("order:created");
+      expect(parsed.payload.buyer).toBe("GALICE");
+
+      // Unauthenticated client did NOT receive the order event
+      expect(unauthedReceived).toHaveLength(0);
+
+      await closeWs(authedWs);
+      await closeWs(unauthedWs);
+    });
+
+    it("regular broadcast still delivers to unauthenticated clients", async () => {
+      const ws = await openWs();
+
+      const received: string[] = [];
+      ws.on("message", (data) => received.push(data.toString()));
+
+      manager.broadcast("system:status", { status: "online" });
+      await new Promise((r) => setTimeout(r, 60));
+
+      expect(received).toHaveLength(1);
+      await closeWs(ws);
+    });
+  });
 });
