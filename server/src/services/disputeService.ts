@@ -1,52 +1,73 @@
 import { prisma } from "../config/database.js";
 import { EvidenceStorageService } from "./evidenceStorageService.js";
-import { ApiError } from "../http/errors.js";
+import { ApiError, NotFoundError } from "../http/errors.js";
+import logger from "../config/logger.js";
 
 export class DisputeService {
   /**
    * Fetch all disputes with full order and product metadata
    */
   static async getAllDisputes() {
-    return prisma.dispute.findMany({
-      include: {
-        order: {
-          include: {
-            product: true,
-            buyerUser: true,
-            sellerUser: true,
+    try {
+      return await prisma.dispute.findMany({
+        include: {
+          order: {
+            include: {
+              product: true,
+              buyerUser: true,
+              sellerUser: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (error) {
+      logger.error("Failed to fetch disputes", { error });
+      throw new ApiError(500, "Internal Server Error", "Failed to fetch disputes");
+    }
   }
 
   /**
    * Fetch a single dispute by its on-chain order ID
    */
   static async getDisputeByOrderId(orderIdOnChain: string) {
-    return prisma.dispute.findUnique({
-      where: { orderIdOnChain },
-      include: {
-        order: {
-          include: {
-            product: true,
-            buyerUser: true,
-            sellerUser: true,
+    try {
+      const dispute = await prisma.dispute.findUnique({
+        where: { orderIdOnChain },
+        include: {
+          order: {
+            include: {
+              product: true,
+              buyerUser: true,
+              sellerUser: true,
+            },
           },
         },
-      },
-    });
+      });
+      if (!dispute) {
+        throw new NotFoundError("Dispute", orderIdOnChain);
+      }
+      return dispute;
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error("Failed to fetch dispute by order ID", { error, orderIdOnChain });
+      throw new ApiError(500, "Internal Server Error", "Failed to fetch dispute");
+    }
   }
 
   /**
    * Attach evidence hash to a dispute
    */
   static async attachEvidence(orderIdOnChain: string, evidenceHash: string) {
-    return prisma.dispute.update({
-      where: { orderIdOnChain },
-      data: { evidenceHash },
-    });
+    try {
+      return await prisma.dispute.update({
+        where: { orderIdOnChain },
+        data: { evidenceHash },
+      });
+    } catch (error) {
+      logger.error("Failed to attach evidence to dispute", { error, orderIdOnChain });
+      throw new ApiError(500, "Internal Server Error", "Failed to attach evidence");
+    }
   }
 
   /**
@@ -54,9 +75,6 @@ export class DisputeService {
    */
   static async provideEvidence(orderIdOnChain: string, file: Express.Multer.File) {
     const dispute = await this.getDisputeByOrderId(orderIdOnChain);
-    if (!dispute) {
-      throw new ApiError(404, "Not Found", `Dispute not found for order ${orderIdOnChain}`);
-    }
 
     const evidenceHash = await EvidenceStorageService.uploadEvidence(file, orderIdOnChain);
 
