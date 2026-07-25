@@ -152,6 +152,7 @@ pub struct Order {
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
+    Attester,
     SupportedTokens,
     RegistryContract,
     FeeCollector,
@@ -270,6 +271,20 @@ impl ProductionEscrowContract {
         env.storage()
             .instance()
             .set(&DataKey::FeeRateBps, &fee_rate_bps);
+        Ok(())
+    }
+
+    /// Set the independent attester role. Can be called by admin.
+    /// The attester is required to sign off on mark_harvest to prevent farmer self-attest exploits.
+    pub fn set_attester(env: Env, admin_caller: Address, attester: Address) -> Result<(), EscrowError> {
+        admin_caller.require_auth();
+        let admin = admin(&env)?;
+        if admin_caller != admin {
+            return Err(EscrowError::NotAdmin);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::Attester, &attester);
         Ok(())
     }
 
@@ -447,8 +462,14 @@ impl ProductionEscrowContract {
     }
 
     /// Farmer signals harvest done. Releases the harvest tranche.
-    pub fn mark_harvest(env: Env, farmer: Address, campaign_id: u64) -> Result<(), EscrowError> {
+    /// Requires independent attester co-signature to prevent farmer self-attest exploits.
+    pub fn mark_harvest(env: Env, farmer: Address, attester_caller: Address, campaign_id: u64) -> Result<(), EscrowError> {
         farmer.require_auth();
+        attester_caller.require_auth();
+        let attester_addr = attester(&env)?;
+        if attester_caller != attester_addr {
+            return Err(EscrowError::NotAdmin);
+        }
         let mut campaign = load_campaign(&env, campaign_id)?;
         if campaign.farmer != farmer {
             return Err(EscrowError::NotFarmer);
@@ -705,9 +726,9 @@ impl ProductionEscrowContract {
         Ok(())
     }
 
-    /// Farmer or admin can mark a campaign failed from any non-terminal
-    /// state (Funded, InProduction, Harvested). This triggers proportional
-    /// refund logic — investors get their share of the remaining escrow pool.
+    /// Farmer or admin can mark a campaign failed from any non-terminal state.
+    /// Farmer can unilaterally fail from Funded (no tranches released yet).
+    /// Farmer cannot unilaterally fail from InProduction or Harvested (requires admin co-sign).
     ///
     /// Recovery outcomes:
     ///   - Funded: full refund (no tranches released yet).
@@ -722,25 +743,30 @@ impl ProductionEscrowContract {
         let mut campaign = load_campaign(&env, campaign_id)?;
         let admin = admin(&env)?;
 
-        // Only farmer or admin can trigger failure after funding
-        if caller != campaign.farmer && caller != admin {
+        // Determine who can call based on campaign state
+        let can_fail = match campaign.status {
+            CampaignStatus::Funded => {
+                // Farmer can unilaterally fail before production starts
+                caller == campaign.farmer || caller == admin
+            }
+            CampaignStatus::InProduction | CampaignStatus::Harvested => {
+                // Farmer cannot unilaterally fail after production starts; requires admin
+                caller == admin
+            }
+            _ => false,
+        };
+
+        if !can_fail {
             return Err(EscrowError::NotAdmin);
         }
 
-        match campaign.status {
-            CampaignStatus::Funded
-            | CampaignStatus::InProduction
-            | CampaignStatus::Harvested => {
-                campaign.status = CampaignStatus::Failed;
-                save_campaign(&env, &campaign);
-                env.events().publish(
-                    (t_campaign(), symbol_short!("failed")),
-                    (campaign_id,),
-                );
-                Ok(())
-            }
-            _ => Err(EscrowError::CampaignNotFundedOrBeyond),
-        }
+        campaign.status = CampaignStatus::Failed;
+        save_campaign(&env, &campaign);
+        env.events().publish(
+            (t_campaign(), symbol_short!("failed")),
+            (campaign_id,),
+        );
+        Ok(())
     }
 
     /// Investor reclaims their proportional share on a failed campaign.
@@ -885,7 +911,6 @@ impl ProductionEscrowContract {
         }
         if campaign.status == CampaignStatus::Disputed
             || campaign.status == CampaignStatus::Settled
-            || campaign.status == CampaignStatus::Failed
         {
             return Err(EscrowError::CampaignAlreadyDisputed);
         }
@@ -1188,6 +1213,13 @@ fn admin(env: &Env) -> Result<Address, EscrowError> {
     env.storage()
         .instance()
         .get(&DataKey::Admin)
+        .ok_or(EscrowError::ContractNotInitialized)
+}
+
+fn attester(env: &Env) -> Result<Address, EscrowError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Attester)
         .ok_or(EscrowError::ContractNotInitialized)
 }
 
