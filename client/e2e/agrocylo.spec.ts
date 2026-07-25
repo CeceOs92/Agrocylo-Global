@@ -176,18 +176,19 @@ test("2 – farmer should create a new product listing", async () => {
 
 // ---------------------------------------------------------------------------
 // 3. Purchase Item — CreateOrderForm.tsx
-// Route: /orders/new?farmer=<FARMER_ADDRESS>
-// Fields: Farmer Address (pre-filled), Amount (XLM), description textarea
+// Route: /orders/new?farmerId=<FARMER_ADDRESS>
+// Fields: Farmer Address (resolved when a verified farmer profile is found),
+// Amount (XLM), description textarea
 // Submit: "Confirm & Create Order" → success heading: "Order Created"
 // ---------------------------------------------------------------------------
 test("3 – buyer should purchase an item (escrow funded)", async () => {
-  await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+  await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
   await ensureWalletConnected(page);
 
-  // Farmer address is pre-filled from the query param
-  await expect(page.getByLabel("Farmer Address")).toHaveValue(FARMER_ADDRESS, {
-    timeout: 10_000,
-  });
+  const farmerInput = page.getByLabel("Farmer Address");
+  if ((await farmerInput.inputValue()) === "") {
+    await farmerInput.fill(FARMER_ADDRESS);
+  }
 
   // Amount (XLM)
   await page.getByLabel("Amount (XLM)").fill("10");
@@ -211,6 +212,18 @@ test("3 – buyer should purchase an item (escrow funded)", async () => {
 
   // TX hash rendered in mono paragraph
   await expect(page.locator("p.font-mono")).toBeVisible({ timeout: 5_000 });
+});
+
+test("3b – legacy farmer query param should not prefill the destination", async () => {
+  const attackerAddress =
+    "GBQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG5XYZ";
+
+  await page.goto(`/orders/new?farmer=${attackerAddress}`);
+  await ensureWalletConnected(page);
+
+  await expect(page.getByLabel("Farmer Address")).toHaveValue("", {
+    timeout: 10_000,
+  });
 });
 
 // ---------------------------------------------------------------------------
