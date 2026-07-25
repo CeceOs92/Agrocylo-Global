@@ -18,7 +18,12 @@ import {
   type ListOrdersQuery,
 } from "../schemas/order.js";
 import { OrderSchema } from "../schemas/responses.js";
-import { requireIdempotencyKey, getCachedResponse, setCachedResponse } from "../middleware/idempotency.js";
+import {
+  requireIdempotencyKey,
+  getCachedResponse,
+  setCachedResponse,
+} from "../middleware/idempotency.js";
+import logger from "../config/logger.js";
 
 const router = Router();
 
@@ -62,60 +67,73 @@ router.get(
 router.post(
   "/orders",
   requireWallet,
+  requireIdempotencyKey,
   writeLimiter,
   validateBody(CreateOrderSchema.omit({ buyerAddress: true })),
   validateResponse(OrderSchema),
   async (req: WalletRequest, res: Response) => {
-    const buyerAddress = req.walletAddress!;
-    const { campaignId, amount } = req.body;
+    try {
+      const buyerAddress = req.walletAddress!;
+      const idempotencyKey = (req as any).idempotencyKey as string;
+      const { campaignId, amount } = req.body;
 
-    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-    if (!campaign) {
-      problemDetail(res, req, 404, "Campaign Not Found", `No campaign with id ${campaignId}`);
-      return;
+      const cached = getCachedResponse(idempotencyKey);
+      if (cached) {
+        res.status(cached.status).json(cached.body);
+        return;
+      }
+
+      const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+      if (!campaign) {
+        problemDetail(res, req, 404, "Campaign Not Found", `No campaign with id ${campaignId}`);
+        return;
+      }
+      if (campaign.status !== "HARVESTED" && campaign.status !== "IN_PRODUCTION") {
+        problemDetail(
+          res,
+          req,
+          409,
+          "Campaign Not Accepting Orders",
+          `Campaign status is ${campaign.status}`,
+        );
+        return;
+      }
+
+      await prisma.user.upsert({
+        where: { walletAddress: buyerAddress },
+        create: { walletAddress: buyerAddress, role: "BUYER" },
+        update: {},
+      });
+
+      const order = await prisma.order.create({
+        data: {
+          onChainId: "pending",
+          campaignId: campaign.id,
+          buyerAddress,
+          amount,
+          ledger: 0,
+          txHash: null,
+        },
+      });
+
+      await prisma.transaction.create({
+        data: {
+          campaignId: campaign.id,
+          eventType: "order.created_intent",
+          payload: { idempotencyKey, intent: true },
+          ledger: 0,
+          eventIndex: 0,
+          txHash: null,
+        },
+      });
+
+      const response = order;
+      setCachedResponse(idempotencyKey, 201, response);
+      jsonValidated(res, OrderSchema, 201, response);
+    } catch (error) {
+      logger.error("[POST /orders] Failed to create order", { error });
+      problemDetail(res, req, 500, "Internal Server Error", "Failed to create order");
     }
-    if (campaign.status !== "HARVESTED" && campaign.status !== "IN_PRODUCTION") {
-      problemDetail(
-        res,
-        req,
-        409,
-        "Campaign Not Accepting Orders",
-        `Campaign status is ${campaign.status}`,
-      );
-      return;
-    }
-
-    await prisma.user.upsert({
-      where: { walletAddress: buyerAddress },
-      create: { walletAddress: buyerAddress, role: "BUYER" },
-      update: {},
-    });
-
-    const order = await prisma.order.create({
-      data: {
-        onChainId: "pending",
-        campaignId: campaign.id,
-        buyerAddress,
-        amount,
-        ledger: 0,
-        txHash: transactionHash,
-      },
-    });
-
-    await prisma.transaction.create({
-      data: {
-        campaignId: campaign.id,
-        eventType: "order.created_intent",
-        payload: { transactionHash, intent: true },
-        ledger: 0,
-        eventIndex: 0,
-        txHash: transactionHash,
-      },
-    });
-
-    const response = order;
-    setCachedResponse(key, 201, response);
-    jsonValidated(res, OrderSchema, 201, response);
   },
 );
 

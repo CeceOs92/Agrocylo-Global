@@ -1,4 +1,6 @@
 import { prisma } from "../config/database.js";
+import { ApiError } from "../http/errors.js";
+import logger from "../config/logger.js";
 
 // Request counter for metrics
 let requestCount = 0;
@@ -62,41 +64,46 @@ const ACTIVE_USER_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
  * - active_users: distinct buyer or seller wallets with an order in the last 30 days.
  */
 export async function getPlatformMetrics() {
-  const { start, end, day } = utcCalendarDayBounds();
-  const activeSince = new Date(Date.now() - ACTIVE_USER_WINDOW_MS);
+  try {
+    const { start, end, day } = utcCalendarDayBounds();
+    const activeSince = new Date(Date.now() - ACTIVE_USER_WINDOW_MS);
 
-  const [ordersPerDay, campaignsCreated, orderAmounts, recentOrders] =
-    await Promise.all([
-      prisma.order.count({
-        where: { createdAt: { gte: start, lt: end } },
-      }),
-      prisma.product.count({
-        where: { createdAt: { gte: start, lt: end } },
-      }),
-      prisma.order.findMany({ select: { amount: true } }),
-      prisma.order.findMany({
-        where: { createdAt: { gte: activeSince } },
-        select: { buyerAddress: true, sellerAddress: true },
-      }),
-    ]);
+    const [ordersPerDay, campaignsCreated, orderAmounts, recentOrders] =
+      await Promise.all([
+        prisma.order.count({
+          where: { createdAt: { gte: start, lt: end } },
+        }),
+        prisma.product.count({
+          where: { createdAt: { gte: start, lt: end } },
+        }),
+        prisma.order.findMany({ select: { amount: true } }),
+        prisma.order.findMany({
+          where: { createdAt: { gte: activeSince } },
+          select: { buyerAddress: true, sellerAddress: true },
+        }),
+      ]);
 
-  const totalVolume = sumNumericAmounts(orderAmounts.map((o) => o.amount));
+    const totalVolume = sumNumericAmounts(orderAmounts.map((o) => o.amount));
 
-  const wallets = new Set<string>();
-  for (const o of recentOrders) {
-    wallets.add(o.buyerAddress);
-    wallets.add(o.sellerAddress);
+    const wallets = new Set<string>();
+    for (const o of recentOrders) {
+      wallets.add(o.buyerAddress);
+      wallets.add(o.sellerAddress);
+    }
+
+    return {
+      generated_at: new Date().toISOString(),
+      utc_calendar_day: day,
+      orders_per_day: ordersPerDay,
+      campaigns_created: campaignsCreated,
+      total_volume: totalVolume,
+      active_users: wallets.size,
+      request_count: requestCount,
+      error_count: errorCount,
+      error_rate: requestCount > 0 ? (errorCount / requestCount) * 100 : 0,
+    };
+  } catch (error) {
+    logger.error("Failed to fetch platform metrics", { error });
+    throw new ApiError(500, "Internal Server Error", "Failed to fetch platform metrics");
   }
-
-  return {
-    generated_at: new Date().toISOString(),
-    utc_calendar_day: day,
-    orders_per_day: ordersPerDay,
-    campaigns_created: campaignsCreated,
-    total_volume: totalVolume,
-    active_users: wallets.size,
-    request_count: requestCount,
-    error_count: errorCount,
-    error_rate: requestCount > 0 ? (errorCount / requestCount) * 100 : 0,
-  };
 }

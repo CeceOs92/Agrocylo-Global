@@ -1,4 +1,6 @@
 import { prisma } from '../config/database.js';
+import { ApiError } from '../http/errors.js';
+import logger from '../config/logger.js';
 import { z } from 'zod';
 
 export const notificationPrefsSchema = z.object({
@@ -58,21 +60,27 @@ export async function upsertNotificationPreferences(
   walletAddress: string,
   body: unknown,
 ): Promise<NotificationPrefs> {
-  const parsed = notificationPrefsSchema.safeParse(body);
-  if (!parsed.success) {
-    throw new Error(parsed.error.message);
+  try {
+    const parsed = notificationPrefsSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new ApiError(400, 'Bad Request', parsed.error.message, 'https://cylos.io/errors/validation');
+    }
+
+    const row = await prisma.notificationPreference.upsert({
+      where: { walletAddress },
+      create: {
+        walletAddress,
+        preferences: parsed.data,
+      },
+      update: {
+        preferences: parsed.data,
+      },
+    });
+
+    return notificationPrefsSchema.parse(row.preferences);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    logger.error('Failed to upsert notification preferences', { error, walletAddress });
+    throw new ApiError(500, 'Internal Server Error', 'Failed to update notification preferences');
   }
-
-  const row = await prisma.notificationPreference.upsert({
-    where: { walletAddress },
-    create: {
-      walletAddress,
-      preferences: parsed.data,
-    },
-    update: {
-      preferences: parsed.data,
-    },
-  });
-
-  return notificationPrefsSchema.parse(row.preferences);
 }

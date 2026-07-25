@@ -60,4 +60,16 @@ async function bootstrap() {
   }
 }
 
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.error("Unhandled promise rejection", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on("uncaughtException", (error: Error) => {
+  logger.error("Uncaught exception — shutting down", { error: error.message, stack: error.stack });
+  process.exit(1);
+});
+
 bootstrap();
