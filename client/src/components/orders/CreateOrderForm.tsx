@@ -23,8 +23,7 @@ import { createOrderFormSchema } from "@/lib/validation";
 import { FormError } from "@/components/FormError";
 
 import { requireNativeTokenContractId } from "@/services/stellar/networkConfig";
-
-const PLATFORM_FEE_PCT = 3;
+import { PLATFORM_FEE_PCT, xlmToStroops, displayFee, displayNet } from "@/lib/feeCalculations";
 
 type FormErrors = Partial<Record<"farmer" | "amount" | "deliveryDeadline", string>>;
 
@@ -50,8 +49,8 @@ export default function CreateOrderForm() {
   const numAmount = parseFloat(amount);
   const hasAmount = numAmount > 0;
 
-  const fee = hasAmount ? (numAmount * PLATFORM_FEE_PCT) / 100 : 0;
-  const farmerReceives = hasAmount ? numAmount - fee : 0;
+  const fee = hasAmount ? displayFee(numAmount) : 0;
+  const farmerReceives = hasAmount ? displayNet(numAmount) : 0;
 
   function validate(): boolean {
     const result = createOrderFormSchema.safeParse({
@@ -106,7 +105,7 @@ export default function CreateOrderForm() {
         amount: numAmount,
       });
       setTxStep("signing");
-      const stroops = BigInt(Math.round(numAmount * 1e7));
+      const stroops = xlmToStroops(numAmount);
       const result = await createOrder(
         farmer.trim(),
         nativeTokenContractId,

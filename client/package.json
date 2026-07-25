@@ -9,7 +9,9 @@
     "lint": "next lint",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:a11y": "vitest run src/a11y.test.tsx"
+    "test:a11y": "vitest run src/a11y.test.tsx",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.3.2",

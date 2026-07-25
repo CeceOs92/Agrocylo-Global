@@ -219,6 +219,6 @@ export class NotificationService {
    */
   static async notifyOrderEvent(event: string, data: unknown): Promise<void> {
     logger.info(`[NotificationService] Emitting event: ${event}`);
-    wsManager.broadcast(`order:${event}`, data);
+    wsManager.broadcastAuthenticated(`order:${event}`, data);
   }
 }
