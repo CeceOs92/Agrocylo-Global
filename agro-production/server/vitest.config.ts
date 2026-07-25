@@ -5,5 +5,9 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     globals: false,
+    env: {
+      DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+      RPC_URL: "https://soroban-testnet.stellar.org",
+    },
   },
 });

@@ -18,6 +18,7 @@ export type WsEventType =
   | "dispute.evidence_submitted"
   | "dispute.resolved"
   | "dispute.dismissed"
+  | "transaction.status"
   | "error";
 
 export interface WsEventEnvelope<T = unknown> {
@@ -116,6 +117,53 @@ export class WsServer {
     return this.wss.clients.size;
   }
 
+  drain(): Promise<void> {
+    return new Promise((resolve) => {
+      const clients = Array.from(this.wss.clients);
+      if (clients.length === 0) {
+        resolve();
+        return;
+      }
+
+      let remaining = clients.length;
+      const timeout = setTimeout(() => {
+        logger.warn('WebSocket drain timed out, terminating remaining connections');
+        for (const c of clients) {
+          if (c.readyState === c.OPEN) {
+            c.terminate();
+          }
+        }
+        resolve();
+      }, 5000);
+
+      for (const client of clients) {
+        try {
+          const msg = JSON.stringify({
+            version: '1',
+            type: 'server.shutdown',
+            payload: { reason: 'graceful_shutdown' },
+            timestamp: new Date().toISOString(),
+          });
+          client.send(msg, () => {
+            client.close(1001, 'Server shutting down');
+            remaining--;
+            if (remaining <= 0) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        } catch {
+          client.terminate();
+          remaining--;
+          if (remaining <= 0) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        }
+      }
+    });
+  }
+
   close(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.wss.close((error) => (error ? reject(error) : resolve()));
@@ -146,4 +194,10 @@ export function closeWebSocketServer(): Promise<void> {
     activeServer = null;
     logger.info("WebSocket server closed");
   });
+}
+
+export function drainWebSocketServer(): Promise<void> {
+  const server = activeServer;
+  if (!server) return Promise.resolve();
+  return server.drain();
 }

@@ -55,6 +55,9 @@ vi.mock("../services/wsServer.js", () => ({
 
 vi.mock("../services/sorobanEventListener.js", () => ({
   startSorobanEventListener: vi.fn().mockResolvedValue(null),
+  server: {
+    getLatestLedger: vi.fn().mockResolvedValue({ sequence: 12345 }),
+  },
 }));
 
 vi.mock("../events/watcher.js", () => ({

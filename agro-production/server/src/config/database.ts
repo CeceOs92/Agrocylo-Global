@@ -39,3 +39,17 @@ export async function withTransaction<T>(
 }
 
 export default pool;
+
+export async function disconnectDb(): Promise<void> {
+  await pool.end();
+  logger.info('Raw database pool disconnected');
+}
+
+export async function isPoolHealthy(): Promise<boolean> {
+  try {
+    await pool.query('SELECT 1');
+    return true;
+  } catch {
+    return false;
+  }
+}

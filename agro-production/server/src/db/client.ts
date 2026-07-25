@@ -25,3 +25,12 @@ export async function disconnectDB(): Promise<void> {
   await prisma.$disconnect();
   logger.info("Database disconnected");
 }
+
+export async function isPrismaHealthy(): Promise<boolean> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  }
+}
