@@ -1,15 +1,13 @@
 import express from 'express';
-import multer from 'multer';
 import { imageUpload, isUnsupportedMimeType } from '../middleware/upload.js';
 import { requireWallet, type WalletRequest } from '../middleware/walletAuth.js';
 import { validateParams, jsonValidated } from '../middleware/validate.js';
+import { HttpError } from '../middleware/errors.js';
 import {
   CampaignImageParamSchema,
   CampaignImageUploadResponseSchema,
 } from '../schemas/campaignImage.js';
 import {
-  HttpError,
-  StorageError,
   uploadCampaignImage,
   deleteCampaignImage,
 } from '../services/campaignImageService.js';
@@ -69,26 +67,5 @@ router.delete(
     }
   },
 );
-
-export function campaignImageErrorHandler(
-  err: unknown,
-  _req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-): void {
-  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-    res.status(413).json({ message: 'Payload Too Large. Max image size is 5MB.' });
-    return;
-  }
-  if (err instanceof StorageError) {
-    res.status(err.status).json({ message: err.message });
-    return;
-  }
-  if (err instanceof HttpError) {
-    res.status(err.status).json({ message: err.message });
-    return;
-  }
-  next(err);
-}
 
 export default router;

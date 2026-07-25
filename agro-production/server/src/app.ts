@@ -7,9 +7,7 @@ import { jsonValidated } from './middleware/validate.js';
 import { requireMetricsAuth } from './middleware/metricsAuth.js';
 import { isGracefullyShuttingDown } from './services/lifecycle.js';
 import authRoutes from './routes/auth.js';
-import campaignImageRoutes, {
-  campaignImageErrorHandler,
-} from './routes/campaignImageRoutes.js';
+import campaignImageRoutes from './routes/campaignImageRoutes.js';
 import campaignRoutes from './routes/campaigns.js';
 import orderRoutes from './routes/orders.js';
 import transactionRoutes from './routes/transactions.js';
@@ -140,8 +138,6 @@ app.get('/metrics/events', requireMetricsAuth, (_req: Request, res: Response) =>
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
 });
-
-app.use(campaignImageErrorHandler);
 
 app.use(globalErrorHandler);
 

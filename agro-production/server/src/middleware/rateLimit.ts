@@ -33,3 +33,20 @@ export const writeLimiter = rateLimit({
     retryAfter: `${config.rateLimitWindowMs / 1000}s`,
   },
 });
+
+/** Very strict limiter for authentication endpoints (brute force protection). */
+export const authLimiter = rateLimit({
+  windowMs: config.rateLimitWindowMs,
+  max: Math.max(1, Math.floor(config.rateLimitMaxRequests / 10)),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: (req, res, _next, options) => {
+    incrementRateLimitHit("auth");
+    res.status(options.statusCode).send(options.message);
+  },
+  message: {
+    error: "Too many authentication attempts",
+    retryAfter: `${config.rateLimitWindowMs / 1000}s`,
+  },
+});

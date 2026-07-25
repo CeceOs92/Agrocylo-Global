@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { jsonValidated, validateBody } from '../middleware/validate.js';
+import { jsonValidated, validateBody, validateQuery } from '../middleware/validate.js';
+import { authLimiter } from '../middleware/rateLimit.js';
+import { problemDetail } from '../middleware/errors.js';
 import {
   createChallenge,
   verifySignatureAndCreateSession,
@@ -36,57 +38,63 @@ const RevokeSessionBodySchema = z.object({
 });
 
 // GET /auth/nonce?walletAddress=G...
-router.get('/auth/nonce', async (req: Request, res: Response) => {
-  try {
-    const walletAddress = req.query['walletAddress'] as string;
-    const parsed = ChallengeRequestSchema.parse({ walletAddress });
-    const result = await createChallenge(parsed.walletAddress);
-    jsonValidated(res, ChallengeResponseSchema, 200, result);
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ message: 'Invalid wallet address format.' });
-      return;
+router.get(
+  '/auth/nonce',
+  authLimiter,
+  validateQuery(ChallengeRequestSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { walletAddress } = req.query as unknown as { walletAddress: string };
+      const result = await createChallenge(walletAddress);
+      jsonValidated(res, ChallengeResponseSchema, 200, result);
+    } catch (err) {
+      if (err instanceof AuthError) {
+        problemDetail(res, req, err.status, err.message);
+        return;
+      }
+      problemDetail(res, req, 500, 'Internal Server Error', 'Failed to create challenge');
     }
-    res.status(500).json({ message: 'Failed to create challenge.' });
-  }
-});
+  },
+);
 
 // POST /auth/session — verify signed nonce and issue session token
-router.post('/auth/session', async (req: Request, res: Response) => {
-  try {
-    const body = SessionRequestSchema.parse(req.body);
-    const result = await verifySignatureAndCreateSession(
-      body.walletAddress,
-      body.nonce,
-      body.signature,
-    );
-    jsonValidated(res, SessionResponseSchema, 200, result);
-  } catch (err) {
-    if (err instanceof AuthError) {
-      res.status(err.status).json({ message: err.message });
-      return;
+router.post(
+  '/auth/session',
+  authLimiter,
+  validateBody(SessionRequestSchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { walletAddress, nonce, signature } = req.body as {
+        walletAddress: string;
+        nonce: string;
+        signature: string;
+      };
+      const result = await verifySignatureAndCreateSession(walletAddress, nonce, signature);
+      jsonValidated(res, SessionResponseSchema, 200, result);
+    } catch (err) {
+      if (err instanceof AuthError) {
+        problemDetail(res, req, err.status, err.message);
+        return;
+      }
+      problemDetail(res, req, 500, 'Internal Server Error', 'Failed to create session');
     }
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ message: 'Invalid request body.', errors: err.errors });
-      return;
-    }
-    res.status(500).json({ message: 'Failed to create session.' });
-  }
-});
+  },
+);
 
 // POST /auth/revoke — revoke a session token
-router.post('/auth/revoke', async (req: Request, res: Response) => {
-  try {
-    const body = RevokeSessionBodySchema.parse(req.body);
-    await revokeSession(body.sessionToken);
-    res.status(204).send();
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ message: 'Invalid request body.' });
-      return;
+router.post(
+  '/auth/revoke',
+  authLimiter,
+  validateBody(RevokeSessionBodySchema),
+  async (req: Request, res: Response) => {
+    try {
+      const { sessionToken } = req.body as { sessionToken: string };
+      await revokeSession(sessionToken);
+      res.status(204).send();
+    } catch (err) {
+      problemDetail(res, req, 500, 'Internal Server Error', 'Failed to revoke session');
     }
-    res.status(500).json({ message: 'Failed to revoke session.' });
-  }
-});
+  },
+);
 
 export default router;
