@@ -16,6 +16,7 @@ export function generateOpenApiDocument() {
     },
     servers: [{ url: "/", description: "Current host" }],
     tags: [
+      { name: "Authentication", description: "Wallet-based authentication using challenge-response pattern" },
       { name: "Health" },
       { name: "Campaigns" },
       { name: "Investments" },
