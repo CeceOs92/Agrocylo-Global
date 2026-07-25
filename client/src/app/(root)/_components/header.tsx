@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Menu, ShoppingBag } from "lucide-react";
+import { Menu, ShoppingBag, ExternalLink } from "lucide-react";
 
 import Wrapper from "@/components/shared/wrapper";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
@@ -78,6 +78,19 @@ export default function Header() {
               </Link>
             </li>
           ))}
+          {process.env.NEXT_PUBLIC_AGRO_PRODUCTION_URL && (
+            <li>
+              <a
+                href={process.env.NEXT_PUBLIC_AGRO_PRODUCTION_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-normal transition-colors hover:text-primary lg:text-lg"
+              >
+                Agro Production
+                <ExternalLink className="ml-1 inline-block size-3" />
+              </a>
+            </li>
+          )}
         </ul>
 
         <div className="flex items-center justify-end gap-1">
@@ -141,6 +154,17 @@ export default function Header() {
                       </Link>
                     );
                   })}
+                  {process.env.NEXT_PUBLIC_AGRO_PRODUCTION_URL && (
+                    <a
+                      href={process.env.NEXT_PUBLIC_AGRO_PRODUCTION_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex min-h-11 items-center rounded-2xl px-4 py-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+                    >
+                      Agro Production
+                      <ExternalLink className="ml-auto size-4" />
+                    </a>
+                  )}
                 </div>
 
                 <div className="border-t px-4 py-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
