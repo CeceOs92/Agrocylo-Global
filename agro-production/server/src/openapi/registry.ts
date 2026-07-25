@@ -44,6 +44,32 @@ extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
+// Auth schemas
+const ChallengeRequestSchema = z.object({
+  walletAddress: z.string().openapi({ description: "Stellar wallet address" }),
+});
+
+const ChallengeResponseSchema = z.object({
+  nonce: z.string().openapi({ description: "Challenge nonce for signing" }),
+  expiresAt: z.string().openapi({ description: "ISO 8601 expiration timestamp" }),
+});
+
+const SessionRequestSchema = z.object({
+  walletAddress: z.string().openapi({ description: "Stellar wallet address" }),
+  nonce: z.string().openapi({ description: "Challenge nonce from /auth/nonce" }),
+  signature: z.string().openapi({ description: "Signed nonce (base64)" }),
+});
+
+const SessionResponseSchema = z.object({
+  sessionToken: z.string().openapi({ description: "JWT session token" }),
+  walletAddress: z.string().openapi({ description: "Authenticated wallet address" }),
+  expiresAt: z.string().openapi({ description: "ISO 8601 token expiration" }),
+});
+
+const RevokeSessionBodySchema = z.object({
+  sessionToken: z.string().openapi({ description: "Session token to revoke" }),
+});
+
 const problemResponse = {
   description: "RFC 7807 problem detail",
   content: { "application/problem+json": { schema: ProblemDetailSchema } },
@@ -53,6 +79,68 @@ const validationResponse = {
   description: "Request validation failed",
   content: { "application/problem+json": { schema: ValidationErrorSchema } },
 };
+
+// Authentication endpoints
+registry.registerPath({
+  method: "get",
+  path: "/auth/nonce",
+  tags: ["Authentication"],
+  summary: "Request a challenge nonce for wallet signing",
+  request: {
+    query: ChallengeRequestSchema,
+  },
+  responses: {
+    200: {
+      description: "Challenge created, ready to sign",
+      content: { "application/json": { schema: ChallengeResponseSchema } },
+    },
+    400: validationResponse,
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/auth/session",
+  tags: ["Authentication"],
+  summary: "Exchange signed nonce for session token",
+  request: {
+    body: { content: { "application/json": { schema: SessionRequestSchema } } },
+  },
+  responses: {
+    200: {
+      description: "Session created",
+      content: { "application/json": { schema: SessionResponseSchema } },
+    },
+    400: validationResponse,
+    401: problemResponse,
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/auth/revoke",
+  tags: ["Authentication"],
+  summary: "Revoke a session token",
+  request: {
+    body: { content: { "application/json": { schema: RevokeSessionBodySchema } } },
+  },
+  responses: {
+    204: { description: "Session revoked" },
+    400: validationResponse,
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+  },
+});
 
 registry.registerPath({
   method: "get",

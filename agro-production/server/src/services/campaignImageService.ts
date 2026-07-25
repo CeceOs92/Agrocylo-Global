@@ -3,16 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../db/client.js';
 import { getSupabaseAdmin } from '../config/supabase.js';
 import { config } from '../config/index.js';
-
-export class HttpError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'HttpError';
-  }
-}
+import { HttpError, StorageError } from '../middleware/errors.js';
 
 function mimeTypeToExt(mimeType: string): 'jpg' | 'png' | 'webp' {
   if (mimeType === 'image/jpeg') return 'jpg';
@@ -52,17 +43,6 @@ async function assertCampaignOwnership(
     throw new HttpError(403, 'Forbidden: you do not own this campaign.');
   }
   return campaign;
-}
-
-export class StorageError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-    public readonly originalError?: unknown,
-  ) {
-    super(message);
-    this.name = 'StorageError';
-  }
 }
 
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
