@@ -10,6 +10,7 @@ import {
 } from "../middleware/validate.js";
 import { writeLimiter } from "../middleware/rateLimit.js";
 import { requireWallet, type WalletRequest } from "../middleware/walletAuth.js";
+import { requireIdempotencyKey } from "../middleware/idempotency.js";
 import { problemDetail } from "../middleware/errors.js";
 import {
   CampaignIdParamSchema,

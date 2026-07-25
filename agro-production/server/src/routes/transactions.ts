@@ -12,8 +12,45 @@ import {
   TransactionIntentCreateSchema,
   TransactionRequestIdParamSchema,
   TransactionStatusResponseSchema,
+  TransactionStatusUpdateSchema,
+  TransactionReconciliationResponseSchema,
 } from '../schemas/transaction.js';
+import type { TransactionStatus } from '../schemas/transaction.js';
+import { broadcast } from '../services/wsServer.js';
+import { reconcileTransaction } from '../services/transactionReconciler.js';
+
 const router = Router();
+
+const VALID_TRANSITIONS: Record<TransactionStatus, readonly TransactionStatus[]> = {
+  awaiting_signature: ['submitted', 'failed'],
+  submitted: ['confirmed', 'failed'],
+  confirmed: ['indexed', 'failed'],
+  indexed: [],
+  failed: [],
+};
+
+function txToResponse(tx: {
+  id: string;
+  txHash: string | null;
+  walletAddress: string | null;
+  status: string;
+  eventType: string;
+  campaignId: string | null;
+  ledger: number;
+  processedAt: Date;
+}, fallbackWallet?: string) {
+  return {
+    requestId: tx.id,
+    txHash: tx.txHash ?? '',
+    walletAddress: tx.walletAddress ?? fallbackWallet ?? '',
+    status: tx.status as TransactionStatus,
+    eventType: tx.eventType,
+    campaignId: tx.campaignId,
+    ledger: tx.ledger || undefined,
+    createdAt: tx.processedAt.toISOString(),
+    updatedAt: tx.processedAt.toISOString(),
+  };
+}
 
 router.post(
   '/transactions',
@@ -33,17 +70,7 @@ router.post(
     });
 
     if (existing) {
-      jsonValidated(res, TransactionStatusResponseSchema, 200, {
-        requestId: existing.id,
-        txHash: existing.txHash ?? '',
-        walletAddress: existing.walletAddress ?? walletAddress,
-        status: existing.status,
-        eventType: existing.eventType,
-        campaignId: existing.campaignId,
-        ledger: existing.ledger || undefined,
-        createdAt: existing.processedAt.toISOString(),
-        updatedAt: existing.processedAt.toISOString(),
-      });
+      jsonValidated(res, TransactionStatusResponseSchema, 200, txToResponse(existing, walletAddress));
       return;
     }
 
@@ -61,17 +88,15 @@ router.post(
       },
     });
 
-    jsonValidated(res, TransactionStatusResponseSchema, 201, {
-      requestId: tx.id,
-      txHash: tx.txHash ?? '',
-      walletAddress: tx.walletAddress ?? walletAddress,
-      status: tx.status,
-      eventType: tx.eventType,
-      campaignId: tx.campaignId,
-      ledger: tx.ledger || undefined,
-      createdAt: tx.processedAt.toISOString(),
-      updatedAt: tx.processedAt.toISOString(),
+    const response = txToResponse(tx, walletAddress);
+    broadcast('transaction.status', {
+      requestId: response.requestId,
+      txHash: response.txHash,
+      walletAddress: response.walletAddress,
+      status: response.status,
     });
+
+    jsonValidated(res, TransactionStatusResponseSchema, 201, response);
   },
 );
 
@@ -88,17 +113,7 @@ router.get(
       return;
     }
 
-    jsonValidated(res, TransactionStatusResponseSchema, 200, {
-      requestId: tx.id,
-      txHash: tx.txHash ?? '',
-      walletAddress: tx.walletAddress ?? '',
-      status: tx.status,
-      eventType: tx.eventType,
-      campaignId: tx.campaignId,
-      ledger: tx.ledger || undefined,
-      createdAt: tx.processedAt.toISOString(),
-      updatedAt: tx.processedAt.toISOString(),
-    });
+    jsonValidated(res, TransactionStatusResponseSchema, 200, txToResponse(tx));
   },
 );
 
@@ -114,19 +129,108 @@ router.get(
       take: 50,
     });
 
-    const results = transactions.map((tx) => ({
+    const results = transactions.map((tx) => txToResponse(tx, walletAddress));
+    jsonValidated(res, TransactionStatusResponseSchema.array(), 200, results);
+  },
+);
+
+router.patch(
+  '/transactions/:requestId/status',
+  requireWallet,
+  writeLimiter,
+  validateParams(TransactionRequestIdParamSchema),
+  validateBody(TransactionStatusUpdateSchema),
+  async (req: WalletRequest, res: Response) => {
+    const { status: newStatus, message } = req.body;
+
+    const tx = await prisma.transaction.findUnique({
+      where: { id: req.params.requestId },
+    });
+
+    if (!tx) {
+      problemDetail(res, req, 404, 'Transaction Not Found', `No transaction with id ${req.params.requestId}`);
+      return;
+    }
+
+    if (tx.walletAddress !== req.walletAddress) {
+      problemDetail(res, req, 403, 'Forbidden', 'This transaction belongs to a different wallet');
+      return;
+    }
+
+    const currentStatus = tx.status as TransactionStatus;
+    const allowed = VALID_TRANSITIONS[currentStatus];
+    if (!allowed?.includes(newStatus)) {
+      problemDetail(
+        res,
+        req,
+        409,
+        'Invalid Status Transition',
+        `Cannot transition from ${currentStatus} to ${newStatus}. Allowed: ${allowed?.join(', ') ?? 'none'}`,
+      );
+      return;
+    }
+
+    const updated = await prisma.transaction.update({
+      where: { id: req.params.requestId },
+      data: {
+        status: newStatus,
+        payload: {
+          ...((tx.payload as Record<string, unknown>) ?? {}),
+          statusHistory: [
+            ...(((tx.payload as Record<string, unknown>)?.statusHistory as unknown[]) ?? []),
+            {
+              from: currentStatus,
+              to: newStatus,
+              at: new Date().toISOString(),
+              message: message ?? null,
+            },
+          ],
+        },
+      },
+    });
+
+    const response = txToResponse(updated);
+    broadcast('transaction.status', {
+      requestId: response.requestId,
+      txHash: response.txHash,
+      walletAddress: response.walletAddress,
+      status: response.status,
+      previousStatus: currentStatus,
+    });
+
+    jsonValidated(res, TransactionStatusResponseSchema, 200, response);
+  },
+);
+
+router.get(
+  '/transactions/:requestId/reconcile',
+  validateParams(TransactionRequestIdParamSchema),
+  async (req: Request, res: Response) => {
+    const tx = await prisma.transaction.findUnique({
+      where: { id: req.params.requestId },
+    });
+
+    if (!tx) {
+      problemDetail(res, req, 404, 'Transaction Not Found', `No transaction with id ${req.params.requestId}`);
+      return;
+    }
+
+    const result = await reconcileTransaction(
+      tx.txHash ?? '',
+      tx.status as TransactionStatus,
+    );
+
+    jsonValidated(res, TransactionReconciliationResponseSchema, 200, {
       requestId: tx.id,
       txHash: tx.txHash ?? '',
-      walletAddress: tx.walletAddress ?? walletAddress,
-      status: tx.status,
-      eventType: tx.eventType,
-      campaignId: tx.campaignId,
-      ledger: tx.ledger || undefined,
+      dbStatus: result.dbStatus,
+      reconciledStatus: result.reconciledStatus,
+      confirmedInLedger: result.confirmedInLedger,
+      indexedByWatcher: result.indexedByWatcher,
+      latestIndexedLedger: result.latestIndexedLedger,
       createdAt: tx.processedAt.toISOString(),
       updatedAt: tx.processedAt.toISOString(),
-    }));
-
-    jsonValidated(res, TransactionStatusResponseSchema.array(), 200, results);
+    });
   },
 );
 
