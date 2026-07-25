@@ -55,7 +55,8 @@ fn setup() -> TestEnv<'static> {
 
     let mut tokens = Vec::new(&env);
     tokens.push_back(token_id.clone());
-    client.initialize(&admin, &tokens);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &tokens, &fee_collector, 300);
 
     // Leak lifetimes to 'static for convenience struct.
     let env: Env = unsafe { std::mem::transmute(env) };

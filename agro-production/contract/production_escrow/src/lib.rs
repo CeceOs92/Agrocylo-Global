@@ -390,13 +390,9 @@ impl ProductionEscrowContract {
             .persistent()
             .get::<_, i128>(&contribution_key)
             .unwrap_or(0);
-            .get(&DataKey::Contributions(campaign_id))
-            .unwrap_or(Map::new(&env));
-        let prev = contribs.get(investor.clone()).unwrap_or(0);
-        contribs.set(investor.clone(), checked_add(prev, amount)?);
         env.storage()
             .persistent()
-            .set(&contribution_key, &(prev + amount));
+            .set(&contribution_key, &checked_add(prev, amount)?);
 
         // Auto-transition to Funded when target reached.
         if campaign.total_raised == campaign.target_amount {
@@ -638,21 +634,19 @@ impl ProductionEscrowContract {
             return Err(EscrowError::CampaignNotSettled);
         }
 
+        let contribution_key = DataKey::Contribution(campaign_id, investor.clone());
         let contribution = env
             .storage()
             .persistent()
-            .get::<_, i128>(&DataKey::Contribution(campaign_id, investor.clone()))
-        let contribs = load_contribs(&env, campaign_id);
-        // Extend TTL on contribution read to protect investment records (Issue #456).
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Contributions(campaign_id), TTL_THRESHOLD, TTL_EXTEND);
-        let contribution = contribs
-            .get(investor.clone())
+            .get::<_, i128>(&contribution_key)
             .ok_or(EscrowError::NotInvestor)?;
         if contribution <= 0 {
             return Err(EscrowError::NotInvestor);
         }
+        // Extend TTL on contribution read to protect investment records (Issue #456).
+        env.storage()
+            .persistent()
+            .extend_ttl(&contribution_key, TTL_THRESHOLD, TTL_EXTEND);
 
         let claim_key = DataKey::Claimed(campaign_id, investor.clone());
         if env.storage().persistent().has(&claim_key) {
@@ -759,21 +753,19 @@ impl ProductionEscrowContract {
         if campaign.status != CampaignStatus::Failed {
             return Err(EscrowError::CampaignNotFailed);
         }
+        let contribution_key = DataKey::Contribution(campaign_id, investor.clone());
         let contribution = env
             .storage()
             .persistent()
-            .get::<_, i128>(&DataKey::Contribution(campaign_id, investor.clone()))
-        let contribs = load_contribs(&env, campaign_id);
-        // Extend TTL on contribution read to protect refund records (Issue #456).
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Contributions(campaign_id), TTL_THRESHOLD, TTL_EXTEND);
-        let contribution = contribs
-            .get(investor.clone())
+            .get::<_, i128>(&contribution_key)
             .ok_or(EscrowError::NotInvestor)?;
         if contribution <= 0 {
             return Err(EscrowError::NotInvestor);
         }
+        // Extend TTL on contribution read to protect refund records (Issue #456).
+        env.storage()
+            .persistent()
+            .extend_ttl(&contribution_key, TTL_THRESHOLD, TTL_EXTEND);
 
         let claim_key = DataKey::Claimed(campaign_id, investor.clone());
         if env.storage().persistent().has(&claim_key) {
@@ -804,12 +796,15 @@ impl ProductionEscrowContract {
         }
 
         // Proportional refund: remaining pool = raised + revenue - released.
-        let pool = campaign.total_raised + campaign.total_revenue - campaign.tranche_released;
+        let pool = checked_add(
+            campaign.total_raised,
+            checked_sub(campaign.total_revenue, campaign.tranche_released)?
+        )?;
         if pool <= 0 {
             return Err(EscrowError::NothingToClaim);
         }
 
-        let payout = (pool * contribution) / campaign.total_raised;
+        let payout = checked_mul(pool, contribution)? / campaign.total_raised;
         if payout <= 0 {
             return Err(EscrowError::NothingToClaim);
         }
@@ -841,8 +836,11 @@ impl ProductionEscrowContract {
         if campaign.status != CampaignStatus::Failed {
             return 0;
         }
-        let contribs = load_contribs(&env, campaign_id);
-        let contribution = contribs.get(investor.clone()).unwrap_or(0);
+        let contribution = env
+            .storage()
+            .persistent()
+            .get::<_, i128>(&DataKey::Contribution(campaign_id, investor.clone()))
+            .unwrap_or(0);
         if contribution <= 0 {
             return 0;
         }
@@ -853,11 +851,17 @@ impl ProductionEscrowContract {
         if campaign.tranche_released <= 0 {
             return contribution;
         }
-        let pool = campaign.total_raised + campaign.total_revenue - campaign.tranche_released;
+        let pool = match checked_add(
+            campaign.total_raised,
+            checked_sub(campaign.total_revenue, campaign.tranche_released).unwrap_or(0)
+        ) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
         if pool <= 0 {
             return 0;
         }
-        (pool * contribution) / campaign.total_raised
+        checked_mul(pool, contribution).unwrap_or(0) / campaign.total_raised
     }
 
     // -----------------------------------------------------------------------
@@ -982,7 +986,10 @@ impl ProductionEscrowContract {
         }
         let token_client = token::Client::new(&env, &campaign.token);
 
-        let pool = campaign.total_raised + campaign.total_revenue - campaign.tranche_released;
+        let pool = checked_add(
+            campaign.total_raised,
+            checked_sub(campaign.total_revenue, campaign.tranche_released)?
+        )?;
         let full_refund = campaign.tranche_released <= 0;
 
         let mut count: u32 = 0;
@@ -1009,7 +1016,10 @@ impl ProductionEscrowContract {
                 if pool <= 0 {
                     continue;
                 }
-                (pool * contribution) / campaign.total_raised
+                match checked_mul(pool, contribution) {
+                    Ok(prod) => prod / campaign.total_raised,
+                    Err(_) => continue,
+                }
             };
             if payout <= 0 {
                 continue;
@@ -1021,8 +1031,7 @@ impl ProductionEscrowContract {
                 &payout,
             );
             count += 1;
-            total = checked_add(total, contribution)?;
-            total += payout;
+            total = checked_add(total, payout)?;
         }
 
         // Emit a single summary event for the whole batch.
@@ -1076,7 +1085,7 @@ impl ProductionEscrowContract {
                 .extend_ttl(&DataKey::Order(order_id), TTL_THRESHOLD, TTL_EXTEND);
 
             // Refund full amount (net + fee) to buyer since order was not delivered.
-            let refund_amount = order.amount + order.fee;
+            let refund_amount = checked_add(order.amount, order.fee)?;
             let token_client = token::Client::new(&env, &campaign.token);
             token_client.transfer(
                 &env.current_contract_address(),
@@ -1090,8 +1099,7 @@ impl ProductionEscrowContract {
                 );
             }
             count += 1;
-            total += refund_amount;
-            total = checked_add(total, order.amount)?;
+            total = checked_add(total, refund_amount)?;
         }
 
         // Emit a single summary event for the whole batch.
