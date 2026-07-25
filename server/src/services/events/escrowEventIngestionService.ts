@@ -12,36 +12,31 @@ import type { RawRpcEvent } from "../../types/rawRpcEvent.js";
 export class EscrowEventIngestionService {
   /**
    * Main flow to ingest a single raw event.
+   * Throws on failure so the contract-watcher can retry the ledger.
    */
   static async ingestEvent(rawEvent: RawRpcEvent) {
-    try {
-      // 1. Parse
-      const parsed = EscrowEventParser.parse(rawEvent);
-      logger.info(`Processing ${parsed.action} event for order ${parsed.orderId}`);
+    // 1. Parse
+    const parsed = EscrowEventParser.parse(rawEvent);
+    logger.info(`Processing ${parsed.action} event for order ${parsed.orderId}`);
 
-      // 2. Map
-      const mapped = EscrowEventMapper.mapToModel(parsed);
+    // 2. Map
+    const mapped = EscrowEventMapper.mapToModel(parsed);
 
-      // 3. Persist
-      const record = await EscrowEventRepository.createEscrowEvent(mapped);
-      logger.info(`Escrow event stored in DB: ${record.id}`);
+    // 3. Persist
+    const record = await EscrowEventRepository.createEscrowEvent(mapped);
+    logger.info(`Escrow event stored in DB: ${record.id}`);
 
-      // --- NEW: Project to Application Domain (Issue #44) ---
-      await EscrowEventProjectionService.projectEvent(mapped);
+    // 4. Project to Application Domain
+    await EscrowEventProjectionService.projectEvent(mapped);
 
-      // --- NEW: Implement Notification System for Disputes ---
-      if (mapped.action === "dispute" || mapped.action === "resolved") {
-        await NotificationService.notifyOrderEvent(
-          mapped.action === "dispute" ? "dispute_opened" : "dispute_resolved",
-          mapped
-        );
-      }
-
-      return record;
-    } catch (error) {
-      // Structured logging without crashing the whole process
-      logger.error(`Failed to ingest event:`, error);
-      return null;
+    // 5. Notification System for Disputes
+    if (mapped.action === "dispute" || mapped.action === "resolved") {
+      await NotificationService.notifyOrderEvent(
+        mapped.action === "dispute" ? "dispute_opened" : "dispute_resolved",
+        mapped,
+      );
     }
+
+    return record;
   }
 }
