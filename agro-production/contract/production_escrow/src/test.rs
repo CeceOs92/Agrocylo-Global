@@ -2964,3 +2964,251 @@ fn test_token_balance_invariant_proportional_failure() {
     // Investor has original - 10_000 + 7_000 (refund)
     assert_eq!(balance(&t, &t.investor1), inv1_before - 3_000);
 }
+
+// ---------------------------------------------------------------------------
+// Milestone-based partial release tests
+// ---------------------------------------------------------------------------
+
+use crate::{Milestone, MilestoneConfig};
+
+fn milestone_configs_50pct(t: &TestEnv) -> Vec<MilestoneConfig> {
+    let mut configs = Vec::new(&t.env);
+    configs.push_back(MilestoneConfig { milestone: Milestone::Planted, release_bps: 1000 });
+    configs.push_back(MilestoneConfig { milestone: Milestone::Growing, release_bps: 1000 });
+    configs.push_back(MilestoneConfig { milestone: Milestone::Harvested, release_bps: 1000 });
+    configs.push_back(MilestoneConfig { milestone: Milestone::Shipped, release_bps: 1000 });
+    configs.push_back(MilestoneConfig { milestone: Milestone::Delivered, release_bps: 1000 });
+    configs // 5 x 10% = 50% total
+}
+
+#[test]
+fn test_set_milestone_configs_ok() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+    let stored = t.client.get_milestone_configs(&id);
+    assert_eq!(stored.len(), 5);
+    assert_eq!(stored.get(0).unwrap().milestone, Milestone::Planted);
+    assert_eq!(stored.get(0).unwrap().release_bps, 1000);
+}
+
+#[test]
+fn test_set_milestone_configs_rejects_non_admin() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    let configs = milestone_configs_50pct(&t);
+    let err = t.client.try_set_milestone_configs(&t.farmer, &id, &configs)
+        .unwrap_err().unwrap();
+    assert_eq!(err, EscrowError::NotAdmin);
+}
+
+#[test]
+fn test_set_milestone_configs_rejects_wrong_order() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    // Put Growing first instead of Planted.
+    let mut configs = Vec::new(&t.env);
+    configs.push_back(MilestoneConfig { milestone: Milestone::Growing, release_bps: 1000 });
+    configs.push_back(MilestoneConfig { milestone: Milestone::Planted, release_bps: 1000 });
+    let err = t.client.try_set_milestone_configs(&t.admin, &id, &configs)
+        .unwrap_err().unwrap();
+    assert_eq!(err, EscrowError::InvalidMilestone);
+}
+
+#[test]
+fn test_advance_milestone_planted_ok() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    // Buyer must have a confirmed order — create and confirm one first.
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    let farmer_before = balance(&t, &t.farmer);
+    t.client.advance_milestone(&t.buyer, &id);
+    // 10% of 10_000 = 1_000
+    assert_eq!(balance(&t, &t.farmer), farmer_before + 1_000);
+
+    let c = t.client.get_campaign(&id);
+    assert_eq!(c.current_milestone, 1);
+    assert_eq!(c.tranche_released, 1_000);
+}
+
+#[test]
+fn test_advance_milestone_growing_ok() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    t.client.advance_milestone(&t.buyer, &id); // Planted: 1_000
+    let farmer_before = balance(&t, &t.farmer);
+    t.client.advance_milestone(&t.buyer, &id); // Growing: 1_000
+    assert_eq!(balance(&t, &t.farmer), farmer_before + 1_000);
+
+    let c = t.client.get_campaign(&id);
+    assert_eq!(c.current_milestone, 2);
+    assert_eq!(c.tranche_released, 2_000);
+}
+
+#[test]
+fn test_advance_milestone_all_five_ok() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    let farmer_before = balance(&t, &t.farmer);
+    for _ in 0..5 {
+        t.client.advance_milestone(&t.buyer, &id);
+    }
+    // 5 x 1_000 = 5_000 (50% of 10_000)
+    assert_eq!(balance(&t, &t.farmer), farmer_before + 5_000);
+    let c = t.client.get_campaign(&id);
+    assert_eq!(c.current_milestone, 5);
+    assert_eq!(c.tranche_released, 5_000);
+}
+
+#[test]
+fn test_advance_milestone_rejects_farmer() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    // Farmer cannot advance milestones (not a buyer).
+    let err = t.client.try_advance_milestone(&t.farmer, &id)
+        .unwrap_err().unwrap();
+    assert_eq!(err, EscrowError::NotBuyerOrOracle);
+}
+
+#[test]
+fn test_advance_milestone_admin_as_oracle_ok() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    // Admin acts as oracle — no order needed.
+    let farmer_before = balance(&t, &t.farmer);
+    t.client.advance_milestone(&t.admin, &id);
+    assert_eq!(balance(&t, &t.farmer), farmer_before + 1_000);
+}
+
+#[test]
+fn test_advance_milestone_rejects_no_config() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    let err = t.client.try_advance_milestone(&t.buyer, &id)
+        .unwrap_err().unwrap();
+    assert_eq!(err, EscrowError::MilestoneNotConfigured);
+}
+
+#[test]
+fn test_advance_milestone_rejects_past_end() {
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    for _ in 0..5 {
+        t.client.advance_milestone(&t.buyer, &id);
+    }
+    // 6th advance should fail — no more milestones.
+    let err = t.client.try_advance_milestone(&t.buyer, &id)
+        .unwrap_err().unwrap();
+    assert_eq!(err, EscrowError::InvalidMilestone);
+}
+
+#[test]
+fn test_advance_milestone_over_release_prevented() {
+    // 5 milestones each at 30% = 150% total. The 70% MAX_TRANCHE_BPS cap
+    // should reject the 3rd milestone (cumulative 90% > 70%).
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+
+    let mut configs = Vec::new(&t.env);
+    for i in 0..5 {
+        configs.push_back(MilestoneConfig {
+            milestone: match i {
+                0 => Milestone::Planted,
+                1 => Milestone::Growing,
+                2 => Milestone::Harvested,
+                3 => Milestone::Shipped,
+                _ => Milestone::Delivered,
+            },
+            release_bps: 3000, // 30% each
+        });
+    }
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    t.client.advance_milestone(&t.buyer, &id); // 30% = 3_000
+    t.client.advance_milestone(&t.buyer, &id); // 30% = 3_000 (total 6_000)
+    let err = t.client.try_advance_milestone(&t.buyer, &id)
+        .unwrap_err().unwrap();
+    // 3rd milestone would push to 9_000 > 7_000 max.
+    assert_eq!(err, EscrowError::InvalidTranche);
+}
+
+#[test]
+fn test_advance_milestone_refund_after_partial_release() {
+    // After advancing some milestones, campaign fails.
+    // Investor gets proportional refund from remaining pool.
+    let t = setup();
+    let deadline = future_deadline(&t);
+    let id = t.client.create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
+    t.client.invest(&t.investor1, &id, &10_000);
+    let configs = milestone_configs_50pct(&t);
+    t.client.set_milestone_configs(&t.admin, &id, &configs);
+
+    let order_id = t.client.create_order(&t.buyer, &id, &1_000);
+    t.client.confirm_order(&t.buyer, &order_id);
+
+    // Advance 2 milestones: 2_000 released (20%).
+    t.client.advance_milestone(&t.buyer, &id);
+    t.client.advance_milestone(&t.buyer, &id);
+
+    // Campaign fails. Remaining pool = 10_000 - 2_000 = 8_000.
+    t.client.mark_campaign_failed(&t.farmer, &id);
+    let refund = t.client.refund(&t.investor1, &id);
+    // Investor has 100% of contribution -> 100% of pool = 8_000.
+    assert_eq!(refund, 8_000);
+}
