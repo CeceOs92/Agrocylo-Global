@@ -5,6 +5,8 @@ import { prisma } from "../config/database.js";
 import { NotificationService } from "./notificationService.js";
 import { wsManager } from "./wsManager.js";
 import type { RawRpcEvent } from "../types/rawRpcEvent.js";
+import { BlockchainEventIngestionService } from "./events/blockchainEventIngestionService.js";
+import { EscrowEventIngestionService } from "./events/escrowEventIngestionService.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const CHECKPOINT_SERVICE_NAME = "contract-watcher";
@@ -209,13 +211,25 @@ export async function startContractWatcher(): Promise<void> {
           continue;
         }
 
-        void import("./events/blockchainEventIngestionService.js")
-          .then(({ BlockchainEventIngestionService }) => BlockchainEventIngestionService.ingestEvent(event))
-          .catch((err) => logger.error("[ContractWatcher] BlockchainEventIngestionService import failed", err));
+        const ingestionResults = await Promise.allSettled([
+          BlockchainEventIngestionService.ingestEvent(event),
+          EscrowEventIngestionService.ingestEvent(event),
+        ]);
 
-        void import("./events/escrowEventIngestionService.js")
-          .then(({ EscrowEventIngestionService }) => EscrowEventIngestionService.ingestEvent(event))
-          .catch((err) => logger.error("[ContractWatcher] EscrowEventIngestionService import failed", err));
+        const failures = ingestionResults.filter((r) => r.status === "rejected");
+        if (failures.length > 0) {
+          for (const f of failures) {
+            logger.error("[ContractWatcher] Ingestion failed for event", {
+              error: f.status === "rejected" ? f.reason : undefined,
+              ledger: event.ledger,
+              eventIndex: event.eventIndex,
+            });
+          }
+          logger.error(
+            `[ContractWatcher] Halting checkpoint advance at ledger ${event.ledger} due to ingestion failure. Will retry on next poll.`,
+          );
+          return;
+        }
 
         handleEvent(event);
 
