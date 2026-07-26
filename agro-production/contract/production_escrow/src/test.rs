@@ -22,6 +22,7 @@ struct TestEnv<'a> {
     client: ProductionEscrowContractClient<'a>,
     token_id: Address,
     admin: Address,
+    attester: Address,
     farmer: Address,
     investor1: Address,
     investor2: Address,
@@ -33,6 +34,7 @@ fn setup() -> TestEnv<'static> {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
+    let attester = Address::generate(&env);
     let farmer = Address::generate(&env);
     let investor1 = Address::generate(&env);
     let investor2 = Address::generate(&env);
@@ -55,7 +57,9 @@ fn setup() -> TestEnv<'static> {
 
     let mut tokens = Vec::new(&env);
     tokens.push_back(token_id.clone());
-    client.initialize(&admin, &tokens);
+    let fee_collector = Address::generate(&env);
+    client.initialize(&admin, &tokens, &fee_collector, 300);
+    client.set_attester(&admin, &attester);
 
     // Leak lifetimes to 'static for convenience struct.
     let env: Env = unsafe { std::mem::transmute(env) };
@@ -66,6 +70,7 @@ fn setup() -> TestEnv<'static> {
         client,
         token_id,
         admin,
+        attester,
         farmer,
         investor1,
         investor2,
@@ -434,7 +439,7 @@ fn test_mark_harvest_ok() {
     t.client.start_production(&t.farmer, &id);
 
     let farmer_before = balance(&t, &t.farmer);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let c = t.client.get_campaign(&id);
     assert_eq!(c.status, CampaignStatus::Harvested);
@@ -453,7 +458,7 @@ fn test_mark_harvest_invalid_transition_from_funded() {
     t.client.invest(&t.investor1, &id, &10_000); // Funded
     let err = t
         .client
-        .try_mark_harvest(&t.farmer, &id)
+        .try_mark_harvest(&t.farmer, &t.attester, &id)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, EscrowError::CampaignNotInProduction);
@@ -468,7 +473,7 @@ fn test_lifecycle_full_happy_path() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     assert_eq!(t.client.get_campaign(&id).status, CampaignStatus::Harvested);
 }
 
@@ -497,7 +502,7 @@ fn test_second_tranche_brings_total_to_70_percent() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     assert_eq!(t.client.get_campaign(&id).tranche_released, 7_000);
 }
 
@@ -514,7 +519,7 @@ fn test_settle_ok() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     assert_eq!(t.client.get_campaign(&id).status, CampaignStatus::Settled);
 }
@@ -542,7 +547,7 @@ fn test_investor_claims_returns_after_settlement() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
 
     let before = balance(&t, &t.investor1);
@@ -562,7 +567,7 @@ fn test_proportional_payout_two_investors() {
     t.client.invest(&t.investor1, &id, &6_000);
     t.client.invest(&t.investor2, &id, &4_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
 
     // Pool = 10_000 - 7_000 = 3_000
@@ -581,7 +586,7 @@ fn test_double_claim_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     t.client.claim_returns(&t.investor1, &id);
     let err = t
@@ -601,7 +606,7 @@ fn test_non_investor_cannot_claim() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     let err = t
         .client
@@ -624,7 +629,7 @@ fn test_create_order_ok() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let o = t.client.get_order(&order_id);
@@ -642,7 +647,7 @@ fn test_confirm_order_adds_to_revenue() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     t.client.confirm_order(&t.buyer, &order_id);
@@ -660,7 +665,7 @@ fn test_confirm_order_only_by_buyer() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let err = t
@@ -680,7 +685,7 @@ fn test_double_confirm_order_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     t.client.confirm_order(&t.buyer, &order_id);
@@ -716,7 +721,7 @@ fn test_settlement_includes_order_revenue() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
     t.client.confirm_order(&t.buyer, &order_id);
@@ -977,7 +982,7 @@ fn test_mark_harvest_non_farmer_rejected() {
     t.client.start_production(&t.farmer, &id);
     let err = t
         .client
-        .try_mark_harvest(&t.buyer, &id)
+        .try_mark_harvest(&t.buyer, &t.attester, &id)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, EscrowError::NotFarmer);
@@ -992,7 +997,7 @@ fn test_settle_unauthorized_caller_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let err = t.client.try_settle(&t.buyer, &id).unwrap_err().unwrap();
     assert_eq!(err, EscrowError::NotAdmin);
 }
@@ -1039,7 +1044,7 @@ fn test_create_order_zero_amount_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let err = t
         .client
         .try_create_order(&t.buyer, &id, &0)
@@ -1074,7 +1079,7 @@ fn test_open_dispute_on_already_settled_campaign_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     let err = t
         .client
@@ -1105,7 +1110,7 @@ fn test_admin_can_also_settle() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.admin, &id);
     assert_eq!(t.client.get_campaign(&id).status, CampaignStatus::Settled);
 }
@@ -1144,7 +1149,7 @@ fn test_order_valid_transition_pending_to_confirmed() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let o_before = t.client.get_order(&order_id);
@@ -1164,7 +1169,7 @@ fn test_cannot_confirm_order_twice() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &200);
     t.client.confirm_order(&t.buyer, &order_id);
@@ -1222,7 +1227,7 @@ fn test_campaign_valid_transition_in_production_to_harvested() {
         t.client.get_campaign(&id).status,
         CampaignStatus::InProduction
     );
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     assert_eq!(
         t.client.get_campaign(&id).status,
         CampaignStatus::Harvested
@@ -1238,7 +1243,7 @@ fn test_campaign_valid_transition_harvested_to_settled() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     assert_eq!(
         t.client.get_campaign(&id).status,
         CampaignStatus::Harvested
@@ -1367,7 +1372,7 @@ fn test_cannot_mark_harvest_from_funded() {
     t.client.invest(&t.investor1, &id, &10_000); // → Funded
     let err = t
         .client
-        .try_mark_harvest(&t.farmer, &id)
+        .try_mark_harvest(&t.farmer, &t.attester, &id)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, EscrowError::CampaignNotInProduction);
@@ -1399,7 +1404,7 @@ fn test_cannot_refund_settled_campaign() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id); // → Settled
     let err = t
         .client
@@ -1464,7 +1469,7 @@ fn test_state_persisted_after_mark_harvest() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let c = t.client.get_campaign(&id);
     assert_eq!(c.status, CampaignStatus::Harvested);
     assert_eq!(c.tranche_released, 7_000);
@@ -1584,7 +1589,7 @@ fn test_order_not_refunded_before_96h() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let buyer_before = balance(&t, &t.buyer);
@@ -1609,7 +1614,7 @@ fn test_order_refunded_at_exactly_96h() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let buyer_before = balance(&t, &t.buyer);
@@ -1633,7 +1638,7 @@ fn test_order_refunded_after_96h() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &300);
     let buyer_before = balance(&t, &t.buyer);
@@ -1658,7 +1663,7 @@ fn test_order_expiration_idempotent() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &400);
     advance_ledger(&t.env, ORDER_EXPIRY_SECS);
@@ -1687,7 +1692,7 @@ fn test_confirmed_order_not_eligible_for_batch_refund() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     t.client.confirm_order(&t.buyer, &order_id); // already confirmed
@@ -1738,7 +1743,7 @@ fn test_error_not_farmer_mark_harvest() {
     t.client.start_production(&t.farmer, &id);
     let err = t
         .client
-        .try_mark_harvest(&t.investor1, &id)
+        .try_mark_harvest(&t.investor1, &t.attester, &id)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, EscrowError::NotFarmer);
@@ -1753,7 +1758,7 @@ fn test_error_not_buyer_confirm_order() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let order_id = t.client.create_order(&t.buyer, &id, &100);
     let err = t
         .client
@@ -1772,7 +1777,7 @@ fn test_error_not_investor_cannot_claim() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     // investor2 never invested
     let err = t
@@ -1809,7 +1814,7 @@ fn test_error_not_admin_settle() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let err = t
         .client
         .try_settle(&t.investor1, &id)
@@ -1881,7 +1886,7 @@ fn test_error_campaign_not_in_production_mark_harvest() {
     t.client.invest(&t.investor1, &id, &10_000); // → Funded, not InProduction
     let err = t
         .client
-        .try_mark_harvest(&t.farmer, &id)
+        .try_mark_harvest(&t.farmer, &t.attester, &id)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, EscrowError::CampaignNotInProduction);
@@ -1987,7 +1992,7 @@ fn test_error_order_not_pending_confirm_twice() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let order_id = t.client.create_order(&t.buyer, &id, &200);
     t.client.confirm_order(&t.buyer, &order_id);
     let err = t
@@ -2065,7 +2070,7 @@ fn test_error_invalid_amount_create_order_zero() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     let err = t
         .client
         .try_create_order(&t.buyer, &id, &0)
@@ -2214,7 +2219,7 @@ fn test_error_already_claimed_returns() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
     t.client.settle(&t.farmer, &id);
     t.client.claim_returns(&t.investor1, &id);
     let err = t
@@ -2447,7 +2452,7 @@ fn test_batch_refund_orders_refunds_expired_orders() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let sac = soroban_sdk::token::StellarAssetClient::new(&t.env, &t.token_id);
     let buyer2 = Address::generate(&t.env);
@@ -2484,7 +2489,7 @@ fn test_batch_refund_orders_emits_single_summary_event() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &400);
     advance_ledger(&t.env, ORDER_EXPIRY_SECS);
@@ -2507,7 +2512,7 @@ fn test_batch_refund_orders_skips_unexpired_orders() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &500);
     let buyer_before = balance(&t, &t.buyer);
@@ -2545,7 +2550,7 @@ fn test_batch_refund_orders_count_and_total_are_correct() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let o1 = t.client.create_order(&t.buyer, &id, &100);
     let o2 = t.client.create_order(&t.buyer, &id, &200);
@@ -2586,7 +2591,7 @@ fn test_mark_campaign_failed_from_funded_state_full_refund() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     // Create order before settlement is OK
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
@@ -2633,8 +2638,8 @@ fn test_mark_campaign_failed_from_in_production_proportional_refund() {
     t.client.start_production(&t.farmer, &id); // 30% tranche released (3_000)
     assert_eq!(t.client.get_campaign(&id).tranche_released, 3_000);
 
-    // Farmer marks campaign as failed during production
-    t.client.mark_campaign_failed(&t.farmer, &id);
+    // Admin marks campaign as failed during production (farmer cannot unilaterally fail after production starts)
+    t.client.mark_campaign_failed(&t.admin, &id);
     assert_eq!(t.client.get_campaign(&id).status, CampaignStatus::Failed);
 
     // Pool = 10_000 - 3_000 = 7_000
@@ -2655,7 +2660,7 @@ fn test_mark_campaign_failed_from_harvested_proportional_refund() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000); // → Funded
     t.client.start_production(&t.farmer, &id); // 30% → 3_000
-    t.client.mark_harvest(&t.farmer, &id); // +40% → 7_000 total
+    t.client.mark_harvest(&t.farmer, &t.attester, &id); // +40% → 7_000 total
 
     // Add some revenue via an order
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
@@ -2698,7 +2703,7 @@ fn test_mark_campaign_failed_non_farmer_non_admin_rejected() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     // Create and confirm order before settlement
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
@@ -2768,7 +2773,7 @@ fn test_refundable_amount_proportional_after_production() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &id);
+    t.client.mark_harvest(&t.farmer, &t.attester, &id);
 
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
 
@@ -2785,7 +2790,7 @@ fn test_refundable_amount_proportional_after_production() {
     let order = t.client.get_order(&order_id);
     assert_eq!(order.status, OrderStatus::Refunded);
     t.client.start_production(&t.farmer, &id); // 3_000 released
-    t.client.mark_campaign_failed(&t.farmer, &id);
+    t.client.mark_campaign_failed(&t.admin, &id);
 
     // Pool = 10_000 - 3_000 = 7_000
     // Investor1 has 100% share → 7_000
@@ -2846,7 +2851,7 @@ fn test_batch_refund_investors_proportional_after_production_failure() {
     t.client.invest(&t.investor1, &id, &6_000);
     t.client.invest(&t.investor2, &id, &4_000); // → Funded
     t.client.start_production(&t.farmer, &id); // 30% → 3_000 released
-    t.client.mark_campaign_failed(&t.farmer, &id);
+    t.client.mark_campaign_failed(&t.admin, &id);
 
     let before1 = balance(&t, &t.investor1);
     let before2 = balance(&t, &t.investor2);
@@ -2874,7 +2879,7 @@ fn test_batch_refund_investors_proportional_with_revenue() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id); // 3_000 released
-    t.client.mark_harvest(&t.farmer, &id); // +4_000 = 7_000 total
+    t.client.mark_harvest(&t.farmer, &t.attester, &id); // +4_000 = 7_000 total
 
     // Order adds revenue
     let order_id = t.client.create_order(&t.buyer, &id, &2_000);
@@ -2909,7 +2914,7 @@ fn test_tranche_cannot_exceed_max_tranche_bps() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
     t.client.start_production(&t.farmer, &id); // 3_000 (30%)
-    t.client.mark_harvest(&t.farmer, &id); // +4_000 = 7_000 (70%)
+    t.client.mark_harvest(&t.farmer, &t.attester, &id); // +4_000 = 7_000 (70%)
 
     // Verify the campaign at least 30% remains in escrow
     let c = t.client.get_campaign(&id);
@@ -2955,7 +2960,7 @@ fn test_token_balance_invariant_proportional_failure() {
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000); // investor loses 10_000
     t.client.start_production(&t.farmer, &id); // farmer gets 3_000
-    t.client.mark_campaign_failed(&t.farmer, &id);
+    t.client.mark_campaign_failed(&t.admin, &id);
     // investor gets back proportional: 10_000 - 3_000 = 7_000
     t.client.refund(&t.investor1, &id);
 
