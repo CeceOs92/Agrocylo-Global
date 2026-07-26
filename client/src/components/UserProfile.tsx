@@ -182,7 +182,7 @@ export default function UserProfile({ userId }: UserProfileProps) {
                   </Button>
                 ) : (
                   <Button asChild variant="outline" className="w-full">
-                    <Link href={`/orders/new?farmer=${userId}`}>
+                    <Link href={`/orders/new?farmerId=${userId}`}>
                       <ClipboardList className="size-4" />
                       Create order
                     </Link>

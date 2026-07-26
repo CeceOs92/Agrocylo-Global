@@ -128,7 +128,7 @@ test.describe("Checkout Flow", () => {
     walletMock,
   }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     await expect(page.getByLabel("Farmer Address")).toHaveValue(
@@ -158,7 +158,7 @@ test.describe("Checkout Flow", () => {
 
   test("should show fee breakdown at checkout", async ({ page, walletMock }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     await page.getByLabel("Amount (XLM)").fill("100");
@@ -176,7 +176,7 @@ test.describe("Order Confirmation", () => {
     walletMock,
   }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     await page.getByLabel("Amount (XLM)").fill("25");
@@ -200,7 +200,7 @@ test.describe("Order Confirmation", () => {
     walletMock,
   }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     await page.getByLabel("Amount (XLM)").fill("15");
@@ -248,7 +248,7 @@ test.describe("Negative-path: Wallet Rejection", () => {
   }) => {
     await walletMock.connect(page);
     await walletMock.rejectSignature(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     await page.getByLabel("Amount (XLM)").fill("50");
@@ -270,7 +270,7 @@ test.describe("Order Validation", () => {
     walletMock,
   }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     await walletMock.disconnect(page);
     await page.reload();
@@ -290,7 +290,7 @@ test.describe("Order Validation", () => {
 
   test("should validate order form inputs", async ({ page, walletMock }) => {
     await walletMock.connect(page);
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
     await page.reload();
 
     const submitBtn = page.getByRole("button", {

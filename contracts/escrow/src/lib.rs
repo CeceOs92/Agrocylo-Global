@@ -331,11 +331,19 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn refund_expired_order(env: Env, order_id: u64) -> Result<(), EscrowError> {
+    pub fn refund_expired_order(env: Env, caller: Address, order_id: u64) -> Result<(), EscrowError> {
+        caller.require_auth();
         let mut order = read_order(&env, order_id)?;
+        if order.buyer != caller {
+            return Err(EscrowError::NotBuyer);
+        }
 
         if order.status != OrderStatus::Pending {
             return Err(EscrowError::OrderNotPending);
+        }
+
+        if order.delivery_timestamp != 0 {
+            return Err(EscrowError::OrderNotDelivered);
         }
 
         if env.ledger().timestamp() <= order.timestamp + NINETY_SIX_HOURS_IN_SECONDS {
@@ -369,6 +377,10 @@ impl EscrowContract {
 
             if order.status != OrderStatus::Pending {
                 return Err(EscrowError::OrderNotPending);
+            }
+
+            if order.delivery_timestamp != 0 {
+                return Err(EscrowError::OrderNotDelivered);
             }
 
             if current_time <= order.timestamp + NINETY_SIX_HOURS_IN_SECONDS {
