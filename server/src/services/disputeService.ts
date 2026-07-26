@@ -28,6 +28,35 @@ export class DisputeService {
   }
 
   /**
+   * Fetch disputes scoped to a specific wallet (buyer or seller)
+   */
+  static async getAllDisputesForWallet(walletAddress: string) {
+    try {
+      return await prisma.dispute.findMany({
+        where: {
+          OR: [
+            { order: { buyerAddress: walletAddress } },
+            { order: { sellerAddress: walletAddress } },
+          ],
+        },
+        include: {
+          order: {
+            include: {
+              product: true,
+              buyerUser: true,
+              sellerUser: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    } catch (error) {
+      logger.error("Failed to fetch disputes for wallet", { error, walletAddress });
+      throw new ApiError(500, "Internal Server Error", "Failed to fetch disputes");
+    }
+  }
+
+  /**
    * Fetch a single dispute by its on-chain order ID
    */
   static async getDisputeByOrderId(orderIdOnChain: string) {
@@ -73,8 +102,19 @@ export class DisputeService {
   /**
    * Orchestrate evidence upload and attachment with validation
    */
-  static async provideEvidence(orderIdOnChain: string, file: Express.Multer.File) {
+  static async provideEvidence(orderIdOnChain: string, file: Express.Multer.File, walletAddress: string) {
     const dispute = await this.getDisputeByOrderId(orderIdOnChain);
+
+    const isParticipant =
+      dispute.order.buyerAddress === walletAddress || dispute.order.sellerAddress === walletAddress;
+
+    if (!isParticipant) {
+      throw new ApiError(403, "Forbidden", "Only dispute participants can submit evidence");
+    }
+
+    if (dispute.status === "Resolved" || dispute.status === "Dismissed") {
+      throw new ApiError(409, "Conflict", `Cannot submit evidence to a ${dispute.status.toLowerCase()} dispute`);
+    }
 
     const evidenceHash = await EvidenceStorageService.uploadEvidence(file, orderIdOnChain);
 
