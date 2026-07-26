@@ -1021,8 +1021,7 @@ impl ProductionEscrowContract {
                 &payout,
             );
             count += 1;
-            total = checked_add(total, contribution)?;
-            total += payout;
+            total = checked_add(total, payout)?;
         }
 
         // Emit a single summary event for the whole batch.
@@ -1034,12 +1033,17 @@ impl ProductionEscrowContract {
     }
 
     /// Batch refund pending orders that are older than ORDER_EXPIRY_SECS (96 h).
+    /// Enforces a hard cap of 50 orders per call to prevent excessive ledger reads.
     /// Silently skips orders that are not pending or have not expired yet.
     /// Emits ONE `order:batch_ref` summary event with (count, total).
     pub fn batch_refund_orders(
         env: Env,
         order_ids: Vec<u64>,
     ) -> Result<(u32, i128), EscrowError> {
+        const MAX_BATCH: u32 = 50;
+        if order_ids.len() > MAX_BATCH {
+            return Err(EscrowError::InvalidAmount);
+        }
         let now = env.ledger().timestamp();
 
         let mut count: u32 = 0;
@@ -1090,8 +1094,7 @@ impl ProductionEscrowContract {
                 );
             }
             count += 1;
-            total += refund_amount;
-            total = checked_add(total, order.amount)?;
+            total = checked_add(total, refund_amount)?;
         }
 
         // Emit a single summary event for the whole batch.
