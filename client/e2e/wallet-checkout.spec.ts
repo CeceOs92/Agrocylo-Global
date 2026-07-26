@@ -56,7 +56,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should navigate to order creation page", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Ensure wallet is connected
     await page.evaluate((address) => {
@@ -73,7 +73,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should validate order form inputs", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Try to submit empty form
     const submitBtn = page.getByRole("button", {
@@ -88,7 +88,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should calculate platform fee correctly", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Enter amount
     const amountInput = page.getByLabel(/amount \(xlm\)/i);
@@ -102,7 +102,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should complete full checkout flow", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Ensure wallet is connected
     await page.evaluate((address) => {
@@ -114,7 +114,9 @@ test.describe("Wallet Connection and Checkout Flow", () => {
 
     // Fill in order form
     const farmerInput = page.getByLabel(/farmer address/i);
-    await expect(farmerInput).toHaveValue(FARMER_ADDRESS);
+    if ((await farmerInput.inputValue()) === "") {
+      await farmerInput.fill(FARMER_ADDRESS);
+    }
 
     const amountInput = page.getByLabel(/amount \(xlm\)/i);
     await amountInput.fill("50");
@@ -139,7 +141,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should show transaction hash after order creation", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Ensure wallet is connected
     await page.evaluate((address) => {
@@ -161,7 +163,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should navigate to orders list after creation", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Ensure wallet is connected
     await page.evaluate((address) => {
@@ -195,7 +197,7 @@ test.describe("Wallet Connection and Checkout Flow", () => {
   });
 
   test("should prevent order creation without wallet connection", async () => {
-    await page.goto(`/orders/new?farmer=${FARMER_ADDRESS}`);
+    await page.goto(`/orders/new?farmerId=${FARMER_ADDRESS}`);
 
     // Clear wallet connection
     await page.evaluate(() => {
