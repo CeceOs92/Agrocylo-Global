@@ -83,6 +83,10 @@ pub enum EscrowError {
     InvalidResolution = 72,
 
     NoShortfall = 80,
+    InvalidMilestone = 81,
+    MilestoneNotConfigured = 82,
+    MilestoneAlreadyAdvanced = 83,
+    NotBuyerOrOracle = 84,
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +125,28 @@ pub enum DisputeResolution {
     Partial(u32),
 }
 
+/// Production milestone stages. Each milestone can be configured to release a
+/// percentage of the total raised funds when advanced by a buyer or oracle.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Milestone {
+    Planted,
+    Growing,
+    Harvested,
+    Shipped,
+    Delivered,
+}
+
+/// Configuration for a single milestone: which stage it is and what percentage
+/// (in basis points) of total_raised to release when advanced.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MilestoneConfig {
+    pub milestone: Milestone,
+    /// Basis points of total_raised to release (e.g. 1000 = 10%).
+    pub release_bps: u32,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Campaign {
@@ -134,6 +160,9 @@ pub struct Campaign {
     pub deadline: u64,
     pub created_at: u64,
     pub status: CampaignStatus,
+    /// Index into the milestone configs for the last advanced milestone.
+    /// 0 = no milestones advanced yet (before Planted).
+    pub current_milestone: u32,
 }
 
 #[contracttype]
@@ -168,6 +197,8 @@ pub enum DataKey {
     /// Per-campaign per-investor claim flag (true if already claimed/refunded).
     Claimed(u64, Address),
     Order(u64),
+    /// Per-campaign milestone release configuration (Vec<MilestoneConfig>).
+    MilestoneConfigs(u64),
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +219,20 @@ const TTL_EXTEND: u32 = 100_000;
 
 /// Orders expire and become refundable after 96 hours of inactivity.
 pub const ORDER_EXPIRY_SECS: u64 = 96 * 3600;
+
+/// The ordered sequence of milestones. Index 1 = Planted, 2 = Growing, etc.
+/// A campaign starts at milestone 0 (no milestones advanced).
+/// Validates that the given milestone index matches the expected milestone type.
+fn validate_milestone_order(idx: u32, milestone: &Milestone) -> bool {
+    match (idx, milestone) {
+        (0, Milestone::Planted) => true,
+        (1, Milestone::Growing) => true,
+        (2, Milestone::Harvested) => true,
+        (3, Milestone::Shipped) => true,
+        (4, Milestone::Delivered) => true,
+        _ => false,
+    }
+}
 
 // Event topic helpers.
 fn t_campaign() -> Symbol {
@@ -337,6 +382,7 @@ impl ProductionEscrowContract {
             deadline,
             created_at: now,
             status: CampaignStatus::Funding,
+            current_milestone: 0,
         };
 
         env.storage()
@@ -490,6 +536,107 @@ impl ProductionEscrowContract {
         env.events().publish(
             (t_campaign(), symbol_short!("harvest")),
             (campaign_id, farmer),
+        );
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Milestone-based partial release
+    // -----------------------------------------------------------------------
+
+    /// Admin sets the milestone release configuration for a campaign.
+    /// Each config entry maps a milestone stage to a percentage (basis points)
+    /// of total_raised to release when that milestone is advanced.
+    /// Configs must be provided in sequential order (Planted -> Growing -> ...).
+    pub fn set_milestone_configs(
+        env: Env,
+        admin_caller: Address,
+        campaign_id: u64,
+        configs: Vec<MilestoneConfig>,
+    ) -> Result<(), EscrowError> {
+        admin_caller.require_auth();
+        let admin_addr = admin(&env)?;
+        if admin_caller != admin_addr {
+            return Err(EscrowError::NotAdmin);
+        }
+        let campaign = load_campaign(&env, campaign_id)?;
+        // Only allow config before any milestones have been advanced.
+        if campaign.current_milestone > 0 {
+            return Err(EscrowError::MilestoneAlreadyAdvanced);
+        }
+        // Validate sequential order of milestones.
+        for i in 0..configs.len() {
+            let cfg = configs.get(i).unwrap();
+            if cfg.release_bps == 0 || cfg.release_bps > 10000 {
+                return Err(EscrowError::InvalidAmount);
+            }
+            if !validate_milestone_order(i, &cfg.milestone) {
+                return Err(EscrowError::InvalidMilestone);
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::MilestoneConfigs(campaign_id), &configs);
+        Ok(())
+    }
+
+    /// Advance to the next production milestone and release the configured
+    /// percentage of funds to the farmer. Restricted to buyers and oracles
+    /// (not the farmer) to prevent self-serving milestone claims.
+    ///
+    /// The caller must be a buyer (has a confirmed order on this campaign)
+    /// or an oracle (admin address acting as oracle).
+    pub fn advance_milestone(
+        env: Env,
+        caller: Address,
+        campaign_id: u64,
+    ) -> Result<(), EscrowError> {
+        caller.require_auth();
+        let mut campaign = load_campaign(&env, campaign_id)?;
+
+        // Only allow milestone advances during active production.
+        if campaign.status != CampaignStatus::Funded
+            && campaign.status != CampaignStatus::InProduction
+            && campaign.status != CampaignStatus::Harvested
+        {
+            return Err(EscrowError::CampaignNotFundedOrBeyond);
+        }
+
+        // Verify caller is buyer or oracle (admin).
+        let admin_addr = admin(&env)?;
+        let is_oracle = caller == admin_addr;
+        if !is_oracle {
+            // Check if caller is a buyer (has any confirmed order on this campaign).
+            let is_buyer = has_confirmed_order(&env, campaign_id, &caller);
+            if !is_buyer {
+                return Err(EscrowError::NotBuyerOrOracle);
+            }
+        }
+
+        // Load milestone configs.
+        let configs: Vec<MilestoneConfig> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestoneConfigs(campaign_id))
+            .ok_or(EscrowError::MilestoneNotConfigured)?;
+
+        let next_idx = campaign.current_milestone;
+        if next_idx >= configs.len() {
+            return Err(EscrowError::InvalidMilestone);
+        }
+
+        let cfg = configs.get(next_idx).unwrap();
+        let tranche_amount = checked_mul(campaign.total_raised, cfg.release_bps as i128)? / BPS_DENOM;
+        if tranche_amount > 0 {
+            release_tranche_internal(&env, &mut campaign, tranche_amount)?;
+        }
+
+        campaign.current_milestone = next_idx + 1;
+        save_campaign(&env, &campaign);
+
+        env.events().publish(
+            (t_campaign(), symbol_short!("milestone")),
+            (campaign_id, caller, next_idx + 1, tranche_amount),
         );
         Ok(())
     }
@@ -1172,6 +1319,13 @@ impl ProductionEscrowContract {
     pub fn get_admin(env: Env) -> Result<Address, EscrowError> {
         admin(&env)
     }
+
+    pub fn get_milestone_configs(env: Env, campaign_id: u64) -> Vec<MilestoneConfig> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MilestoneConfigs(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1198,6 +1352,8 @@ mod registry_client {
         let _: () = env.invoke_contract(registry, &func, args);
         Ok(())
     }
+}
+
 // Checked arithmetic for monetary values (Issue #457).
 fn checked_add(a: i128, b: i128) -> Result<i128, EscrowError> {
     a.checked_add(b)
@@ -1240,6 +1396,29 @@ fn save_campaign(env: &Env, c: &Campaign) {
     env.storage()
         .persistent()
         .extend_ttl(&DataKey::Campaign(c.id), TTL_THRESHOLD, TTL_EXTEND);
+}
+
+/// Check if a buyer has at least one confirmed order on a campaign.
+/// Used by advance_milestone to verify caller authorization.
+fn has_confirmed_order(env: &Env, campaign_id: u64, buyer: &Address) -> bool {
+    // Scan orders by checking up to order_count for confirmed orders by this buyer.
+    let order_count: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::OrderCount)
+        .unwrap_or(0);
+    for i in 1..=order_count {
+        if let Some(order) = env
+            .storage()
+            .persistent()
+            .get::<_, Order>(&DataKey::Order(i))
+        {
+            if order.campaign_id == campaign_id && order.buyer == *buyer && order.status == OrderStatus::Confirmed {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 
