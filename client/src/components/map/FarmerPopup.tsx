@@ -91,7 +91,7 @@ export default function FarmerPopup({
           View Profile
         </a>
         <a
-          href={`/orders/new?farmer=${farmer.wallet_address}`}
+          href={`/orders/new?farmerId=${farmer.wallet_address}`}
           className={buttonVariants({
             size: "sm",
             className: "flex-1",

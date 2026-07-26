@@ -23,6 +23,24 @@ export class OrderService {
     }
   }
 
+  static async getAllForWallet(walletAddress: string) {
+    try {
+      return await prisma.order.findMany({
+        where: {
+          OR: [
+            { buyerAddress: walletAddress },
+            { sellerAddress: walletAddress },
+          ],
+        },
+        include: ORDER_INCLUDE,
+        orderBy: ORDER_BY_CREATED_DESC,
+      });
+    } catch (error) {
+      logger.error("Failed to fetch orders for wallet", { error, walletAddress });
+      throw new ApiError(500, "Internal Server Error", "Failed to fetch orders");
+    }
+  }
+
   static async getByOrderId(orderIdOnChain: string) {
     try {
       const order = await prisma.order.findUnique({

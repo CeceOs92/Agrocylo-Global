@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Wallet, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Wallet } from "lucide-react";
 
 import {
   Card,
@@ -11,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,22 +21,41 @@ import { useWallet } from "@/hooks/useWallet";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { createOrderFormSchema } from "@/lib/validation";
 import { FormError } from "@/components/FormError";
+import { getInitials } from "@/lib/utils";
+import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 
 import { requireNativeTokenContractId } from "@/services/stellar/networkConfig";
-import { PLATFORM_FEE_PCT, xlmToStroops, displayFee, displayNet } from "@/lib/feeCalculations";
+import {
+  PLATFORM_FEE_PCT,
+  xlmToStroops,
+  displayFee,
+  displayNet,
+} from "@/lib/feeCalculations";
 
-type FormErrors = Partial<Record<"farmer" | "amount" | "deliveryDeadline", string>>;
+type FormErrors = Partial<
+  Record<"farmer" | "amount" | "deliveryDeadline", string>
+>;
 
-export default function CreateOrderForm() {
-  const searchParams = useSearchParams();
-  const prefilledFarmer = searchParams.get("farmer") ?? "";
+export interface ResolvedFarmer {
+  farmerId: string;
+  walletAddress: string;
+  displayName: string;
+  avatarUrl?: string | null;
+}
 
+interface CreateOrderFormProps {
+  resolvedFarmer?: ResolvedFarmer | null;
+}
+
+export function CreateOrderForm({
+  resolvedFarmer = null,
+}: CreateOrderFormProps) {
   const { connected } = useWallet();
   const { createOrder, createState } = useEscrowContract();
   const { trackFunnelStep, trackTransactionAttempt, trackFormSubmission } =
     useAnalytics();
 
-  const [farmer, setFarmer] = useState(prefilledFarmer);
+  const [farmer, setFarmer] = useState(resolvedFarmer?.walletAddress ?? "");
   const [amount, setAmount] = useState("");
   const [deliveryDeadline, setDeliveryDeadline] = useState("");
   const [description, setDescription] = useState("");
@@ -194,7 +213,7 @@ export default function CreateOrderForm() {
   try {
     nativeTokenContractId = requireNativeTokenContractId();
   } catch {
-    // not configured — handled below
+    // not configured - handled below
   }
 
   if (!nativeTokenContractId) {
@@ -231,17 +250,63 @@ export default function CreateOrderForm() {
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        <Input
-          label="Farmer Address"
-          placeholder="G…"
-          value={farmer}
-          onChange={(e) => {
-            setFarmer(e.target.value);
-            if (errors.farmer) setErrors((prev) => ({ ...prev, farmer: undefined }));
-          }}
-          spellCheck={false}
-          error={errors.farmer}
-        />
+        {resolvedFarmer ? (
+          <div className="space-y-3 rounded-2xl border bg-secondary/20 p-4">
+            <div className="flex items-start gap-3">
+              <Avatar className="size-12 shrink-0 border">
+                {resolvedFarmer.avatarUrl ? (
+                  <AvatarImage
+                    src={resolvedFarmer.avatarUrl}
+                    alt={resolvedFarmer.displayName}
+                  />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                  {getInitials(resolvedFarmer.displayName)}
+                </AvatarFallback>
+              </Avatar>
+
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-sm font-semibold">
+                  {resolvedFarmer.displayName}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  Confirm the resolved farmer identity and destination address
+                  before signing the escrow transaction.
+                </p>
+                <Button asChild variant="link" className="h-auto px-0 text-xs">
+                  <Link href={`/profile/${resolvedFarmer.farmerId}`}>
+                    View farmer profile
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            <Input
+              label="Farmer Address"
+              value={farmer}
+              readOnly
+              spellCheck={false}
+              hint={`Verified destination for ${resolvedFarmer.displayName} (${formatTruncatedAddress(
+                resolvedFarmer.walletAddress,
+              )})`}
+              error={errors.farmer}
+            />
+          </div>
+        ) : (
+          <Input
+            label="Farmer Address"
+            placeholder="G..."
+            value={farmer}
+            onChange={(e) => {
+              setFarmer(e.target.value);
+              if (errors.farmer) {
+                setErrors((prev) => ({ ...prev, farmer: undefined }));
+              }
+            }}
+            spellCheck={false}
+            error={errors.farmer}
+          />
+        )}
 
         <Input
           label="Amount (XLM)"
@@ -252,7 +317,9 @@ export default function CreateOrderForm() {
           value={amount}
           onChange={(e) => {
             setAmount(e.target.value);
-            if (errors.amount) setErrors((prev) => ({ ...prev, amount: undefined }));
+            if (errors.amount) {
+              setErrors((prev) => ({ ...prev, amount: undefined }));
+            }
           }}
           error={errors.amount}
         />
@@ -264,7 +331,12 @@ export default function CreateOrderForm() {
           value={deliveryDeadline}
           onChange={(e) => {
             setDeliveryDeadline(e.target.value);
-            if (errors.deliveryDeadline) setErrors((prev) => ({ ...prev, deliveryDeadline: undefined }));
+            if (errors.deliveryDeadline) {
+              setErrors((prev) => ({
+                ...prev,
+                deliveryDeadline: undefined,
+              }));
+            }
           }}
           error={errors.deliveryDeadline}
         />
@@ -298,7 +370,11 @@ export default function CreateOrderForm() {
         )}
 
         {(createState.error || txStep === "error") && (
-          <FormError message={createState.error ?? "Transaction failed. Please try again."} />
+          <FormError
+            message={
+              createState.error ?? "Transaction failed. Please try again."
+            }
+          />
         )}
 
         <Button
@@ -309,13 +385,15 @@ export default function CreateOrderForm() {
           className="w-full"
         >
           {txStep === "signing"
-            ? "Sign in wallet…"
+            ? "Sign in wallet..."
             : "Confirm & Create Escrow Order"}
         </Button>
       </CardContent>
     </Card>
   );
 }
+
+export default CreateOrderForm;
 
 function Row({
   label,
