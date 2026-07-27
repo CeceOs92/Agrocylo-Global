@@ -32,6 +32,7 @@ import demandSupplyRoutes from "./routes/demandSupplyRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
 import adminRoutes, { adminErrorHandler } from "./routes/adminRoutes.js";
 import disputeRoutes from "./routes/disputeRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
 
 const app = express();
 
@@ -69,6 +70,7 @@ app.use(locationRoutes);
 app.use(notificationRoutes);
 app.use("/disputes", disputeRoutes);
 app.use(demandSupplyRoutes);
+app.use(analyticsRoutes);
 app.use(jobRoutes);
 app.use("/admin", adminRoutes);
 
