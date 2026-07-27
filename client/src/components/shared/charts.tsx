@@ -241,3 +241,95 @@ export function UsersGrowthChart({ data }: { data: UsersData[] }) {
     </ResponsiveContainer>
   );
 }
+
+// ─── Price Index / Forecast Chart ──────────────────────────────────────────
+
+interface PriceIndexPoint {
+  period: string;
+  price: number;
+  forecast?: number | null;
+  movingAvg?: number | null;
+}
+
+export function PriceForecastChart({ data }: { data: PriceIndexPoint[] }) {
+  if (!data.length) {
+    return (
+      <div className="text-muted-foreground flex h-[220px] items-center justify-center text-sm">
+        No price-index data for this region yet.
+      </div>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+        <XAxis dataKey="period" tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
+        <YAxis tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
+        <Tooltip {...tooltipStyle} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Line
+          type="monotone"
+          dataKey="price"
+          name="Price index"
+          stroke="var(--color-primary)"
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          connectNulls
+        />
+        <Line
+          type="monotone"
+          dataKey="movingAvg"
+          name="7-period MA"
+          stroke="#8b5cf6"
+          strokeWidth={2}
+          strokeDasharray="4 4"
+          dot={false}
+          connectNulls
+        />
+        <Line
+          type="monotone"
+          dataKey="forecast"
+          name="Forecast"
+          stroke="#10b981"
+          strokeWidth={2}
+          strokeDasharray="6 3"
+          dot={{ r: 3 }}
+          connectNulls
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Seasonal Yield Chart ──────────────────────────────────────────────────
+
+interface YieldPoint {
+  season: string;
+  estimated: number;
+  actual?: number | null;
+}
+
+export function YieldEstimateChart({ data }: { data: YieldPoint[] }) {
+  if (!data.length) {
+    return (
+      <div className="text-muted-foreground flex h-[220px] items-center justify-center text-sm">
+        No yield estimates available for this crop/region.
+      </div>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+        <XAxis dataKey="season" tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
+        <YAxis tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }} />
+        <Tooltip {...tooltipStyle} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Bar dataKey="estimated" name="Estimated yield" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="actual" name="Actual yield" fill="#10b981" radius={[4, 4, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
