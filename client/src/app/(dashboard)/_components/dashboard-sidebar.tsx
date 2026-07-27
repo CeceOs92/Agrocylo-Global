@@ -11,6 +11,7 @@ import {
   Settings,
   ArrowLeft,
   Shield,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProfile } from "@/context/ProfileContext";
@@ -20,6 +21,7 @@ const sidebarLinks = [
   { href: "/dashboard/products", label: "Products", icon: Package },
   { href: "/dashboard/orders", label: "Orders", icon: ShoppingBag },
   { href: "/dashboard/earnings", label: "Earnings", icon: TrendingUp },
+  { href: "/dashboard/forecast", label: "Forecast", icon: BarChart3 },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 

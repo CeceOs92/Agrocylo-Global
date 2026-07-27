@@ -40,6 +40,10 @@ import { getOrder, type Order } from "@/services/stellar/contractService";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import CountdownTimer from "@/components/orders/CountdownTimer";
 import DisputeForm from "@/components/orders/DisputeForm";
+import MilestoneEscrowProgress from "@/components/MilestoneEscrowProgress";
+import ProvenanceViewer from "@/components/ProvenanceViewer";
+import { fetchOrderProvenance } from "@/services/provenanceService";
+import type { ProvenanceRecord } from "@/types/provenance";
 import { toast } from "sonner";
 
 const EXPIRY_HOURS = 96;
@@ -61,6 +65,10 @@ export default function OrderDetailsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [isExpired, setIsExpired] = useState(false);
+  const [milestoneIndex, setMilestoneIndex] = useState<number>(-1);
+  const [advancingMilestone, setAdvancingMilestone] = useState(false);
+  const [provenance, setProvenance] = useState<ProvenanceRecord | null>(null);
+  const [provenanceLoading, setProvenanceLoading] = useState(true);
 
   // Tick expiry state outside render to keep it pure.
   useEffect(() => {
@@ -100,6 +108,22 @@ export default function OrderDetailsPage() {
   useEffect(() => {
     void fetchOrder();
   }, [fetchOrder]);
+
+  useEffect(() => {
+    if (!orderId) return;
+    let cancelled = false;
+    setProvenanceLoading(true);
+    void fetchOrderProvenance(orderId)
+      .then((rec) => {
+        if (!cancelled) setProvenance(rec);
+      })
+      .finally(() => {
+        if (!cancelled) setProvenanceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
 
   // Real-time refresh when the backend's indexer reports a status change.
   useEffect(() => {
@@ -179,6 +203,17 @@ export default function OrderDetailsPage() {
     },
     [orderId, tx, fetchOrder],
   );
+
+  const onAdvanceMilestone = useCallback(async () => {
+    if (!isFarmer) return;
+    setAdvancingMilestone(true);
+    try {
+      setMilestoneIndex((prev) => Math.min(prev + 1, 4));
+      toast.success("Milestone advanced");
+    } finally {
+      setAdvancingMilestone(false);
+    }
+  }, [isFarmer]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -304,6 +339,18 @@ export default function OrderDetailsPage() {
               </CardContent>
             </Card>
           )}
+
+          <MilestoneEscrowProgress
+            currentMilestoneIndex={milestoneIndex}
+            canAdvance={isFarmer && order.status === "Pending"}
+            onAdvance={onAdvanceMilestone}
+            isAdvancing={advancingMilestone}
+          />
+
+          <ProvenanceViewer
+            record={provenance}
+            isLoading={provenanceLoading}
+          />
         </div>
 
         {/* Right: actions */}
