@@ -309,6 +309,51 @@ model OrderMetadata {
   @@map("order_metadata")
 }
 
+model ReferralCode {
+  walletAddress String   @id @map("wallet_address")
+  code          String   @unique
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("referral_codes")
+}
+
+model Referral {
+  id                String    @id @default(uuid())
+  referrerWallet    String    @map("referrer_wallet")
+  refereeWallet     String    @unique @map("referee_wallet")
+  code              String
+  /// PENDING until the referee's first confirmed order/investment fires the
+  /// reward; REWARDED once the fee-credit has been issued; INELIGIBLE for
+  /// self-referral or other disqualified linkages.
+  status            String    @default("PENDING")
+  rewardedAt        DateTime? @map("rewarded_at")
+  /// Fee-credit amount granted to the referrer (platform-fee credit, not a
+  /// token mint), denominated in the same unit as order/investment amounts.
+  rewardAmount      String?   @map("reward_amount")
+  triggerOrderId    String?   @map("trigger_order_id")
+  triggerCampaignId String?   @map("trigger_campaign_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([referrerWallet])
+  @@index([status])
+  @@map("referrals")
+}
+
+model FeeCredit {
+  id            String    @id @default(uuid())
+  walletAddress String    @map("wallet_address")
+  amount        String
+  reason        String
+  sourceReferralId String? @map("source_referral_id")
+  consumedAt    DateTime? @map("consumed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([walletAddress])
+  @@index([walletAddress, consumedAt])
+  @@map("fee_credits")
+}
+
 model ContractWatcherCheckpoint {
   service    String   @id
   lastLedger Int      @map("last_ledger")
