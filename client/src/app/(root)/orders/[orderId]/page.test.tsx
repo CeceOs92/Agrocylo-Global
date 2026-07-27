@@ -65,6 +65,17 @@ vi.mock("@/services/stellar/contractService", () => ({
   ),
 }));
 
+vi.mock("@/services/provenanceService", () => ({
+  fetchOrderProvenance: vi.fn(() =>
+    Promise.resolve({
+      orderId: "order-123",
+      tracked: false,
+      milestones: [],
+      shareUrl: "https://example.com/orders/order-123",
+    }),
+  ),
+}));
+
 vi.mock("@/lib/helpers/format-address", () => ({
   formatTruncatedAddress: (addr: string) => addr.slice(0, 6) + "...",
 }));

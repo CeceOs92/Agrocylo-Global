@@ -1,8 +1,8 @@
- "use client";
+"use client";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, MapPin, Truck, Wallet } from "lucide-react";
 
@@ -14,6 +14,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import ProvenanceViewer from "@/components/ProvenanceViewer";
+import { fetchProductProvenance } from "@/services/provenanceService";
+import type { ProvenanceRecord } from "@/types/provenance";
 import type { Product } from "@/types/product";
 import { useAnalytics } from "@/hooks/useAnalytics";
 
@@ -25,6 +28,8 @@ export default function ProductDetailPage() {
   const { trackFunnelStep, trackFeatureAdoption } = useAnalytics();
 
   const { data: product, isLoading, error } = useProduct(productId);
+  const [provenance, setProvenance] = useState<ProvenanceRecord | null>(null);
+  const [provenanceLoading, setProvenanceLoading] = useState(true);
 
   const currentQty = useMemo(() => {
     if (!product) return 0;
@@ -44,6 +49,22 @@ export default function ProductDetailPage() {
       });
     }
   }, [product, trackFunnelStep]);
+
+  useEffect(() => {
+    if (!productId) return;
+    let cancelled = false;
+    setProvenanceLoading(true);
+    void fetchProductProvenance(productId)
+      .then((rec) => {
+        if (!cancelled) setProvenance(rec);
+      })
+      .finally(() => {
+        if (!cancelled) setProvenanceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
 
   if (isLoading) {
     return (
@@ -258,6 +279,31 @@ export default function ProductDetailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mt-10">
+        <ProvenanceViewer
+          record={
+            provenance?.tracked
+              ? provenance
+              : product
+                ? {
+                    productId: product.id,
+                    farmerAddress: product.farmer_wallet,
+                    originLocation: product.location,
+                    batchId: null,
+                    harvestDate: null,
+                    milestones: [],
+                    shareUrl:
+                      typeof window !== "undefined"
+                        ? `${window.location.origin}/market/${product.id}`
+                        : `/market/${product.id}`,
+                    tracked: false,
+                  }
+                : provenance
+          }
+          isLoading={provenanceLoading}
+        />
       </div>
     </Wrapper>
   );
