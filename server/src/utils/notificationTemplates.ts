@@ -1,9 +1,11 @@
 import { NotificationEventType } from "../enums/notificationEventType.js";
 
 type NotificationTemplateInput = {
-  orderId: string;
+  orderId?: string;
   amount?: string;
   token?: string;
+  condition?: string;
+  severity?: string;
 };
 
 const templateByType: Record<NotificationEventType, (input: NotificationTemplateInput) => string> = {
@@ -23,6 +25,8 @@ const templateByType: Record<NotificationEventType, (input: NotificationTemplate
     `Campaign funded for order #${orderId}.`,
   [NotificationEventType.HARVEST_COMPLETED]: ({ orderId }) =>
     `Harvest completed for order #${orderId}.`,
+  [NotificationEventType.WEATHER_ALERT]: ({ condition, severity }) =>
+    `Weather advisory (${severity ?? "warning"}): ${condition ?? "adverse conditions"} expected at your farm location.`,
 };
 
 export function buildNotificationMessage(
