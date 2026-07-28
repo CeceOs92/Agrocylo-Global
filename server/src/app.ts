@@ -32,6 +32,8 @@ import demandSupplyRoutes from "./routes/demandSupplyRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
 import adminRoutes, { adminErrorHandler } from "./routes/adminRoutes.js";
 import disputeRoutes from "./routes/disputeRoutes.js";
+import referralRoutes, { referralErrorHandler } from "./routes/referralRoutes.js";
+import integratorRoutes, { integratorErrorHandler } from "./routes/integratorRoutes.js";
 
 const app = express();
 
@@ -71,6 +73,8 @@ app.use("/disputes", disputeRoutes);
 app.use(demandSupplyRoutes);
 app.use(jobRoutes);
 app.use("/admin", adminRoutes);
+app.use(referralRoutes);
+app.use(integratorRoutes);
 
 app.get("/health", async (_req: Request, res: Response) => {
   logger.info("Health check endpoint hit");
@@ -126,6 +130,8 @@ app.use(locationErrorHandler);
 app.use(orderErrorHandler);
 app.use(notificationErrorHandler);
 app.use(adminErrorHandler);
+app.use(referralErrorHandler);
+app.use(integratorErrorHandler);
 app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
   incrementErrorCount();
   if (err instanceof ApiError) {
