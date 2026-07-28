@@ -29,6 +29,7 @@ pub enum EscrowError {
     BuyerCannotEqualFarmer = 18,
     TokenWhitelistEmpty = 19,
     FeeRateTooHigh = 20,
+    NotGoverned = 21,
 }
 
 #[contracttype]
@@ -109,12 +110,22 @@ pub enum DataKey {
     SupportedTokens,
     Admin,
     FeeCollector,
+    /// Configurable fee rate in basis points (Issue #660). Defaults to 300
+    /// (3%) when unset, preserving the previously-hardcoded fee behavior.
+    FeeRateBps,
+    /// Governance contract authorized to change fee/token-whitelist
+    /// parameters (Issue #660). Falls back to admin-only while unset.
+    GovernanceContract,
 }
 
 const NINETY_SIX_HOURS_IN_SECONDS: u64 = 96 * 60 * 60;
 
 const TTL_THRESHOLD: u32 = 1000;
 const TTL_EXTEND_TO: u32 = 100_000;
+
+/// Fee rate used before `set_fee_config` has ever been called, matching the
+/// previously-hardcoded 3% fee in `create_order`.
+const DEFAULT_FEE_RATE_BPS: u32 = 300;
 
 fn read_order(env: &Env, order_id: u64) -> Result<Order, EscrowError> {
     env.storage()
@@ -155,6 +166,29 @@ fn read_admin(env: &Env) -> Result<Address, EscrowError> {
         .instance()
         .get(&DataKey::Admin)
         .ok_or(EscrowError::ContractNotInitialized)
+}
+
+/// Enforces that `caller` is the authorized party for governance-gated
+/// parameters (Issue #660): the governance contract if one has been set via
+/// `set_governance_contract`, otherwise the raw admin as a fallback so a
+/// deployment that never configures governance keeps working exactly as
+/// before.
+fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), EscrowError> {
+    if let Some(governance) = env
+        .storage()
+        .instance()
+        .get::<_, Address>(&DataKey::GovernanceContract)
+    {
+        if *caller != governance {
+            return Err(EscrowError::NotGoverned);
+        }
+        return Ok(());
+    }
+    let admin_addr = read_admin(env)?;
+    if *caller != admin_addr {
+        return Err(EscrowError::NotAdmin);
+    }
+    Ok(())
 }
 
 #[contract]
@@ -221,7 +255,17 @@ impl EscrowContract {
             .get(&DataKey::FeeCollector)
             .ok_or(EscrowError::ContractNotInitialized)?;
 
-        let fee = amount.checked_mul(3).ok_or(EscrowError::ArithmeticError)? / 100;
+        // Fee rate is configurable via set_fee_config (Issue #660); defaults
+        // to the historical hardcoded 3% when never configured.
+        let fee_rate_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeeRateBps)
+            .unwrap_or(DEFAULT_FEE_RATE_BPS);
+        let fee = amount
+            .checked_mul(fee_rate_bps as i128)
+            .ok_or(EscrowError::ArithmeticError)?
+            / 10_000;
         let net_amount = amount
             .checked_sub(fee)
             .ok_or(EscrowError::ArithmeticError)?;
@@ -529,6 +573,82 @@ impl EscrowContract {
         );
 
         Ok(())
+    }
+
+    // ── Governance-gated parameter setters (Issue #660) ──────────────────────
+    // This legacy contract previously hardcoded its 3% fee directly in
+    // create_order with no setter at all. These setters expose the fee rate
+    // and token whitelist as configurable parameters, gated the same way as
+    // production_escrow: the governance contract once configured, admin-only
+    // fallback until then.
+
+    /// Set (or update) the governance contract address. Only the original
+    /// admin can do this — a one-time (or migration-time) bootstrapping step.
+    pub fn set_governance_contract(
+        env: Env,
+        admin_caller: Address,
+        governance: Address,
+    ) -> Result<(), EscrowError> {
+        admin_caller.require_auth();
+        let admin = read_admin(&env)?;
+        if admin_caller != admin {
+            return Err(EscrowError::NotAdmin);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceContract, &governance);
+        Ok(())
+    }
+
+    /// Update the fee rate (basis points) and fee collector. Governance-gated
+    /// once a governance contract is configured (Issue #660).
+    pub fn set_fee_config(
+        env: Env,
+        admin_caller: Address,
+        fee_collector: Address,
+        fee_rate_bps: u32,
+    ) -> Result<(), EscrowError> {
+        admin_caller.require_auth();
+        require_governed_caller(&env, &admin_caller)?;
+        if fee_rate_bps > 10_000 {
+            return Err(EscrowError::FeeRateTooHigh);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeCollector, &fee_collector);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeRateBps, &fee_rate_bps);
+        Ok(())
+    }
+
+    /// Update the supported token whitelist. Governance-gated once a
+    /// governance contract is configured (Issue #660).
+    pub fn set_supported_tokens(
+        env: Env,
+        admin_caller: Address,
+        supported_tokens: Vec<Address>,
+    ) -> Result<(), EscrowError> {
+        admin_caller.require_auth();
+        require_governed_caller(&env, &admin_caller)?;
+        if supported_tokens.len() < 2 {
+            return Err(EscrowError::MustSupportTwoTokens);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::SupportedTokens, &supported_tokens);
+        Ok(())
+    }
+
+    pub fn get_fee_rate_bps(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::FeeRateBps)
+            .unwrap_or(DEFAULT_FEE_RATE_BPS)
+    }
+
+    pub fn get_governance_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::GovernanceContract)
     }
 
     pub fn get_orders_by_buyer(env: Env, buyer: Address) -> Vec<u64> {
