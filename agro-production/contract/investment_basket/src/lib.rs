@@ -901,3 +901,5 @@ mod escrow_client {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod invariant_tests;
