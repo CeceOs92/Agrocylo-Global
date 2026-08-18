@@ -284,6 +284,11 @@ pub enum DataKey {
     SplitOrderCount,
 }
 
+/// Current on-chain storage layout version (Issue #757). Bump when a stored
+/// `#[contracttype]` gains/loses/reshapes a field, and extend `migrate` to
+/// translate existing entries — see `docs/CONTRACT_UPGRADES.md`.
+const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -367,7 +372,125 @@ impl ProductionEscrowContract {
         env.storage()
             .instance()
             .set(&DataKey::FeeRateBps, &fee_rate_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Upgrade, guardian, pause (Issue #757)
+    // -----------------------------------------------------------------------
+
+    /// Upgrades this contract's WASM. Governance-gated the same way as
+    /// `set_fee_config`/`set_registry_contract`: admin-only while no
+    /// governance contract is configured, governance-only once it is — reuses
+    /// the existing propose -> vote -> queue -> execute flow rather than a
+    /// second privileged pathway. Callers should use governance's
+    /// `propose_upgrade`, which tags the proposal so the *longer* upgrade
+    /// timelock applies. See `docs/CONTRACT_UPGRADES.md` for the required
+    /// pause -> upgrade -> migrate -> unpause sequencing for any upgrade that
+    /// changes stored data shape.
+    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
+        caller.require_auth();
+        require_governed_caller(&env, &caller)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.events()
+            .publish((t_campaign(), symbol_short!("upgraded")), (new_wasm_hash,));
+        Ok(())
+    }
+
+    /// Sets the guardian allowed to `pause` instantly. Governance-gated
+    /// identically to `set_governance_contract` — never a standing raw-admin
+    /// power once governance is configured.
+    pub fn set_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), EscrowError> {
+        caller.require_auth();
+        require_governed_caller(&env, &caller)?;
+        env.storage().instance().set(&DataKey::Guardian, &guardian);
+        Ok(())
+    }
+
+    /// Instant pause — no timelock — callable by the guardian or the
+    /// configured governance contract. The lower-risk interim safeguard for
+    /// a live incident while the slower governance upgrade/fix flow runs.
+    pub fn pause(env: Env, caller: Address) -> Result<(), EscrowError> {
+        caller.require_auth();
+        let is_guardian = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Guardian)
+            .map(|g| g == caller)
+            .unwrap_or(false);
+        let is_governance = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::GovernanceContract)
+            .map(|g| g == caller)
+            .unwrap_or(false);
+        if !is_guardian && !is_governance {
+            return Err(EscrowError::NotAdmin);
+        }
+        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            return Err(EscrowError::AlreadyPaused);
+        }
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events()
+            .publish((t_campaign(), symbol_short!("paused")), (caller,));
+        Ok(())
+    }
+
+    /// Unpause. Deliberately governance-only (never the guardian) — recovery
+    /// from an emergency pause goes through the accountable, slower path, so
+    /// a compromised guardian key can halt operations but never resume them
+    /// unilaterally or hold the contract hostage.
+    pub fn unpause(env: Env, caller: Address) -> Result<(), EscrowError> {
+        caller.require_auth();
+        require_governed_caller(&env, &caller)?;
+        if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            return Err(EscrowError::NotPaused);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events()
+            .publish((t_campaign(), symbol_short!("unpausd")), (caller,));
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+    }
+
+    /// Storage migration hook. This contract's schema hasn't changed since
+    /// `CURRENT_SCHEMA_VERSION` was introduced — nothing to translate yet.
+    /// A future layout-changing upgrade extends this with an old-shape read
+    /// + new-shape write per affected `DataKey`, following the worked
+    /// example in `investment_basket::migrate_baskets`. Governance-gated,
+    /// and expected to run while `is_paused()` — see
+    /// `docs/CONTRACT_UPGRADES.md`.
+    pub fn migrate(env: Env, caller: Address) -> Result<u32, EscrowError> {
+        caller.require_auth();
+        require_governed_caller(&env, &caller)?;
+        let stored: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0);
+        if stored < CURRENT_SCHEMA_VERSION {
+            env.storage()
+                .instance()
+                .set(&DataKey::SchemaVersion, &CURRENT_SCHEMA_VERSION);
+        }
+        Ok(CURRENT_SCHEMA_VERSION)
+    }
+
+    pub fn get_schema_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0)
+    }
+
+    pub fn get_guardian(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::Guardian)
     }
 
     /// Set the registry contract address. Authorized caller is the governance
@@ -479,6 +602,7 @@ impl ProductionEscrowContract {
         deadline: u64,
     ) -> Result<u64, EscrowError> {
         farmer.require_auth();
+        require_not_paused(&env)?;
 
         if target_amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -556,6 +680,7 @@ impl ProductionEscrowContract {
         amount: i128,
     ) -> Result<(), EscrowError> {
         investor.require_auth();
+        require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -621,6 +746,7 @@ impl ProductionEscrowContract {
         campaign_id: u64,
     ) -> Result<(), EscrowError> {
         farmer.require_auth();
+        require_not_paused(&env)?;
         let mut campaign = load_campaign(&env, campaign_id)?;
         if campaign.farmer != farmer {
             return Err(EscrowError::NotFarmer);
@@ -646,6 +772,7 @@ impl ProductionEscrowContract {
     pub fn mark_harvest(env: Env, farmer: Address, attester_caller: Address, campaign_id: u64) -> Result<(), EscrowError> {
         farmer.require_auth();
         attester_caller.require_auth();
+        require_not_paused(&env)?;
         let attester_addr = attester(&env)?;
         if attester_caller != attester_addr {
             return Err(EscrowError::NotAdmin);
@@ -795,6 +922,7 @@ impl ProductionEscrowContract {
         amount: i128,
     ) -> Result<u64, EscrowError> {
         buyer.require_auth();
+        require_not_paused(&env)?;
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
@@ -1186,6 +1314,7 @@ impl ProductionEscrowContract {
     /// Cannot confirm orders after campaign is settled (Issue #455).
     pub fn confirm_order(env: Env, buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         buyer.require_auth();
+        require_not_paused(&env)?;
         let mut order: Order = env
             .storage()
             .persistent()
@@ -1249,6 +1378,7 @@ impl ProductionEscrowContract {
     /// investors to claim individually.
     pub fn settle(env: Env, caller: Address, campaign_id: u64) -> Result<(), EscrowError> {
         caller.require_auth();
+        require_not_paused(&env)?;
         let mut campaign = load_campaign(&env, campaign_id)?;
         let admin = admin(&env)?;
         if caller != campaign.farmer && caller != admin {
@@ -1274,6 +1404,7 @@ impl ProductionEscrowContract {
         campaign_id: u64,
     ) -> Result<i128, EscrowError> {
         investor.require_auth();
+        require_not_paused(&env)?;
         let campaign = load_campaign(&env, campaign_id)?;
         if campaign.status != CampaignStatus::Settled {
             return Err(EscrowError::CampaignNotSettled);
@@ -1399,6 +1530,7 @@ impl ProductionEscrowContract {
     /// During/after production: returns proportional share of remaining escrow.
     pub fn refund(env: Env, investor: Address, campaign_id: u64) -> Result<i128, EscrowError> {
         investor.require_auth();
+        require_not_paused(&env)?;
         let campaign = load_campaign(&env, campaign_id)?;
         if campaign.status != CampaignStatus::Failed {
             return Err(EscrowError::CampaignNotFailed);
@@ -1520,6 +1652,7 @@ impl ProductionEscrowContract {
 
     pub fn open_dispute(env: Env, caller: Address, campaign_id: u64) -> Result<(), EscrowError> {
         caller.require_auth();
+        require_not_paused(&env)?;
         let mut campaign = load_campaign(&env, campaign_id)?;
         let admin = admin(&env)?;
         if caller != campaign.farmer && caller != admin {
@@ -1557,6 +1690,7 @@ impl ProductionEscrowContract {
         resolution: DisputeResolution,
     ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
+        require_not_paused(&env)?;
         let admin = admin(&env)?;
         if admin_caller != admin {
             return Err(EscrowError::NotAdmin);
@@ -1584,6 +1718,7 @@ impl ProductionEscrowContract {
         investors: Vec<Address>,
     ) -> Result<(u32, i128), EscrowError> {
         const MAX_BATCH: u32 = 50;
+        require_not_paused(&env)?;
         if investors.len() > MAX_BATCH {
             return Err(EscrowError::InvalidAmount); // Reuse error type for oversized input
         }
@@ -1658,6 +1793,7 @@ impl ProductionEscrowContract {
         order_ids: Vec<u64>,
     ) -> Result<(u32, i128), EscrowError> {
         const MAX_BATCH: u32 = 50;
+        require_not_paused(&env)?;
         if order_ids.len() > MAX_BATCH {
             return Err(EscrowError::InvalidAmount);
         }
@@ -1967,6 +2103,13 @@ fn attester(env: &Env) -> Result<Address, EscrowError> {
 /// `set_governance_contract`, otherwise the raw admin as a fallback so a
 /// deployment that never configures governance keeps working exactly as
 /// before.
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
+    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        return Err(EscrowError::ContractPaused);
+    }
+    Ok(())
+}
+
 fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), EscrowError> {
     if let Some(governance) = env
         .storage()

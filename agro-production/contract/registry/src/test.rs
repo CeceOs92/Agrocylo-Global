@@ -337,3 +337,38 @@ fn test_reputation_is_tracked_independently_per_farmer() {
     assert_eq!(client.get_reputation(&farmer_one).score, 10);
     assert_eq!(client.get_reputation(&farmer_two).score, -5);
 }
+
+// ---------------------------------------------------------------------------
+// Upgrade, guardian, pause (Issue #757)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_upgrade_bypassing_governance_rejected() {
+    let (env, client, _, _, _, _, _, _) = setup_test();
+    let attacker = Address::generate(&env);
+    let dummy_wasm_hash = BytesN::from_array(&env, &[9u8; 32]);
+    let result = client.try_upgrade(&attacker, &dummy_wasm_hash);
+    assert_eq!(result.unwrap_err().unwrap(), RegistryError::NotAdmin);
+}
+
+#[test]
+fn test_guardian_pause_blocks_register_farmer_governance_only_unpauses() {
+    let (env, client, admin, _, _, _, farmer_one, _) = setup_test();
+
+    let guardian = Address::generate(&env);
+    client.set_guardian(&admin, &guardian);
+
+    client.pause(&guardian);
+    assert!(client.is_paused());
+
+    let result = client.try_register_farmer(&farmer_one);
+    assert_eq!(result.unwrap_err().unwrap(), RegistryError::ContractPaused);
+
+    let err = client.try_unpause(&guardian).unwrap_err().unwrap();
+    assert_eq!(err, RegistryError::NotAdmin);
+
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+    client.register_farmer(&farmer_one);
+    assert!(client.is_farmer_registered(&farmer_one));
+}
