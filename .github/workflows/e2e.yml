@@ -47,9 +47,11 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: package-lock.json
 
+      # Issue #755: client is now an npm workspace member (root package.json).
       - name: Install dependencies
+        working-directory: .
         run: npm ci
 
       - name: Install Playwright browsers

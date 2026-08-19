@@ -1,3 +1,13 @@
+/**
+ * Freighter wallet-bridge detection (Issue #755).
+ *
+ * Previously duplicated as `agro-production/client/src/types/freighter.ts`.
+ * `client`'s wallet layer (`src/lib/walletAdapters.ts`, `src/lib/signTransaction.ts`)
+ * solves the same `window.freighter`/`window.freighterApi` detection problem
+ * independently — migrating it onto this shared implementation is the next
+ * incremental step (see root MIGRATION_NOTES.md).
+ */
+
 export interface FreighterSignTransaction {
   signTransaction(xdr: string, opts: { networkPassphrase: string }): Promise<string>;
 }

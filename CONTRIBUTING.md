@@ -37,12 +37,27 @@ Comment on the issue to let maintainers know you're interested. For substantial 
 ### 3. Set Up Locally
 
 #### For Frontend
+
+`client` and `agro-production/client` are npm workspace members (Issue
+#755) sharing a single root-level install — install once from the repo
+root, not inside each app's own directory:
+
 ```bash
-cd agro-production/client  # or cd client/ for root marketplace
-npm install
-npm run dev
-# Open http://localhost:3000
+npm install   # from the repo root; installs both client apps + packages/*
+
+# then run either app:
+npm run dev --workspace=client                        # root marketplace, http://localhost:3000
+npm run dev --workspace=agro-production/client         # production app
+
+# or use Turborepo to build/lint/test both at once:
+npm run build   # runs `turbo run build` across all workspace packages
 ```
+
+Shared code (design-system primitives, wallet/auth hooks, common types)
+lives under `packages/*` — see `packages/wallet-core` for the first
+extracted example. If you're duplicating something that already exists in
+one app while working on the other, that's a signal it belongs in a shared
+package instead.
 
 #### For Backend
 ```bash

@@ -1,6 +1,6 @@
 import { TransactionBuilder, rpc } from "@stellar/stellar-sdk";
 import FreighterApi from "@stellar/freighter-api";
-import { getFreighterSignerFromWindow } from "@/types/freighter";
+import { getFreighterSignerFromWindow } from "@agrocylo/wallet-core";
 
 export interface SignAndSubmitResult {
   success: boolean;
