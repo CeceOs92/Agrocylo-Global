@@ -351,3 +351,23 @@ enum MessageType {
   FILE
   SYSTEM
 }
+
+model ReconciliationAlert {
+  id          String    @id @default(uuid())
+  entityType  String    @map("entity_type")  // "campaign" | "order" | "dispute" | "basket"
+  entityId    String    @map("entity_id")    // onChainId
+  contractSet String    @map("contract_set") // "production_escrow" | "escrow" | "investment_basket"
+  driftType   String    @map("drift_type")   // "status_mismatch" | "amount_mismatch" | "missing_on_chain" | "missing_in_db"
+  dbValue     Json      @map("db_value")
+  chainValue  Json      @map("chain_value")
+  detectedAt  DateTime  @default(now()) @map("detected_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  notes       String?
+
+  @@index([entityType, entityId])
+  @@index([detectedAt(sort: Desc)])
+  @@index([resolvedAt])
+  @@index([driftType])
+  @@map("reconciliation_alerts")
+}
