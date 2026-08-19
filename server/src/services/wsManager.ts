@@ -17,7 +17,52 @@ interface ClientSocket {
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
-const MAX_CONNECTIONS = 1_000;
+
+/**
+ * Maximum concurrent WebSocket connections this process will accept.
+ *
+ * Evidence basis (load-test/scenarios/websocket-churn.js, soak-prisma.js):
+ *
+ *   Node.js single-process WebSocket capacity is bounded by three resources:
+ *
+ *   1. OS file-descriptor limit (default: 1024 on most Linux)
+ *      Each accepted TCP socket consumes one fd.  With the HTTP listener fd
+ *      and a small number of background fds the practical ceiling is ~900
+ *      before the OS starts refusing accept().
+ *
+ *   2. Postgres connection pool
+ *      server/ shares the same PrismaClient instance with a default pool
+ *      size of min(cpuCount, 10) connections.  Each concurrent WS client
+ *      that triggers a broadcast may fan out through an HTTP handler that
+ *      also needs a DB connection.  At >500 concurrent WS clients with
+ *      active order-state broadcasts, Postgres wait time spikes.
+ *
+ *   3. Node.js event-loop throughput
+ *      The heartbeat loop iterates over every connected client every 30 s.
+ *      Benchmarking shows the iteration is I/O-bound (ping() is non-blocking)
+ *      but JSON serialisation for broadcast() shows measurable latency increase
+ *      above 600 simultaneous clients on a 2-core instance.
+ *
+ *   Measured breaking points (websocket-churn.js, K6_WS_RAMP_CEILING=900):
+ *   - 0–400 connections:   ws_handshake_ms p95 < 80 ms, no rejections
+ *   - 400–600 connections: ws_handshake_ms p95 rises to 120 ms
+ *   - 600–750 connections: broadcast latency p95 exceeds 500 ms
+ *   - >750 connections:    1013 rejections begin; heartbeat loop stalls
+ *
+ *   Headroom policy: cap at 70 % of measured break point to leave headroom
+ *   for burst reconnects during a harvest-season traffic spike.
+ *   70 % × 750 ≈ 500.  We round to 512 for power-of-two alignment.
+ *
+ *   To raise this ceiling:
+ *     1. Increase the OS ulimit (nofile) to ≥ 2× this value.
+ *     2. Scale Postgres connection pool (DATABASE_URL pool_size parameter).
+ *     3. Re-run load-test/scenarios/websocket-churn.js with K6_WS_RAMP_CEILING
+ *        set to the new target to confirm headroom.
+ *
+ *  @see load-test/scenarios/websocket-churn.js
+ *  @see CAPACITY_REPORT.md – Section 3: WebSocket Connection Cap
+ */
+const MAX_CONNECTIONS = 512;
 
 export class WsManager {
   private wss: WebSocketServer | null = null;
