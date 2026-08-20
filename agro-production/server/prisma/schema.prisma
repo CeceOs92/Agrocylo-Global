@@ -46,7 +46,6 @@ model Campaign {
   transactions  Transaction[]
   disputes      Dispute[]
   products      Product[]
-  conversations Conversation[]
 
   @@index([farmerAddress])
   @@index([status])
@@ -293,6 +292,27 @@ model NotificationPreference {
   updatedAt     DateTime @updatedAt
 
   @@map("notification_preferences")
+}
+
+model Product {
+  id             String   @id @default(uuid())
+  name           String
+  description    String
+  imageUrl       String?
+  priceTokens    BigInt   @db.BigInt
+  campaignId     String?
+  inventoryCount Int
+  category       String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([category])
+  @@index([isActive])
+  @@map("products")
 }
 
 model Conversation {

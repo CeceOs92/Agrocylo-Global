@@ -54,18 +54,20 @@ jobs:
 
       - name: Install Playwright browsers
         run: |
-          if [ "${{ github.event.inputs.browser }}" = "all" ]; then
+          BROWSER="${{ github.event.inputs.browser || 'chromium' }}"
+          if [ "$BROWSER" = "all" ]; then
             npx playwright install --with-deps chromium firefox webkit
           else
-            npx playwright install --with-deps "${{ github.event.inputs.browser }}"
+            npx playwright install --with-deps "$BROWSER"
           fi
 
       - name: Run Playwright tests
         run: |
-          if [ "${{ github.event.inputs.browser }}" = "all" ]; then
+          BROWSER="${{ github.event.inputs.browser || 'chromium' }}"
+          if [ "$BROWSER" = "all" ]; then
             npx playwright test
           else
-            npx playwright test --project="${{ github.event.inputs.browser }}"
+            npx playwright test --project="$BROWSER"
           fi
 
       - name: Upload test report
