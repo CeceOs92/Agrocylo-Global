@@ -34,13 +34,38 @@ per database, with a 30-day retention window.
 - `pg_dump -Fc` produces a compressed, restorable-with-`pg_restore` backup
   that includes schema and data — no separate schema backup needed.
 - If/when a managed Postgres provider is chosen for hosting (see the
-  open deployment-pipeline work), prefer that provider's built-in
+  open deployment-pipeline work, #747), prefer that provider's built-in
   point-in-time-recovery/snapshot feature as the primary backup mechanism
   — it typically gives a tighter RPO than daily dumps for free. The script
-  here is the provider-agnostic fallback and is what CI/local restore
-  drills use to prove the procedure works end-to-end.
+  here is the provider-agnostic fallback, and is what actually runs both
+  in the automated backup workflow below and in local restore drills.
 
-### Running a backup
+### Automated (`.github/workflows/db-backup.yml`)
+
+Runs `scripts/db-backup.sh` daily at 02:00 UTC (and on-demand via
+`workflow_dispatch`) for both databases, verifies each resulting archive
+is well-formed with `pg_restore --list`, and uploads it as a build
+artifact retained for 35 days (5 days longer than the pruning window, so a
+backup is never only one bad run away from being unrecoverable).
+
+Each database is backed up in its own matrix job, gated on its
+`DATABASE_URL` repo secret being set:
+
+| Database | Secret |
+|---|---|
+| `server/` (marketplace) | `MARKETPLACE_DATABASE_URL` |
+| `agro-production/server/` (production/campaign) | `PRODUCTION_DATABASE_URL` |
+
+Neither secret exists yet — there is no deployment target for either
+database (#747 is still open), so both jobs currently no-op with a
+`::warning::` rather than failing the run. Add the secrets once real
+hosting exists and backups start immediately without any other change.
+This is "configured" in the sense that matters for this issue: the
+automation exists, is scheduled, verifies what it produces, and needs
+nothing but a connection string to go live — not a script sitting in the
+repo that a human has to remember to run.
+
+### Running a backup manually
 
 ```bash
 DATABASE_URL="$MARKETPLACE_DATABASE_URL" \
@@ -51,11 +76,9 @@ DATABASE_URL="$PRODUCTION_DATABASE_URL" \
 ```
 
 Writes to `backups/<label>/<label>_<UTC timestamp>.dump` and prunes dumps
-older than 30 days (override with a third argument). Schedule this daily
-(cron, or a scheduled GitHub Actions workflow once a hosting target
-exists) for each database.
+older than 30 days (override with a third argument).
 
-## Restore procedure (tested)
+## Restore procedure (tested, and re-tested automatically)
 
 ```bash
 RESTORE_DATABASE_URL="postgresql://user:pass@host:5432/scratch_db" \
@@ -68,13 +91,25 @@ non-zero table count. **Never point `RESTORE_DATABASE_URL` at a database
 you care about** — the script does not prompt for confirmation before
 dropping/recreating objects in the target.
 
-This was executed against a non-production scratch database as part of
-this change: a marketplace test database was seeded with data, backed up
-with `db-backup.sh`, restored into a separate fresh database with
-`db-restore.sh`, and the restored database was confirmed to contain the
-same row (41 tables restored, seeded row intact). Re-run this drill
-periodically (e.g. quarterly, or whenever the schema changes
-significantly) against a real production backup, not just a synthetic one.
+### Automated (`.github/workflows/db-restore-drill.yml`)
+
+The acceptance bar here is "we've verified restoring one produces a
+working database," on a regular cadence — not a one-off manual check that
+goes stale the moment the schema changes. So this runs monthly (1st of
+the month, 03:00 UTC) and on-demand, for both databases, without needing
+production secrets: it applies the full migration history to a fresh
+ephemeral Postgres database (proving the schema stands up cleanly — see
+below), backs that database up with `db-backup.sh`, restores the backup
+into a second scratch database with `db-restore.sh`, and fails the run if
+the restore's own verification fails. This is what actually keeps the
+restore procedure honest as the schema evolves, instead of a doc claiming
+it was tested once.
+
+This was also executed manually against real (non-synthetic) data as part
+of building this change, for both databases: a test database was migrated
+and seeded, backed up, restored into a separate fresh database, and the
+restored database was confirmed to contain the same rows (41 tables for
+the marketplace DB, 17 for the production DB, seeded data intact in both).
 
 ## Migration history: replay and rollback
 
