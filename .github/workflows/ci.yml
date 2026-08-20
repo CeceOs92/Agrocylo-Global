@@ -151,12 +151,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      # The full `prisma migrate deploy` history predates this repo tracking
-      # a from-scratch baseline migration, so a clean CI database can't
-      # replay it end-to-end. Apply just the migration under test directly,
-      # which is sufficient to prove schema.prisma and the migration agree.
-      - name: Apply crop plan / equipment marketplace migration
-        run: psql "$DATABASE_URL" -f prisma/migrations/20260731000000_add_crop_plan_equipment_marketplace/migration.sql
+      - name: Apply full migration history
+        run: npx prisma migrate deploy
+
+      - name: Verify schema.prisma matches migration history (no drift)
+        run: npx prisma migrate diff --from-config-datasource prisma/schema.prisma --to-schema prisma/schema.prisma --exit-code
 
       - name: Run integration tests against real Prisma client
         run: npm run test:integration
