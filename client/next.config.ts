@@ -6,6 +6,7 @@ const clientRoot = cwd.endsWith("/client")
   : `${process.cwd()}\\client`;
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   turbopack: {
     root: clientRoot,
   },
