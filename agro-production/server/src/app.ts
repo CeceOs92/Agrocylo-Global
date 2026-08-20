@@ -1,4 +1,4 @@
-﻿import express, { type Request, type Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import logger from './config/logger.js';
 import { config } from './config/index.js';
@@ -16,6 +16,7 @@ import transactionRoutes from './routes/transactions.js';
 import productRoutes from './routes/products.js';
 import userRoutes from './routes/users.js';
 import conversationRoutes from './routes/conversations.js';
+import adminReconciliationRoutes from './routes/adminReconciliation.js';
 import { globalErrorHandler } from './middleware/errors.js';
 import { HealthResponseSchema, LivezResponseSchema, ReadyzResponseSchema } from './schemas/health.js';
 import { serveOpenApiDocument } from './openapi/document.js';
@@ -68,6 +69,7 @@ app.use('/api/v1', transactionRoutes);
 app.use('/api/v1', productRoutes);
 app.use('/api/v1', userRoutes);
 app.use('/api/v1', conversationRoutes);
+app.use('/api/v1', adminReconciliationRoutes);
 
 app.get('/health', (_req: Request, res: Response) => {
   logger.info('Health check endpoint hit');
