@@ -5,7 +5,7 @@ import { config } from "./config/index.js";
 import { connectDb } from "./config/database.js";
 import { startContractWatcher } from "./services/contractWatcher.js";
 import { startWorkers } from "./queues/workers.js";
-import { schedulePriceIndexAggregation } from "./queues/queues.js";
+import { schedulePriceIndexAggregation, scheduleReconciliation } from "./queues/queues.js";
 import { startWeatherPolling } from "./services/weatherService.js";
 import { wsManager } from "./services/wsManager.js";
 
@@ -43,8 +43,12 @@ async function bootstrap() {
       await schedulePriceIndexAggregation().catch((error) =>
         logger.error("Failed to schedule price index aggregation", error),
       );
+      await scheduleReconciliation().catch((error) =>
+        logger.error("Failed to schedule reconciliation", error),
+      );
       startWeatherPolling();
       logger.info("[bootstrap]: Weather advisory polling loop started (interval: 1 h)");
+      logger.info("[bootstrap]: Reconciliation job scheduled (interval: 15 min)");
     }
 
     server.listen(config.port, () => {
