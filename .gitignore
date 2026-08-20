@@ -36,6 +36,7 @@ test_snapshots/
 
 # Environment
 .env*
+!.env
 !.env.example
 
 # IDEs
