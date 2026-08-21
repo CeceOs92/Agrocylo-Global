@@ -174,7 +174,9 @@ fn test_invariant_vote_weight_conservation_mixed_votes() {
 
     // voters[0] votes for, voters[1] votes against, voters[2] votes for
     h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote for");
-    h.gov.vote(&h.voters[1].0, &pid, &false).expect("vote against");
+    h.gov
+        .vote(&h.voters[1].0, &pid, &false)
+        .expect("vote against");
     h.gov.vote(&h.voters[2].0, &pid, &true).expect("vote for");
 
     let p = h.gov.get_proposal(&pid).expect("get_proposal");
@@ -275,7 +277,9 @@ fn test_invariant_lifecycle_rejected_cannot_queue() {
     advance_gov(&h, VOTING_PERIOD + 1);
 
     // Queue — this should transition to Rejected since votes_for < quorum
-    h.gov.queue(&caller, &pid).expect("queue call should not panic");
+    h.gov
+        .queue(&caller, &pid)
+        .expect("queue call should not panic");
 
     let p = h.gov.get_proposal(&pid).expect("get_proposal");
     assert_eq!(
@@ -449,7 +453,9 @@ fn test_invariant_timelock_enforced() {
 
     // Now advance past the timelock: should succeed
     advance_gov(&h, 2); // now at queued_at + TIMELOCK_DELAY + 1
-    h.gov.execute(&caller, &pid).expect("execute must succeed after timelock");
+    h.gov
+        .execute(&caller, &pid)
+        .expect("execute must succeed after timelock");
 
     let p_after = h.gov.get_proposal(&pid).expect("get_proposal");
     assert_eq!(p_after.status, ProposalStatus::Executed);
@@ -500,7 +506,8 @@ fn test_invariant_timelock_proptest() {
                 args.push_back(new_fc.into_val(&env));
                 args.push_back(200u32.into_val(&env));
 
-                let pid = gov.propose(&voter1, &escrow_id, &function_name, &args)
+                let pid = gov
+                    .propose(&voter1, &escrow_id, &function_name, &args)
                     .expect("propose");
 
                 gov.vote(&voter1, &pid, &true).expect("vote 1");
@@ -583,17 +590,25 @@ fn test_invariant_total_weight_tracking() {
     let v1 = Address::generate(&h.env);
     let v2 = Address::generate(&h.env);
 
-    h.gov.set_voter_weight(&admin, &v1, &40).expect("set weight");
+    h.gov
+        .set_voter_weight(&admin, &v1, &40)
+        .expect("set weight");
     assert_eq!(h.gov.get_voter_weight(&v1), 40);
 
-    h.gov.set_voter_weight(&admin, &v2, &60).expect("set weight");
+    h.gov
+        .set_voter_weight(&admin, &v2, &60)
+        .expect("set weight");
     assert_eq!(h.gov.get_voter_weight(&v2), 60);
 
     // Update v1's weight — this should not double-count
-    h.gov.set_voter_weight(&admin, &v1, &20).expect("update weight");
+    h.gov
+        .set_voter_weight(&admin, &v1, &20)
+        .expect("update weight");
     assert_eq!(h.gov.get_voter_weight(&v1), 20);
 
     // Revoke v2
-    h.gov.set_voter_weight(&admin, &v2, &0).expect("revoke weight");
+    h.gov
+        .set_voter_weight(&admin, &v2, &0)
+        .expect("revoke weight");
     assert_eq!(h.gov.get_voter_weight(&v2), 0);
 }

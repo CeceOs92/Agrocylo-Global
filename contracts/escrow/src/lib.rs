@@ -558,7 +558,11 @@ fn read_admin(env: &Env) -> Result<Address, EscrowError> {
 /// deployments/tests are not bricked by this fix. Once `set_attester` is
 /// called, only that address may co-sign.
 fn read_attester(env: &Env) -> Result<Address, EscrowError> {
-    if let Some(attester) = env.storage().instance().get::<_, Address>(&DataKey::Attester) {
+    if let Some(attester) = env
+        .storage()
+        .instance()
+        .get::<_, Address>(&DataKey::Attester)
+    {
         return Ok(attester);
     }
     read_admin(env)
@@ -632,12 +636,19 @@ impl EscrowContract {
     /// timelock applies. See `docs/CONTRACT_UPGRADES.md` for the required
     /// pause -> upgrade -> migrate -> unpause sequencing for any upgrade
     /// that changes stored data shape.
-    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
-        env.events()
-            .publish((symbol_short!("order"), symbol_short!("upgraded")), (new_wasm_hash,));
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("upgraded")),
+            (new_wasm_hash,),
+        );
         Ok(())
     }
 
@@ -671,7 +682,12 @@ impl EscrowContract {
         if !is_guardian && !is_governance {
             return Err(EscrowError::NotAdmin);
         }
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(EscrowError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -687,17 +703,27 @@ impl EscrowContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if !env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(EscrowError::NotPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.events()
-            .publish((symbol_short!("order"), symbol_short!("unpausd")), (caller,));
+        env.events().publish(
+            (symbol_short!("order"), symbol_short!("unpausd")),
+            (caller,),
+        );
         Ok(())
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Storage migration hook. This contract's schema hasn't changed since
@@ -982,7 +1008,11 @@ impl EscrowContract {
     /// unilaterally self-attest delivery and cut off the buyer's automatic
     /// refund-on-expiry path (the same self-rug exploit class fixed in
     /// `production_escrow` via `set_attester`/`mark_harvest`).
-    pub fn set_attester(env: Env, admin_caller: Address, attester: Address) -> Result<(), EscrowError> {
+    pub fn set_attester(
+        env: Env,
+        admin_caller: Address,
+        attester: Address,
+    ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
         let stored_admin = read_admin(&env)?;
         if admin_caller != stored_admin {
@@ -1069,7 +1099,11 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn refund_expired_order(env: Env, caller: Address, order_id: u64) -> Result<(), EscrowError> {
+    pub fn refund_expired_order(
+        env: Env,
+        caller: Address,
+        order_id: u64,
+    ) -> Result<(), EscrowError> {
         caller.require_auth();
         require_not_paused(&env)?;
         let mut order = read_order(&env, order_id)?;
@@ -1106,7 +1140,11 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn refund_expired_orders(env: Env, caller: Address, order_ids: Vec<u64>) -> Result<(), EscrowError> {
+    pub fn refund_expired_orders(
+        env: Env,
+        caller: Address,
+        order_ids: Vec<u64>,
+    ) -> Result<(), EscrowError> {
         caller.require_auth();
         let storage = env.storage().persistent();
         let current_time = env.ledger().timestamp();
@@ -1364,7 +1402,11 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn mark_split_delivered(env: Env, farmer: Address, order_id: u64) -> Result<(), EscrowError> {
+    pub fn mark_split_delivered(
+        env: Env,
+        farmer: Address,
+        order_id: u64,
+    ) -> Result<(), EscrowError> {
         farmer.require_auth();
 
         let mut order = read_split_order(&env, order_id)?;
@@ -1389,7 +1431,11 @@ impl EscrowContract {
     /// A co-buyer confirms receipt. Payout to the farmer fires once either a
     /// strict majority-by-value of co-buyers have confirmed, or every
     /// co-buyer has (unanimous) — whichever threshold is reached first.
-    pub fn confirm_split_receipt(env: Env, co_buyer: Address, order_id: u64) -> Result<(), EscrowError> {
+    pub fn confirm_split_receipt(
+        env: Env,
+        co_buyer: Address,
+        order_id: u64,
+    ) -> Result<(), EscrowError> {
         co_buyer.require_auth();
 
         let mut order = read_split_order(&env, order_id)?;
@@ -1411,8 +1457,8 @@ impl EscrowContract {
             .checked_add(share)
             .ok_or(EscrowError::ArithmeticError)?;
 
-        let majority_by_value = order.confirmed_value.checked_mul(2).unwrap_or(i128::MAX)
-            > order.total_amount;
+        let majority_by_value =
+            order.confirmed_value.checked_mul(2).unwrap_or(i128::MAX) > order.total_amount;
         let unanimous = order.confirmed_count == order.co_buyers.len();
 
         if majority_by_value || unanimous {
@@ -1651,13 +1697,18 @@ impl EscrowContract {
         if quorum == 0 || quorum > arbitrators.len() as u32 {
             return Err(EscrowError::InvalidSplitRatio);
         }
-        env.storage().instance().set(&DataKey::Arbitrators, &arbitrators);
+        env.storage()
+            .instance()
+            .set(&DataKey::Arbitrators, &arbitrators);
         env.storage().instance().set(&DataKey::Quorum, &quorum);
         Ok(())
     }
 
     pub fn get_arbitrators(env: Env) -> Vec<Address> {
-        env.storage().instance().get(&DataKey::Arbitrators).unwrap_or_else(|| Vec::new(&env))
+        env.storage()
+            .instance()
+            .get(&DataKey::Arbitrators)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn get_quorum(env: Env) -> u32 {
@@ -1672,7 +1723,9 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         arbitrator.require_auth();
 
-        let arbitrators: Vec<Address> = env.storage().instance()
+        let arbitrators: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&DataKey::Arbitrators)
             .ok_or(EscrowError::ArbitrationNotConfigured)?;
 
@@ -1696,7 +1749,11 @@ impl EscrowContract {
         let quorum: u32 = env.storage().instance().get(&DataKey::Quorum).unwrap_or(0);
         let mut yes_votes: u32 = 0;
         for a in arbitrators.iter() {
-            if env.storage().persistent().has(&DataKey::ArbitratorVote(order_id, a)) {
+            if env
+                .storage()
+                .persistent()
+                .has(&DataKey::ArbitratorVote(order_id, a))
+            {
                 yes_votes += 1;
             }
         }

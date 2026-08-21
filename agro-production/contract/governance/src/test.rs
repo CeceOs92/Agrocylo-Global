@@ -79,7 +79,12 @@ fn setup() -> TestEnv<'static> {
     }
 }
 
-fn set_fee_config_args(env: &Env, gov_id: &Address, new_collector: &Address, new_bps: u32) -> soroban_sdk::Vec<Val> {
+fn set_fee_config_args(
+    env: &Env,
+    gov_id: &Address,
+    new_collector: &Address,
+    new_bps: u32,
+) -> soroban_sdk::Vec<Val> {
     vec![
         env,
         gov_id.into_val(env),
@@ -165,18 +170,30 @@ fn test_direct_bypass_rejected() {
     t.gov.vote(&t.voter2, &proposal_id, &true);
 
     // Attempt to execute before queue() -> must fail (not queued yet).
-    let err = t.gov.try_execute(&t.voter1, &proposal_id).unwrap_err().unwrap();
+    let err = t
+        .gov
+        .try_execute(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, GovernanceError::NotQueued);
 
     // Attempt to queue before voting period ends -> must fail.
-    let err = t.gov.try_queue(&t.voter1, &proposal_id).unwrap_err().unwrap();
+    let err = t
+        .gov
+        .try_queue(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, GovernanceError::VotingNotClosed);
 
     advance_time(&t.env, VOTING_PERIOD + 1);
     t.gov.queue(&t.voter1, &proposal_id);
 
     // Attempt to execute before timelock elapses -> must fail.
-    let err = t.gov.try_execute(&t.voter1, &proposal_id).unwrap_err().unwrap();
+    let err = t
+        .gov
+        .try_execute(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, GovernanceError::TimelockNotElapsed);
 }
 
@@ -228,7 +245,11 @@ fn test_upgrade_proposal_uses_longer_timelock() {
     // proves execute() is actually selecting the longer upgrade timelock,
     // not just reusing the parameter-change one.
     advance_time(&t.env, TIMELOCK_DELAY + 1);
-    let err = t.gov.try_execute(&t.voter1, &proposal_id).unwrap_err().unwrap();
+    let err = t
+        .gov
+        .try_execute(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, GovernanceError::TimelockNotElapsed);
 
     // Once the full (longer) upgrade timelock has elapsed, execute is at
@@ -238,10 +259,7 @@ fn test_upgrade_proposal_uses_longer_timelock() {
     // out of scope for this unit-test environment, see
     // docs/CONTRACT_UPGRADES.md. The property under test here — the longer
     // delay being enforced — is already fully proven above.)
-    advance_time(
-        &t.env,
-        UPGRADE_TIMELOCK_DELAY - TIMELOCK_DELAY,
-    );
+    advance_time(&t.env, UPGRADE_TIMELOCK_DELAY - TIMELOCK_DELAY);
     // (Not calling execute again here — see comment above.)
     let still_queued = t.gov.get_proposal(&proposal_id);
     assert_eq!(still_queued.status, ProposalStatus::Queued);
@@ -266,11 +284,8 @@ fn test_governance_self_upgrade_requires_full_proposal_cycle() {
     // cycle (target_contract == governance's own address), it succeeds —
     // proving the self-governance pattern `upgrade`/`set_guardian`/
     // `unpause` all rely on actually works end-to-end.
-    let args: soroban_sdk::Vec<Val> = vec![
-        &t.env,
-        gov_id.into_val(&t.env),
-        guardian.into_val(&t.env),
-    ];
+    let args: soroban_sdk::Vec<Val> =
+        vec![&t.env, gov_id.into_val(&t.env), guardian.into_val(&t.env)];
     let proposal_id = t.gov.propose(
         &t.voter1,
         &gov_id,

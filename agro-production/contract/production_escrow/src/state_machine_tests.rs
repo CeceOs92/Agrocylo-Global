@@ -73,12 +73,16 @@ fn op_strategy(num_investors: usize, num_buyers: usize) -> impl Strategy<Value =
     let buy_idx = 0..num_buyers;
 
     let op_gen = prop_oneof![
-        (inv_idx.clone(), 1_000i128..=5_000i128)
-            .prop_map(|(i, amt)| Op::Invest { investor_idx: i, amount: amt }),
+        (inv_idx.clone(), 1_000i128..=5_000i128).prop_map(|(i, amt)| Op::Invest {
+            investor_idx: i,
+            amount: amt
+        }),
         Just(Op::StartProduction),
         Just(Op::MarkHarvest),
-        (buy_idx.clone(), 200i128..=2_000i128)
-            .prop_map(|(i, amt)| Op::CreateOrder { buyer_idx: i, amount: amt }),
+        (buy_idx.clone(), 200i128..=2_000i128).prop_map(|(i, amt)| Op::CreateOrder {
+            buyer_idx: i,
+            amount: amt
+        }),
         (0usize..5usize).prop_map(|i| Op::ConfirmOrder { order_seq: i }),
         (0usize..5usize).prop_map(|i| Op::CancelOrder { order_seq: i }),
         Just(Op::Settle),
@@ -217,11 +221,9 @@ fn check_invariants(
     // 2. Terminal-state lock
     if let Some(expected_status) = prev_terminal {
         assert_eq!(
-            c.status,
-            *expected_status,
+            c.status, *expected_status,
             "INVARIANT 3 VIOLATED: terminal state {:?} transitioned to {:?}",
-            expected_status,
-            c.status
+            expected_status, c.status
         );
     }
 
@@ -234,8 +236,7 @@ fn check_invariants(
         current_fee_balance
     );
 
-    let new_terminal = if c.status == CampaignStatus::Settled
-        || c.status == CampaignStatus::Failed
+    let new_terminal = if c.status == CampaignStatus::Settled || c.status == CampaignStatus::Failed
     {
         Some(c.status)
     } else {
@@ -249,14 +250,16 @@ fn check_invariants(
 /// was applied (no error), false if it was skipped (precondition not met).
 fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
     match op {
-        Op::Invest { investor_idx, amount } => {
+        Op::Invest {
+            investor_idx,
+            amount,
+        } => {
             let idx = *investor_idx % NUM_INVESTORS;
             let investor = h.investors[idx].clone();
             // Ensure the investor has enough balance
             let bal = token_balance_sm(h, &investor);
             if bal < *amount {
-                StellarAssetClient::new(&h.env, &h.token_id)
-                    .mint(&investor, amount);
+                StellarAssetClient::new(&h.env, &h.token_id).mint(&investor, amount);
             }
             match h.client.try_invest(&investor, &h.campaign_id, amount) {
                 Ok(_) => {
@@ -268,7 +271,9 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
         }
         Op::StartProduction => {
             let farmer = h.farmer.clone();
-            h.client.try_start_production(&farmer, &h.campaign_id).is_ok()
+            h.client
+                .try_start_production(&farmer, &h.campaign_id)
+                .is_ok()
         }
         Op::MarkHarvest => {
             let farmer = h.farmer.clone();
@@ -282,8 +287,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             let buyer = h.buyers[idx].clone();
             let bal = token_balance_sm(h, &buyer);
             if bal < *amount {
-                StellarAssetClient::new(&h.env, &h.token_id)
-                    .mint(&buyer, amount);
+                StellarAssetClient::new(&h.env, &h.token_id).mint(&buyer, amount);
             }
             match h.client.try_create_order(&buyer, &h.campaign_id, amount) {
                 Ok(order_id) => {
@@ -408,10 +412,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             for inv in &h.investors {
                 batch.push_back(inv.clone());
             }
-            match h
-                .client
-                .try_batch_refund_investors(&h.campaign_id, &batch)
-            {
+            match h.client.try_batch_refund_investors(&h.campaign_id, &batch) {
                 Ok((count, _total)) => {
                     // Mark each actually-refunded investor as paid
                     // (the batch silently skips already-claimed or zero-contribution)
@@ -456,31 +457,28 @@ fn prop_escrow_state_machine_random_ops() {
     });
 
     runner
-        .run(
-            &op_strategy(NUM_INVESTORS, NUM_BUYERS),
-            |ops| {
-                let mut h = make_sm_harness();
-                let mut terminal_status: Option<CampaignStatus> = None;
-                let mut fee_balance = token_balance_sm(&h, &h.fee_collector);
+        .run(&op_strategy(NUM_INVESTORS, NUM_BUYERS), |ops| {
+            let mut h = make_sm_harness();
+            let mut terminal_status: Option<CampaignStatus> = None;
+            let mut fee_balance = token_balance_sm(&h, &h.fee_collector);
 
-                for (step, op) in ops.iter().enumerate() {
-                    let applied = apply_op(&mut h, op);
+            for (step, op) in ops.iter().enumerate() {
+                let applied = apply_op(&mut h, op);
 
-                    if applied {
-                        // Check all invariants after each successfully applied op
-                        let (new_terminal, new_fee_balance) =
-                            check_invariants(&h, terminal_status.as_ref(), fee_balance);
-                        if new_terminal.is_some() {
-                            terminal_status = new_terminal;
-                        }
-                        fee_balance = new_fee_balance;
+                if applied {
+                    // Check all invariants after each successfully applied op
+                    let (new_terminal, new_fee_balance) =
+                        check_invariants(&h, terminal_status.as_ref(), fee_balance);
+                    if new_terminal.is_some() {
+                        terminal_status = new_terminal;
                     }
-
-                    let _ = step; // suppress unused warning
+                    fee_balance = new_fee_balance;
                 }
-                Ok(())
-            },
-        )
+
+                let _ = step; // suppress unused warning
+            }
+            Ok(())
+        })
         .expect("state-machine fuzzer found an invariant violation");
 }
 
@@ -500,7 +498,9 @@ fn test_state_machine_settle_then_parallel_claims() {
         } else {
             per_investor
         };
-        h.client.invest(inv, &h.campaign_id, &amount).expect("invest");
+        h.client
+            .invest(inv, &h.campaign_id, &amount)
+            .expect("invest");
         *h.contributions.entry(i).or_insert(0) += amount;
     }
 
@@ -554,8 +554,12 @@ fn test_state_machine_interleaved_claim_and_fail() {
     let mut h = make_sm_harness();
 
     // Fund the campaign from investors[0] and investors[1] only
-    h.client.invest(&h.investors[0], &h.campaign_id, &6_000).expect("invest 0");
-    h.client.invest(&h.investors[1], &h.campaign_id, &6_000).expect("invest 1");
+    h.client
+        .invest(&h.investors[0], &h.campaign_id, &6_000)
+        .expect("invest 0");
+    h.client
+        .invest(&h.investors[1], &h.campaign_id, &6_000)
+        .expect("invest 1");
 
     h.client
         .start_production(&h.farmer, &h.campaign_id)
