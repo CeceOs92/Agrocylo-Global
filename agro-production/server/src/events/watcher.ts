@@ -182,7 +182,10 @@ async function pollEvents(
 export async function startProductionWatcher(): Promise<ReturnType<typeof setInterval>> {
   // Read at call time so integration tests can override via process.env before calling.
   const rpcUrl = process.env["RPC_URL"] ?? config.rpcUrl;
-  const server = new rpc.Server(rpcUrl);
+  // allowHttp is required for plain-http RPC endpoints (e.g. the local mock
+  // RPC server E2E tests point RPC_URL at); real deployments use https and
+  // are unaffected.
+  const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
   logger.info("Production contract watcher started", { contractId: CONTRACT_ID });
 
   const cursor = await loadCursor(server);

@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const serverRoot = path.resolve(__dirname, "../../..");
+const serverRoot = path.resolve(__dirname, "../..");
 
 export async function setup(): Promise<void> {
   const dbUrl = process.env["E2E_DATABASE_URL"] ?? process.env["DATABASE_URL"];
@@ -23,7 +23,7 @@ export async function setup(): Promise<void> {
 
   // Push the Prisma schema to the test database, resetting it completely.
   console.log("[e2e/globalSetup] Resetting test database schema...");
-  execSync("npx prisma db push --force-reset --skip-generate", {
+  execSync("npx prisma db push --force-reset", {
     cwd: serverRoot,
     env: { ...process.env, DATABASE_URL: dbUrl },
     stdio: "pipe",
