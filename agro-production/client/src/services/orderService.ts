@@ -30,6 +30,8 @@ export async function confirmOrderReceipt(orderId: string, buyerAddress: string)
     buyerAddress: buyerAddress.replace(/[<>]/g, "").trim(),
   };
   return api.patch<Order>(`/orders/${orderId}/confirm`, sanitized, { retries: 0 });
+}
+
 export async function updateOrderWithTxHash(orderId: string, txHash: string): Promise<Order> {
   const sanitized = {
     txHash: txHash.replace(/[^a-zA-Z0-9]/g, ""),
