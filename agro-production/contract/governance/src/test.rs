@@ -4,12 +4,14 @@ extern crate std;
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    vec, Address, Env, IntoVal, Symbol, Val,
+    vec, Address, BytesN, Env, IntoVal, Symbol, Val,
 };
 
 use production_escrow_v2::{ProductionEscrowContract, ProductionEscrowContractClient};
 
-use crate::{GovernanceContract, GovernanceContractClient, GovernanceError, ProposalStatus};
+use crate::{
+    GovernanceContract, GovernanceContractClient, GovernanceError, ProposalKind, ProposalStatus,
+};
 
 const VOTING_PERIOD: u64 = 7 * 24 * 60 * 60; // 7 days
 const TIMELOCK_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
@@ -177,6 +179,60 @@ fn test_direct_bypass_rejected() {
 
     // Attempt to execute before timelock elapses -> must fail.
     let err = t.gov.try_execute(&t.voter1, &proposal_id).unwrap_err().unwrap();
+    assert_eq!(err, GovernanceError::TimelockNotElapsed);
+}
+
+#[test]
+fn test_disguised_upgrade_proposal_forced_to_upgrade_timelock() {
+    // Issue #754 audit finding: the generic `propose()` entrypoint always
+    // tagged its proposal `ProposalKind::ParameterChange`, but placed no
+    // restriction on `function_name` — so any voter could propose calling
+    // *any* target contract's `upgrade(governance, new_wasm_hash)` while it
+    // was still labeled a mere parameter change. `execute()` picks its
+    // timelock purely from `proposal.kind`, so this let a full contract
+    // WASM swap execute after only the short `timelock_delay_secs` instead
+    // of the deliberately longer `upgrade_timelock_delay_secs` — completely
+    // defeating Issue #757's "an upgrade must never be faster than an
+    // ordinary parameter change" guarantee, on every governed contract in
+    // the system. Fixed by deriving `kind` from the actual function name
+    // rather than trusting the caller-supplied tag.
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let fake_wasm_hash = BytesN::from_array(&t.env, &[7u8; 32]);
+    let args: soroban_sdk::Vec<Val> = vec![
+        &t.env,
+        gov_id.into_val(&t.env),
+        fake_wasm_hash.into_val(&t.env),
+    ];
+
+    // Disguised as an ordinary parameter change via the generic `propose()`
+    // (not `propose_upgrade()`).
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "upgrade"),
+        &args,
+    );
+
+    // The stored kind reflects the true blast radius regardless of which
+    // entrypoint created it — the disguise doesn't work.
+    let proposal = t.gov.get_proposal(&proposal_id);
+    assert_eq!(proposal.kind, ProposalKind::ContractUpgrade);
+
+    t.gov.vote(&t.voter1, &proposal_id, &true);
+    t.gov.vote(&t.voter2, &proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &proposal_id);
+
+    // Before the fix, this exact call would have succeeded — the short
+    // parameter-change timelock must NOT be sufficient to execute an
+    // upgrade.
+    advance_time(&t.env, TIMELOCK_DELAY + 1);
+    let err = t
+        .gov
+        .try_execute(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
     assert_eq!(err, GovernanceError::TimelockNotElapsed);
 }
 

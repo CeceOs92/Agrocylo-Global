@@ -116,6 +116,14 @@ pub enum EscrowError {
     SplitOrderNotFound = 107,
     SplitOrderNotDisputed = 108,
     SplitOrderAlreadyDisputed = 109,
+    /// Issue #754 audit: referenced by `pause`/`unpause`/`require_not_paused`
+    /// since Issue #757's pause feature was added, but never declared on
+    /// this enum — a compile-breaking gap (the whole crate was
+    /// uncompilable). Restored, mirroring the identical variants already
+    /// present on every other governed contract in the workspace.
+    AlreadyPaused = 110,
+    NotPaused = 111,
+    ContractPaused = 112,
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +290,12 @@ pub enum DataKey {
     /// Multi-party split order (Issue #654).
     SplitOrder(u64),
     SplitOrderCount,
+    /// Issue #754 audit: referenced by `pause`/`unpause`/`set_guardian`/
+    /// `is_paused`/`get_guardian`/`migrate` since Issue #757, but never
+    /// declared on this enum — a compile-breaking gap. Restored.
+    Guardian,
+    Paused,
+    SchemaVersion,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored

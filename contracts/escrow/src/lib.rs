@@ -51,6 +51,19 @@ pub enum EscrowError {
     EmptyCoBuyerList = 37,
     SplitOrderNotDisputed = 38,
     SplitOrderAlreadyDisputed = 39,
+    /// Issue #754 audit: referenced by `pause`/`unpause`/`require_not_paused`
+    /// since Issue #757's pause feature was added, but never declared on
+    /// this enum — a compile-breaking gap (the whole crate was
+    /// uncompilable). Restored, no behavior change from what the pause
+    /// feature's call sites already assumed.
+    AlreadyPaused = 40,
+    NotPaused = 41,
+    /// Distinct from `AlreadyPaused` (which guards `pause()` itself against a
+    /// double-pause): this is what every *other* gated operation returns
+    /// while the contract is paused, matching `investment_basket`'s
+    /// `ContractPaused` naming so error codes mean the same thing across the
+    /// governed-contract family.
+    ContractPaused = 42,
 }
 
 #[contracttype]
@@ -203,6 +216,12 @@ pub enum DataKey {
     SplitOrder(u64),
     SplitOrderCount,
     SplitOrderDispute(u64),
+    /// Issue #754 audit: referenced by `pause`/`unpause`/`set_guardian`/
+    /// `is_paused`/`get_guardian`/`migrate` since Issue #757, but never
+    /// declared on this enum — a compile-breaking gap. Restored.
+    Guardian,
+    Paused,
+    SchemaVersion,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -254,6 +273,20 @@ const DEFAULT_FEE_RATE_BPS: u32 = 300;
 
 /// Slippage tolerance used before `set_max_slippage_bps` has ever been called.
 const DEFAULT_MAX_SLIPPAGE_BPS: u32 = 100; // 1%
+
+/// Issue #754 audit: called from `create_order`, `create_order_via_path_payment`,
+/// `confirm_receipt`, `refund_expired_order`, `refund_expired_orders`, and
+/// `open_split_dispute` since Issue #757's pause feature was added, but never
+/// defined anywhere in this crate — a compile-breaking gap (the whole crate
+/// was uncompilable; see also the missing `DataKey`/`EscrowError` variants
+/// fixed alongside this). Restored to match the identical helper already
+/// present on `production_escrow`/`registry`/`investment_basket`/`governance`.
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
+    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        return Err(EscrowError::ContractPaused);
+    }
+    Ok(())
+}
 
 fn read_max_slippage_bps(env: &Env) -> u32 {
     env.storage()
@@ -936,10 +969,13 @@ impl EscrowContract {
         max_slippage_bps: u32,
     ) -> Result<(), EscrowError> {
         admin.require_auth();
-        let stored_admin = read_admin(&env)?;
-        if admin != stored_admin {
-            return Err(EscrowError::NotAdmin);
-        }
+        // Issue #754 audit: previously a plain admin-only check, meaning the
+        // raw admin retained unilateral power over this parameter even after
+        // governance was configured — inconsistent with every other
+        // governed setter in this contract. Now governance-gated the same
+        // way (admin-only fallback while unset, so nothing changes for a
+        // deployment that never configures governance).
+        require_governed_caller(&env, &admin)?;
         if max_slippage_bps > 10_000 {
             return Err(EscrowError::InvalidSlippageTolerance);
         }
@@ -963,10 +999,10 @@ impl EscrowContract {
         registry: Address,
     ) -> Result<(), EscrowError> {
         admin.require_auth();
-        let stored_admin = read_admin(&env)?;
-        if admin != stored_admin {
-            return Err(EscrowError::NotAdmin);
-        }
+        // Issue #754 audit: governance-gated for the same consistency reason
+        // as `set_max_slippage_bps` (admin-only fallback while governance is
+        // unset, so existing deployments/tests are unaffected).
+        require_governed_caller(&env, &admin)?;
         env.storage()
             .instance()
             .set(&DataKey::RegistryContract, &registry);
@@ -984,10 +1020,15 @@ impl EscrowContract {
     /// `production_escrow` via `set_attester`/`mark_harvest`).
     pub fn set_attester(env: Env, admin_caller: Address, attester: Address) -> Result<(), EscrowError> {
         admin_caller.require_auth();
-        let stored_admin = read_admin(&env)?;
-        if admin_caller != stored_admin {
-            return Err(EscrowError::NotAdmin);
-        }
+        // Issue #754 audit: this was still a plain admin-only check, which
+        // left the raw admin key able to unilaterally neutralize the
+        // anti-self-rug protection (repoint the attester to an address it
+        // also controls, then collude with the farmer to fake delivery on
+        // every order) even after governance was configured for every other
+        // security-relevant parameter on this contract. Governance-gated the
+        // same way now (admin-only fallback while governance is unset, so
+        // existing deployments/tests are unaffected).
+        require_governed_caller(&env, &admin_caller)?;
         env.storage().instance().set(&DataKey::Attester, &attester);
         Ok(())
     }
@@ -1108,6 +1149,10 @@ impl EscrowContract {
 
     pub fn refund_expired_orders(env: Env, caller: Address, order_ids: Vec<u64>) -> Result<(), EscrowError> {
         caller.require_auth();
+        // Issue #754 audit: the singular `refund_expired_order` already
+        // enforced this; the batch variant didn't, an inconsistency that let
+        // funds keep moving through the batch path during an active pause.
+        require_not_paused(&env)?;
         let storage = env.storage().persistent();
         let current_time = env.ledger().timestamp();
 

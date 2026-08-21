@@ -139,6 +139,16 @@ Once approved, a maintainer will merge your PR.
 
 ---
 
+## Security Review Requirement (Smart Contracts)
+
+**A new contract crate, or a new cross-contract call between existing contracts, requires a scoped security review before merge** — not an occasional retrospective one. This is what closed Issue #754 (governance, investment-basket, and the path-payment router had shipped without ever being added to `contracts/SECURITY_AUDIT.md`'s scope) and it's meant to stop the same gap from reopening for whatever ships next.
+
+- Run through [`contracts/SECURITY_REVIEW_CHECKLIST.md`](contracts/SECURITY_REVIEW_CHECKLIST.md) — covers when it applies, what to check (authorization, cross-contract trust boundaries, arithmetic, pause/emergency response), and how to record the result.
+- Record the outcome as a new dated section in [`contracts/SECURITY_AUDIT.md`](contracts/SECURITY_AUDIT.md), even if the result is "reviewed, no new findings."
+- Every finding needs one of three tracked dispositions: **Fixed**, **Accepted risk** (with a written rationale), or **Scheduled** (linked to an issue). A finding with no disposition is not a completed review.
+
+---
+
 ## Important Guidelines
 
 ### ✅ Do

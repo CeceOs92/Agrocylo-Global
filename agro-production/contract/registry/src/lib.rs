@@ -26,6 +26,15 @@ pub enum RegistryError {
     BatchNotFound = 8,
     OrderBatchLinkExists = 9,
     CampaignNotHarvested = 10,
+    /// Issue #754 audit: referenced by the governance/pause functions since
+    /// Issue #757, but never declared on this enum — a compile-breaking gap.
+    /// Restored, mirroring `contracts/escrow`/`production_escrow`/
+    /// `investment_basket`'s identical variants.
+    NotAdmin = 11,
+    InvalidGovernanceContract = 12,
+    AlreadyPaused = 13,
+    NotPaused = 14,
+    ContractPaused = 15,
 }
 
 #[contracttype]
@@ -75,18 +84,6 @@ pub struct BatchRecord {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchRecord {
-    pub batch_id: u64,
-    pub campaign_id: u64,
-    pub farmer: Address,
-    pub crop: String,
-    pub harvest_date: u64,
-    pub quantity: i128,
-    pub linked_order_ids: Vec<u64>,
-}
-
-#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
@@ -109,6 +106,17 @@ pub enum DataKey {
     BatchOrderLink(u64, u64),
     /// Batch ids linked to a given order, for `get_batch_history`.
     OrderBatch(u64),
+    /// Issue #754 audit: referenced by `set_governance_contract`/`upgrade`/
+    /// `set_guardian`/`pause`/`unpause`/`is_paused`/`get_guardian`/`migrate`/
+    /// `require_governed_caller`/`require_not_paused` since Issue #757's
+    /// governance/pause/upgrade support was added, but never declared on
+    /// this enum — a compile-breaking gap (the whole crate was
+    /// uncompilable). Restored, mirroring the identical keys already present
+    /// on every other governed contract in the workspace.
+    GovernanceContract,
+    Guardian,
+    Paused,
+    SchemaVersion,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -642,8 +650,21 @@ impl RegistryContract {
         if !is_authorized_contract(&source_contract, &refs) {
             return Err(RegistryError::UnauthorizedContract);
         }
-        if !env.storage().persistent().has(&DataKey::Campaign(campaign_id)) {
-            return Err(RegistryError::CampaignAlreadyRegistered);
+        // Security fix (Issue #754 audit): previously this only checked that
+        // `campaign_id` existed, never that `farmer` actually matches the
+        // campaign's registered farmer. A caller-supplied mismatch (bug on
+        // the calling escrow contract's side, or any future authorized
+        // caller) could mint a provenance record attributing another
+        // farmer's harvest to an arbitrary address — a data-integrity gap
+        // even though `source_contract` itself is authenticated, since the
+        // registry never independently verified this specific claim.
+        let campaign: CampaignRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(RegistryError::CampaignAlreadyRegistered)?;
+        if campaign.farmer != farmer {
+            return Err(RegistryError::InvalidFarmerAddress);
         }
 
         let batch_count: u64 = env.storage().persistent().get(&DataKey::BatchCount).unwrap_or(0);
