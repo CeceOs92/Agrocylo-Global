@@ -10,6 +10,7 @@ import {
   incrementErrorCount,
 } from "./services/metricsService.js";
 import { ApiError, sendProblem } from "./http/errors.js";
+import { Sentry } from "./config/sentry.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import productImageRoutes, {
@@ -151,10 +152,17 @@ app.use(integratorErrorHandler);
 app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
   incrementErrorCount();
   if (err instanceof ApiError) {
+    // Client-facing API errors (4xx/5xx with a deliberate ApiError) are
+    // expected control flow, not incidents — only report actual 5xx ApiErrors
+    // to Sentry, so validation/auth/not-found noise doesn't drown real alerts.
+    if (err.status >= 500) {
+      Sentry.captureException(err);
+    }
     sendProblem(res, req, err);
     return;
   }
   logger.error("Unhandled request error", err);
+  Sentry.captureException(err);
   sendProblem(res, req, new ApiError(500, "Internal Server Error", "An unexpected error occurred"));
 });
 

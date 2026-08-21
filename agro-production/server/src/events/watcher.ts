@@ -6,6 +6,7 @@ import { ProductionEventParser } from "./parser.js";
 import { EventPersister } from "./persister.js";
 import { recordPersistError } from "./metrics.js";
 import type { RawSorobanEvent } from "./types.js";
+import { captureAlert } from "../config/sentry.js";
 
 const POLL_INTERVAL_MS = parseInt(process.env["EVENT_POLL_INTERVAL_MS"] ?? "5000", 10);
 const MAX_BACKFILL_BATCH = 100;
@@ -119,6 +120,11 @@ async function recordDeadLetter(
       ledger: rawEvent.ledger,
       id: rawEvent.id,
     });
+    captureAlert(
+      "contract_watcher_ingestion_failure",
+      `Event ${rawEvent.id} at ledger ${rawEvent.ledger} moved to dead-letter queue`,
+      { ledger: rawEvent.ledger, eventId: rawEvent.id },
+    );
   } catch (dlErr) {
     logger.error("Failed to record dead-letter entry", {
       error: dlErr instanceof Error ? dlErr.message : String(dlErr),
@@ -202,6 +208,11 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
           maxBatch: MAX_BACKFILL_BATCH,
           gap: latestLedger - currentLedger,
         });
+        captureAlert(
+          "contract_watcher_ingestion_failure",
+          `Production watcher ledger gap (${latestLedger - currentLedger}) exceeds backfill batch size — events may be missed`,
+          { currentLedger, latestLedger, maxBatch: MAX_BACKFILL_BATCH },
+        );
       }
 
       let maxEventLedger = currentLedger;
@@ -258,6 +269,11 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
       }
     } catch (err) {
       logger.error("Soroban watcher poll error", { error: err });
+      // Sentry groups identical errors into one issue, so a sustained RPC
+      // outage polling every few seconds doesn't need its own cooldown here.
+      captureAlert("contract_watcher_poll_error", "Production watcher poll iteration failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }, POLL_INTERVAL_MS);
 

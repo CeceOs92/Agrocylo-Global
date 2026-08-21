@@ -87,4 +87,13 @@ export const config = {
   campaignImagePlaceholderUrl:
     getEnv('CAMPAIGN_IMAGE_PLACEHOLDER_URL') ??
     'https://placehold.co/800x800/png?text=No+Image',
+
+  // Observability (Issue #756). Empty DSN disables Sentry — the SDK is
+  // designed to safely no-op without one, so this is optional except
+  // wherever alerts actually need to fire.
+  sentryDsn: getEnv('SENTRY_DSN') ?? '',
+  sentryTracesSampleRate: parseFloat(getEnv('SENTRY_TRACES_SAMPLE_RATE') ?? '0.1'),
+
+  runReconciliationSweep: (getEnv('RUN_RECONCILIATION_SWEEP') ?? 'true') !== 'false',
+  reconciliationSweepIntervalMs: parseInt(getEnv('RECONCILIATION_SWEEP_INTERVAL_MS') ?? '300000', 10),
 };

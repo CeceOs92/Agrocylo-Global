@@ -8,6 +8,7 @@ import type { RawRpcEvent } from "../types/rawRpcEvent.js";
 import { BlockchainEventIngestionService } from "./events/blockchainEventIngestionService.js";
 import { EscrowEventIngestionService } from "./events/escrowEventIngestionService.js";
 import { indexGovernanceEvent } from "./governanceService.js";
+import { captureAlert } from "../config/sentry.js";
 
 const POLL_INTERVAL_MS = 5_000;
 const CHECKPOINT_SERVICE_NAME = "contract-watcher";
@@ -243,6 +244,11 @@ export async function startContractWatcher(): Promise<void> {
           logger.error(
             `[ContractWatcher] Halting checkpoint advance at ledger ${event.ledger} due to ingestion failure. Will retry on next poll.`,
           );
+          captureAlert(
+            "contract_watcher_ingestion_failure",
+            `Contract watcher ingestion failed at ledger ${event.ledger}, checkpoint advance halted`,
+            { ledger: event.ledger, failureCount: failures.length },
+          );
           return;
         }
 
@@ -259,6 +265,13 @@ export async function startContractWatcher(): Promise<void> {
       }
     } catch (err) {
       logger.error("[ContractWatcher] Poll error", err);
+      // Sentry groups identical errors into one issue, so a sustained RPC
+      // outage polling every 5s doesn't need its own cooldown logic here —
+      // configure the alert rule to notify on new/regressed issues, not
+      // every event (see docs/OBSERVABILITY.md).
+      captureAlert("contract_watcher_poll_error", "Contract watcher poll iteration failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }, POLL_INTERVAL_MS);
 }
