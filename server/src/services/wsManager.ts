@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import logger from "../config/logger.js";
 import { config } from "../config/index.js";
 import { HANDOFF_AUDIENCE } from "./authService.js";
+import { websocketConnections } from "./promMetrics.js";
 
 interface AuthMessage {
   type: "auth";
@@ -98,6 +99,7 @@ export class WsManager {
 
       const client: ClientSocket = { ws, wallet: null, isAlive: true };
       this.clients.set(ws, client);
+      websocketConnections.set(this.clients.size);
       logger.info(`WebSocket client connected (total: ${this.clients.size})`);
 
       ws.on("pong", () => {
@@ -168,6 +170,10 @@ export class WsManager {
         `[WsManager] Heartbeat: terminated ${terminated} stale client(s) (total: ${this.clients.size})`,
       );
     }
+    // Reconciles the gauge against every deletion path (close/error/timeout),
+    // not just the connect path — bounded staleness of one heartbeat
+    // interval is acceptable for a metrics gauge.
+    websocketConnections.set(this.clients.size);
   }
 
   /**

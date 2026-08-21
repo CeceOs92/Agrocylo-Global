@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Component, ErrorInfo, ReactNode } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { Button } from "@/components/ui/button";
 import { classifyError } from "@/components/errorHandler";
 import { logger } from "@/lib/logger";
@@ -37,6 +38,13 @@ export class ErrorBoundary extends Component<Props, State> {
     } catch {
       console.error("Uncaught error:", error, errorInfo);
     }
+    // Issue #756: report to Sentry in addition to the existing local
+    // `logger` call — this is the in-tree React render-error path;
+    // `src/app/global-error.tsx` covers the rarer case of the root layout
+    // itself crashing, which bypasses this boundary entirely.
+    Sentry.captureException(error, {
+      extra: { componentStack: errorInfo.componentStack, errorKind: info.kind },
+    });
     this.props.onError?.(error, errorInfo);
   }
 

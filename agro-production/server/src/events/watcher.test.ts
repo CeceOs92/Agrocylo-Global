@@ -208,8 +208,14 @@ describe("startProductionWatcher", () => {
       await startProductionWatcher();
       await vi.advanceTimersByTimeAsync(5_000);
 
+      // Issue #756 fix: this assertion previously expected a log message
+      // ("Production watcher poll error") the source never actually
+      // produced (it logs "Soroban watcher poll error") — a pre-existing,
+      // unrelated string mismatch that made this test always fail before
+      // this PR touched the file for its own reasons (adding a Sentry
+      // alert call in the same catch block).
       expect(logger.error).toHaveBeenCalledWith(
-        "Production watcher poll error",
+        "Soroban watcher poll error",
         expect.objectContaining({ error: expect.any(Error) }),
       );
     });
