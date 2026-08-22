@@ -97,8 +97,7 @@ fn make_harness(num_investors: usize) -> EscrowHarness<'static> {
     client.set_attester(&admin, &attester);
 
     let env: Env = unsafe { std::mem::transmute(env) };
-    let client: ProductionEscrowContractClient<'static> =
-        unsafe { std::mem::transmute(client) };
+    let client: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(client) };
 
     EscrowHarness {
         env,
@@ -155,12 +154,9 @@ fn assert_terminal_state_immutable(
 ) {
     let c = h.client.get_campaign(&campaign_id);
     assert_eq!(
-        c.status,
-        *expected,
+        c.status, *expected,
         "INVARIANT VIOLATED: terminal state changed from {:?} to {:?} for campaign {}",
-        expected,
-        c.status,
-        campaign_id
+        expected, c.status, campaign_id
     );
 }
 
@@ -179,7 +175,9 @@ fn test_invariant_fund_conservation_full_lifecycle() {
     let deadline = future_deadline(&h);
     let target = 10_000i128;
 
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
 
     // Two investors fund the campaign
     h.client.invest(&h.investors[0], &id, &6_000);
@@ -235,8 +233,7 @@ fn test_invariant_fund_conservation_proptest() {
                     };
                     if amt > 0 {
                         // Mint exactly what's needed for this test run
-                        StellarAssetClient::new(&h.env, &h.token_id)
-                            .mint(&h.investors[i], &amt);
+                        StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[i], &amt);
                         h.client
                             .invest(&h.investors[i], &id, &amt)
                             .expect("invest should succeed");
@@ -276,7 +273,9 @@ fn test_invariant_fund_conservation_proptest() {
 fn test_invariant_no_double_claim_returns() {
     let h = make_harness(1);
     let deadline = future_deadline(&h);
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &10_000);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -306,12 +305,16 @@ fn test_invariant_no_double_claim_returns() {
 fn test_invariant_no_double_refund() {
     let h = make_harness(1);
     let deadline = h.env.ledger().timestamp() + 100;
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &5_000);
 
     // Advance past deadline so finalize_failed can be called
     advance(&h, 101);
-    h.client.finalize_failed(&id).expect("finalize_failed should succeed");
+    h.client
+        .finalize_failed(&id)
+        .expect("finalize_failed should succeed");
 
     // First refund: should succeed
     let payout1 = h
@@ -352,13 +355,14 @@ fn test_invariant_no_double_claim_proptest() {
                 .expect("create campaign");
 
             for i in 0..num_investors {
-                StellarAssetClient::new(&h.env, &h.token_id)
-                    .mint(&h.investors[i], &10_000);
+                StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[i], &10_000);
                 h.client
                     .invest(&h.investors[i], &id, &10_000)
                     .expect("invest");
             }
-            h.client.start_production(&h.farmer, &id).expect("start_production");
+            h.client
+                .start_production(&h.farmer, &id)
+                .expect("start_production");
             h.client
                 .mark_harvest(&h.farmer, &h.attester, &id)
                 .expect("mark_harvest");
@@ -391,7 +395,9 @@ fn test_invariant_no_double_claim_proptest() {
 fn test_invariant_terminal_settled_no_transition() {
     let h = make_harness(1);
     let deadline = future_deadline(&h);
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &10_000);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -423,11 +429,15 @@ fn test_invariant_terminal_settled_no_transition() {
 fn test_invariant_terminal_failed_no_transition() {
     let h = make_harness(1);
     let deadline = h.env.ledger().timestamp() + 100;
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &5_000);
 
     advance(&h, 200);
-    h.client.finalize_failed(&id).expect("finalize_failed should succeed");
+    h.client
+        .finalize_failed(&id)
+        .expect("finalize_failed should succeed");
 
     assert_terminal_state_immutable(&h, id, &CampaignStatus::Failed);
 
@@ -455,7 +465,9 @@ fn test_invariant_terminal_failed_no_transition() {
 fn test_invariant_failed_campaign_cannot_be_settled() {
     let h = make_harness(1);
     let deadline = h.env.ledger().timestamp() + 100;
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &5_000);
 
     advance(&h, 200);
@@ -490,10 +502,14 @@ fn test_invariant_terminal_state_lock_proptest() {
                 .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline)
                 .expect("create campaign");
             StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[0], &10_000);
-            h.client.invest(&h.investors[0], &id, &10_000).expect("invest");
+            h.client
+                .invest(&h.investors[0], &id, &10_000)
+                .expect("invest");
 
             let terminal_status = if path == 0 {
-                h.client.start_production(&h.farmer, &id).expect("start_production");
+                h.client
+                    .start_production(&h.farmer, &id)
+                    .expect("start_production");
                 h.client
                     .mark_harvest(&h.farmer, &h.attester, &id)
                     .expect("mark_harvest");
@@ -534,7 +550,9 @@ fn test_invariant_fee_only_via_fee_collector_on_confirm() {
     let h = make_harness(1);
     let deadline = future_deadline(&h);
     let target = 10_000i128;
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
     h.client.invest(&h.investors[0], &id, &10_000);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -554,13 +572,14 @@ fn test_invariant_fee_only_via_fee_collector_on_confirm() {
     // Fee collector balance must NOT have changed yet (fee is held in escrow)
     let fee_collector_after_create = token_balance(&h, &h.fee_collector);
     assert_eq!(
-        fee_collector_before,
-        fee_collector_after_create,
+        fee_collector_before, fee_collector_after_create,
         "fee_collector balance must not change before confirm"
     );
 
     // Confirm order → fee should now be at fee_collector
-    h.client.confirm_order(&buyer, &order_id).expect("confirm_order");
+    h.client
+        .confirm_order(&buyer, &order_id)
+        .expect("confirm_order");
     let fee_collector_after_confirm = token_balance(&h, &h.fee_collector);
 
     // fee = 1000 * 3% = 30
@@ -577,7 +596,9 @@ fn test_invariant_fee_not_collected_on_cancel() {
     let h = make_harness(1);
     let deadline = future_deadline(&h);
     let target = 10_000i128;
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
     h.client.invest(&h.investors[0], &id, &10_000);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -586,13 +607,18 @@ fn test_invariant_fee_not_collected_on_cancel() {
     StellarAssetClient::new(&h.env, &h.token_id).mint(&buyer, &1_000);
 
     let order_amount = 1_000i128;
-    let order_id = h.client.create_order(&buyer, &id, &order_amount).expect("create_order");
+    let order_id = h
+        .client
+        .create_order(&buyer, &id, &order_amount)
+        .expect("create_order");
 
     let fee_collector_before = token_balance(&h, &h.fee_collector);
     let buyer_before = token_balance(&h, &buyer);
 
     // Cancel within the cooling-off window
-    h.client.cancel_order(&buyer, &order_id).expect("cancel_order");
+    h.client
+        .cancel_order(&buyer, &order_id)
+        .expect("cancel_order");
 
     let fee_collector_after = token_balance(&h, &h.fee_collector);
     let buyer_after = token_balance(&h, &buyer);
@@ -615,7 +641,9 @@ fn test_invariant_fee_not_collected_on_cancel() {
 fn test_invariant_fee_collector_balance_never_decreases() {
     let h = make_harness(1);
     let deadline = future_deadline(&h);
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &10_000, &deadline);
     h.client.invest(&h.investors[0], &id, &10_000);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -626,13 +654,19 @@ fn test_invariant_fee_collector_balance_never_decreases() {
     for i in 0..3 {
         let buyer = Address::generate(&h.env);
         StellarAssetClient::new(&h.env, &h.token_id).mint(&buyer, &500);
-        let order_id = h.client.create_order(&buyer, &id, &500).expect("create_order");
-        h.client.confirm_order(&buyer, &order_id).expect("confirm_order");
+        let order_id = h
+            .client
+            .create_order(&buyer, &id, &500)
+            .expect("create_order");
+        h.client
+            .confirm_order(&buyer, &order_id)
+            .expect("confirm_order");
 
         let current = token_balance(&h, &h.fee_collector);
         assert!(
             current >= initial_fee_collector_balance,
-            "fee_collector balance must never decrease (step {})", i
+            "fee_collector balance must never decrease (step {})",
+            i
         );
     }
 }
@@ -656,10 +690,13 @@ fn test_invariant_fee_accounting_proptest() {
                 .create_campaign(&h.farmer, &h.token_id, &target, &deadline)
                 .expect("create campaign");
 
-            StellarAssetClient::new(&h.env, &h.token_id)
-                .mint(&h.investors[0], &target);
-            h.client.invest(&h.investors[0], &id, &target).expect("invest");
-            h.client.start_production(&h.farmer, &id).expect("start_production");
+            StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[0], &target);
+            h.client
+                .invest(&h.investors[0], &id, &target)
+                .expect("invest");
+            h.client
+                .start_production(&h.farmer, &id)
+                .expect("start_production");
             h.client
                 .mark_harvest(&h.farmer, &h.attester, &id)
                 .expect("mark_harvest");
@@ -671,7 +708,9 @@ fn test_invariant_fee_accounting_proptest() {
                 .client
                 .create_order(&buyer, &id, &order_amount)
                 .expect("create_order");
-            h.client.confirm_order(&buyer, &order_id).expect("confirm_order");
+            h.client
+                .confirm_order(&buyer, &order_id)
+                .expect("confirm_order");
 
             let fee_after = token_balance(&h, &h.fee_collector);
             let expected_fee = (order_amount * 300) / 10_000;
@@ -702,7 +741,9 @@ fn test_regression_double_claim_caught() {
     let deadline = future_deadline(&h);
     let target = 10_000i128;
 
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
     h.client.invest(&h.investors[0], &id, &6_000);
     h.client.invest(&h.investors[1], &id, &4_000);
     h.client.start_production(&h.farmer, &id);
@@ -735,8 +776,7 @@ fn test_regression_double_claim_caught() {
     // Balance must not have changed after the blocked second claim
     let balance_after_second = token_balance(&h, &h.investors[0]);
     assert_eq!(
-        balance_after_second,
-        balance_after_first,
+        balance_after_second, balance_after_first,
         "REGRESSION: balance changed after a blocked claim — funds were drained"
     );
 }
@@ -754,9 +794,10 @@ fn test_regression_tranche_cap_caught() {
     let deadline = future_deadline(&h);
     let target = 10_000i128;
 
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
-    StellarAssetClient::new(&h.env, &h.token_id)
-        .mint(&h.investors[0], &target);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[0], &target);
     h.client.invest(&h.investors[0], &id, &target);
     h.client.start_production(&h.farmer, &id);
     h.client.mark_harvest(&h.farmer, &h.attester, &id);
@@ -780,7 +821,10 @@ fn test_regression_tranche_cap_caught() {
         .claim_returns(&h.investors[0], &id)
         .expect("claim_returns after settle");
     // Remaining after 70% tranche = 30% of 10_000 = 3_000
-    assert_eq!(payout, 3_000, "investor should receive remaining 30% of raised funds");
+    assert_eq!(
+        payout, 3_000,
+        "investor should receive remaining 30% of raised funds"
+    );
 }
 
 /// Regression: batch_refund_investors must not refund the same investor twice
@@ -792,9 +836,10 @@ fn test_regression_batch_refund_no_double_payout() {
     let target = 10_000i128;
     let contribution = 5_000i128;
 
-    let id = h.client.create_campaign(&h.farmer, &h.token_id, &target, &deadline);
-    StellarAssetClient::new(&h.env, &h.token_id)
-        .mint(&h.investors[0], &contribution);
+    let id = h
+        .client
+        .create_campaign(&h.farmer, &h.token_id, &target, &deadline);
+    StellarAssetClient::new(&h.env, &h.token_id).mint(&h.investors[0], &contribution);
     h.client.invest(&h.investors[0], &id, &contribution);
 
     advance(&h, 200);
@@ -817,13 +862,11 @@ fn test_regression_batch_refund_no_double_payout() {
 
     assert_eq!(count, 1, "only one refund should have been processed");
     assert_eq!(
-        actual_increase,
-        total,
+        actual_increase, total,
         "balance increase must match reported total"
     );
     assert_eq!(
-        actual_increase,
-        contribution,
+        actual_increase, contribution,
         "REGRESSION: investor was refunded more than once in batch"
     );
 }

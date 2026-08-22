@@ -167,10 +167,16 @@ fn create_funded_and_settled_basket(
         .expect("deposit");
 
     // fund_basket → basket invests deposit_amount into the campaign
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
     let basket = h.basket.get_basket(&basket_id).expect("get_basket");
-    assert_eq!(basket.status, BasketStatus::Funded, "basket must be Funded after fund_basket");
+    assert_eq!(
+        basket.status,
+        BasketStatus::Funded,
+        "basket must be Funded after fund_basket"
+    );
 
     // Run the campaign through to Settled so claim_basket_returns can sweep
     h.escrow
@@ -194,8 +200,7 @@ fn test_invariant_deposit_conservation_single_depositor() {
     let h = make_basket_harness(1);
     let deposit = 10_000i128;
 
-    let (basket_id, _) =
-        create_funded_and_settled_basket(&h, &h.depositors[0], deposit);
+    let (basket_id, _) = create_funded_and_settled_basket(&h, &h.depositors[0], deposit);
 
     let depositor_before = token_balance(&h, &h.depositors[0]);
 
@@ -244,11 +249,15 @@ fn test_invariant_deposit_conservation_failed_campaign_refund() {
         .expect("deposit");
 
     // fund_basket: invests deposit into the (still Funding) campaign
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
     // Advance past deadline → campaign is still Funding → finalize_failed
     advance_basket(&h, 120);
-    h.escrow.finalize_failed(&campaign_id).expect("finalize_failed");
+    h.escrow
+        .finalize_failed(&campaign_id)
+        .expect("finalize_failed");
 
     let depositor_before = token_balance(&h, &h.depositors[0]);
 
@@ -270,7 +279,10 @@ fn test_invariant_deposit_conservation_failed_campaign_refund() {
         basket_final.total_collected
     );
     // The full deposit should be returned since no tranches were released
-    assert_eq!(payout, deposit, "full deposit must be returned when campaign fails before funding target");
+    assert_eq!(
+        payout, deposit,
+        "full deposit must be returned when campaign fails before funding target"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -363,8 +375,7 @@ fn test_invariant_no_overpay_repeatable_claims() {
         Ok(payout2) => {
             // If unexpectedly some more was collectible, total must still be bounded
             let basket = h.basket.get_basket(&basket_id).expect("get_basket");
-            let fair_share =
-                (basket.total_collected * deposit) / basket.total_deposit;
+            let fair_share = (basket.total_collected * deposit) / basket.total_deposit;
             let total_paid = payout1 + payout2;
             assert!(
                 total_paid <= fair_share,
@@ -410,11 +421,17 @@ fn test_invariant_multi_depositor_total_payout_bounded() {
     }
 
     // Fund the basket (invests total_deposit into the campaign)
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
     // Run campaign through to Settled
-    h.escrow.start_production(&h.farmer, &campaign_id).expect("start_production");
-    h.escrow.mark_harvest(&h.farmer, &h.attester, &campaign_id).expect("mark_harvest");
+    h.escrow
+        .start_production(&h.farmer, &campaign_id)
+        .expect("start_production");
+    h.escrow
+        .mark_harvest(&h.farmer, &h.attester, &campaign_id)
+        .expect("mark_harvest");
     h.escrow.settle(&h.farmer, &campaign_id).expect("settle");
 
     let mut total_paid = 0i128;
@@ -471,11 +488,17 @@ fn test_invariant_multi_depositor_proptest() {
                         .expect("deposit");
                 }
 
-                h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+                h.basket
+                    .fund_basket(&h.admin, &basket_id)
+                    .expect("fund_basket");
 
                 // Settle the campaign
-                h.escrow.start_production(&h.farmer, &campaign_id).expect("start_production");
-                h.escrow.mark_harvest(&h.farmer, &h.attester, &campaign_id).expect("mark_harvest");
+                h.escrow
+                    .start_production(&h.farmer, &campaign_id)
+                    .expect("start_production");
+                h.escrow
+                    .mark_harvest(&h.farmer, &h.attester, &campaign_id)
+                    .expect("mark_harvest");
                 h.escrow.settle(&h.farmer, &campaign_id).expect("settle");
 
                 let mut total_paid = 0i128;
@@ -541,10 +564,16 @@ fn test_invariant_per_depositor_fair_share_not_exceeded() {
     h.basket
         .deposit(&h.depositors[1], &basket_id, &d1_amount)
         .expect("deposit 1");
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
-    h.escrow.start_production(&h.farmer, &campaign_id).expect("start_production");
-    h.escrow.mark_harvest(&h.farmer, &h.attester, &campaign_id).expect("mark_harvest");
+    h.escrow
+        .start_production(&h.farmer, &campaign_id)
+        .expect("start_production");
+    h.escrow
+        .mark_harvest(&h.farmer, &h.attester, &campaign_id)
+        .expect("mark_harvest");
     h.escrow.settle(&h.farmer, &campaign_id).expect("settle");
 
     let payout0 = h
@@ -623,11 +652,15 @@ fn test_invariant_uninvestable_constituent_principal_returned() {
 
     // Advance past campaign_dead's deadline and mark it failed
     advance_basket(&h, 20);
-    h.escrow.finalize_failed(&campaign_dead).expect("finalize_failed");
+    h.escrow
+        .finalize_failed(&campaign_dead)
+        .expect("finalize_failed");
 
     // fund_basket: campaign_dead invest will fail (deadline passed),
     // so its 5_000 share stays in basket and is credited to total_collected
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
     let basket_after_fund = h.basket.get_basket(&basket_id).expect("get_basket");
     assert_eq!(basket_after_fund.status, BasketStatus::Funded);
@@ -641,14 +674,21 @@ fn test_invariant_uninvestable_constituent_principal_returned() {
         .basket
         .claim_basket_returns(&h.depositors[0], &basket_id)
         .expect("claim 1");
-    assert_eq!(payout1, 5_000, "depositor should immediately recover the dead constituent's share");
+    assert_eq!(
+        payout1, 5_000,
+        "depositor should immediately recover the dead constituent's share"
+    );
 
     let depositor_after_1 = token_balance(&h, &h.depositors[0]);
     assert_eq!(depositor_after_1 - depositor_before, payout1);
 
     // Now settle campaign_live so the remaining 5_000 is collectible
-    h.escrow.start_production(&h.farmer, &campaign_live).expect("start_production");
-    h.escrow.mark_harvest(&h.farmer, &h.attester, &campaign_live).expect("mark_harvest");
+    h.escrow
+        .start_production(&h.farmer, &campaign_live)
+        .expect("start_production");
+    h.escrow
+        .mark_harvest(&h.farmer, &h.attester, &campaign_live)
+        .expect("mark_harvest");
     h.escrow.settle(&h.farmer, &campaign_live).expect("settle");
 
     // Second claim: sweeps the live campaign
@@ -656,7 +696,10 @@ fn test_invariant_uninvestable_constituent_principal_returned() {
         .basket
         .claim_basket_returns(&h.depositors[0], &basket_id)
         .expect("claim 2");
-    assert!(payout2 > 0, "second claim must yield additional from live campaign");
+    assert!(
+        payout2 > 0,
+        "second claim must yield additional from live campaign"
+    );
 
     let basket_final = h.basket.get_basket(&basket_id).expect("get_basket");
     let total_paid = payout1 + payout2;
@@ -751,37 +794,59 @@ fn test_regression_staggered_claim_no_forfeiture() {
     let c2_target = 5_000i128;
     let deadline = future_deadline(&h);
 
-    let c1 = h.escrow.create_campaign(&h.farmer, &h.token_id, &c1_target, &deadline)
+    let c1 = h
+        .escrow
+        .create_campaign(&h.farmer, &h.token_id, &c1_target, &deadline)
         .expect("create c1");
-    let c2 = h.escrow.create_campaign(&h.farmer, &h.token_id, &c2_target, &deadline)
+    let c2 = h
+        .escrow
+        .create_campaign(&h.farmer, &h.token_id, &c2_target, &deadline)
         .expect("create c2");
 
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((c1, 5_000u32));
     constituents.push_back((c2, 5_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents)
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents)
         .expect("create_basket");
 
-    h.basket.deposit(&h.depositors[0], &basket_id, &deposit).expect("deposit");
-    h.basket.fund_basket(&h.admin, &basket_id).expect("fund_basket");
+    h.basket
+        .deposit(&h.depositors[0], &basket_id, &deposit)
+        .expect("deposit");
+    h.basket
+        .fund_basket(&h.admin, &basket_id)
+        .expect("fund_basket");
 
     // Settle only c1 first
-    h.escrow.start_production(&h.farmer, &c1).expect("start_production c1");
-    h.escrow.mark_harvest(&h.farmer, &h.attester, &c1).expect("mark_harvest c1");
+    h.escrow
+        .start_production(&h.farmer, &c1)
+        .expect("start_production c1");
+    h.escrow
+        .mark_harvest(&h.farmer, &h.attester, &c1)
+        .expect("mark_harvest c1");
     h.escrow.settle(&h.farmer, &c1).expect("settle c1");
 
     // Claim after c1 settles (c2 not yet settled)
-    let payout1 = h.basket.claim_basket_returns(&h.depositors[0], &basket_id)
+    let payout1 = h
+        .basket
+        .claim_basket_returns(&h.depositors[0], &basket_id)
         .expect("claim after c1");
     assert!(payout1 > 0);
 
     // Now settle c2
-    h.escrow.start_production(&h.farmer, &c2).expect("start_production c2");
-    h.escrow.mark_harvest(&h.farmer, &h.attester, &c2).expect("mark_harvest c2");
+    h.escrow
+        .start_production(&h.farmer, &c2)
+        .expect("start_production c2");
+    h.escrow
+        .mark_harvest(&h.farmer, &h.attester, &c2)
+        .expect("mark_harvest c2");
     h.escrow.settle(&h.farmer, &c2).expect("settle c2");
 
     // Second claim should yield additional (not NothingToClaim)
-    let payout2 = h.basket.claim_basket_returns(&h.depositors[0], &basket_id)
+    let payout2 = h
+        .basket
+        .claim_basket_returns(&h.depositors[0], &basket_id)
         .expect("claim after c2 — must not forfeit remaining entitlement");
     assert!(
         payout2 > 0,

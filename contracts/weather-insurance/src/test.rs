@@ -3,7 +3,14 @@
 use super::*;
 use soroban_sdk::{testutils::Address as _, token, Address, Env};
 
-fn setup_test_inline() -> (Env, WeatherInsuranceContractClient<'static>, Address, Address, Address, token::Client<'static>) {
+fn setup_test_inline() -> (
+    Env,
+    WeatherInsuranceContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    token::Client<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -46,7 +53,10 @@ fn test_initialize_ok() {
 fn test_initialize_rejects_reinit() {
     let (_env, client, admin, _oracle, _farmer, _token) = setup_test_inline();
     let result = client.try_initialize(&admin, &admin, &500);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::AlreadyInitialized);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::AlreadyInitialized
+    );
 }
 
 #[test]
@@ -57,7 +67,10 @@ fn test_initialize_rejects_high_premium() {
     let client = WeatherInsuranceContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     let result = client.try_initialize(&admin, &admin, &3000);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PremiumRateTooHigh);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::PremiumRateTooHigh
+    );
 }
 
 #[test]
@@ -87,7 +100,10 @@ fn test_take_premium_duplicate_fails() {
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     let result = client.try_take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyAlreadyActive);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::PolicyAlreadyActive
+    );
 }
 
 #[test]
@@ -131,7 +147,10 @@ fn test_report_breach_within_threshold_fails() {
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     let result = client.try_report_breach(&oracle, &1, &25);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::ThresholdBreachReported);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::ThresholdBreachReported
+    );
 }
 
 #[test]
@@ -157,7 +176,10 @@ fn test_report_breach_no_policy_fails() {
     let client = WeatherInsuranceContractClient::new(&env, &contract_id);
     client.initialize(&admin, &oracle, &500);
     let result = client.try_report_breach(&oracle, &99, &600);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyNotActive);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::PolicyNotActive
+    );
 }
 
 #[test]
@@ -192,7 +214,10 @@ fn test_double_payout_fails() {
 
     client.report_breach(&oracle, &1, &600);
     let result = client.try_report_breach(&oracle, &1, &600);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyNotActive);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::PolicyNotActive
+    );
 }
 
 #[test]
@@ -245,7 +270,14 @@ fn test_premium_deducted_from_funding() {
 
     let balance_before = token.balance(&admin);
     token.approve(&admin, &client.address, &expected_premium, &6311999);
-    let premium = client.take_premium(&admin, &1, &farmer, &token.address, &funding_amount, &threshold);
+    let premium = client.take_premium(
+        &admin,
+        &1,
+        &farmer,
+        &token.address,
+        &funding_amount,
+        &threshold,
+    );
     assert_eq!(premium, expected_premium);
     assert_eq!(token.balance(&admin), balance_before - expected_premium);
 }

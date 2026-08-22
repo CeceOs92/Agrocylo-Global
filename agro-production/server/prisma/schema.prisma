@@ -52,6 +52,30 @@ model Campaign {
   @@map("campaigns")
 }
 
+// Backing model for the `products` table created by the
+// add_product_marketplace migration — the model itself was never added to
+// this schema, which broke `prisma generate`/`migrate diff` outright (#744).
+model Product {
+  id             String   @id @default(uuid())
+  name           String
+  description    String
+  imageUrl       String?
+  priceTokens    BigInt
+  campaignId     String?
+  inventoryCount Int
+  category       String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([category])
+  @@index([isActive])
+  @@map("products")
+}
+
 model Investment {
   id             String   @id @default(uuid())
   campaignId     String
@@ -82,9 +106,10 @@ model Order {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  buyer    User     @relation(fields: [buyerAddress], references: [walletAddress], onDelete: Restrict)
-  disputes Dispute[]
+  campaign     Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  buyer        User          @relation(fields: [buyerAddress], references: [walletAddress], onDelete: Restrict)
+  disputes     Dispute[]
+  conversation Conversation?
 
   @@index([campaignId])
   @@index([buyerAddress])

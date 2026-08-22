@@ -307,8 +307,7 @@ fn test_reputation_split_dispute_is_proportional() {
 fn test_reputation_update_from_production_contract_is_authorized() {
     let (_env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
 
-    let rep =
-        client.record_order_outcome(&production_contract, &farmer_one, &None);
+    let rep = client.record_order_outcome(&production_contract, &farmer_one, &None);
     assert_eq!(rep.score, 10);
 }
 
@@ -316,8 +315,7 @@ fn test_reputation_update_from_production_contract_is_authorized() {
 fn test_reputation_update_from_unauthorized_caller_fails() {
     let (_env, client, _, _, _, unauthorized_contract, farmer_one, _) = setup_test();
 
-    let result =
-        client.try_record_order_outcome(&unauthorized_contract, &farmer_one, &None);
+    let result = client.try_record_order_outcome(&unauthorized_contract, &farmer_one, &None);
     assert_eq!(
         result.unwrap_err().unwrap(),
         RegistryError::UnauthorizedContract

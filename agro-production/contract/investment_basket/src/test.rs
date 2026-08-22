@@ -57,10 +57,8 @@ fn setup() -> TestEnv<'static> {
     basket.initialize(&admin, &escrow_id);
 
     let env: Env = unsafe { std::mem::transmute(env) };
-    let basket: InvestmentBasketContractClient<'static> =
-        unsafe { std::mem::transmute(basket) };
-    let escrow: ProductionEscrowContractClient<'static> =
-        unsafe { std::mem::transmute(escrow) };
+    let basket: InvestmentBasketContractClient<'static> = unsafe { std::mem::transmute(basket) };
+    let escrow: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(escrow) };
 
     TestEnv {
         env,
@@ -80,8 +78,12 @@ fn test_create_basket_and_deposit_splits_across_campaigns() {
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
 
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -107,8 +109,12 @@ fn test_mixed_outcome_basket_partial_failure_does_not_block_settled_payout() {
 
     // c1 will be fully funded then settled (payable).
     // c2 will be underfunded and left to expire -> Failed (refundable).
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &500_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &10_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &500_000, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &10_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 5_000u32), (c2, 5_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -169,9 +175,15 @@ fn test_staggered_settlement_across_multiple_claims_pays_full_fair_share() {
     let sac = StellarAssetClient::new(&t.env, &t.token_id);
     sac.mint(&depositor_b, &10_000_000);
 
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &3_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
-    let c3 = t.escrow.create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &3_000, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
+    let c3 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 3_400u32), (c2, 3_300u32), (c3, 3_300u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -224,7 +236,9 @@ fn test_invalid_weights_rejected() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let bad_constituents = vec![&t.env, (c1, 9_000u32)];
     let err = t
@@ -243,7 +257,9 @@ fn test_too_many_constituents_rejected() {
 
     let mut constituents = soroban_sdk::Vec::new(&t.env);
     for _ in 0..21 {
-        let c = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+        let c = t
+            .escrow
+            .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
         constituents.push_back((c, 476u32)); // arbitrary, will fail on size before weight check
     }
 
@@ -262,8 +278,12 @@ fn test_fund_basket_skips_uninvestable_constituent_and_depositor_recovers_funds(
 
     // c1 stays investable. c2's deadline will already have passed by the
     // time fund_basket runs, so its `invest` call fails.
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
 
     let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -310,7 +330,9 @@ fn test_withdraw_basket_before_deadline_rejected() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -329,7 +351,9 @@ fn test_withdraw_basket_after_deadline_recovers_principal() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -385,7 +409,9 @@ fn test_guardian_pause_blocks_deposit_governance_only_unpauses() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
 
@@ -396,9 +422,7 @@ fn test_guardian_pause_blocks_deposit_governance_only_unpauses() {
     t.basket.pause(&guardian);
     assert!(t.basket.is_paused());
 
-    let result = t
-        .basket
-        .try_deposit(&t.depositor, &basket_id, &500_000);
+    let result = t.basket.try_deposit(&t.depositor, &basket_id, &500_000);
     assert_eq!(result.unwrap_err().unwrap(), BasketError::ContractPaused);
 
     // Guardian cannot unpause (falls back to admin-gating since no
@@ -423,7 +447,9 @@ fn test_migrate_translates_pre_682_baskets_and_flips_schema_version() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
     let constituents = vec![&t.env, (c1, 10_000u32)];
     // create_basket via the current contract always produces the current
     // shape — simulate "this basket predates #682" by overwriting its

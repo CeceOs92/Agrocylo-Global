@@ -391,10 +391,15 @@ impl ProductionEscrowContract {
     /// timelock applies. See `docs/CONTRACT_UPGRADES.md` for the required
     /// pause -> upgrade -> migrate -> unpause sequencing for any upgrade that
     /// changes stored data shape.
-    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), EscrowError> {
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
         env.events()
             .publish((t_campaign(), symbol_short!("upgraded")), (new_wasm_hash,));
         Ok(())
@@ -430,7 +435,12 @@ impl ProductionEscrowContract {
         if !is_guardian && !is_governance {
             return Err(EscrowError::NotAdmin);
         }
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(EscrowError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -446,7 +456,12 @@ impl ProductionEscrowContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if !env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(EscrowError::NotPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -456,7 +471,10 @@ impl ProductionEscrowContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Storage migration hook. This contract's schema hasn't changed since
@@ -496,7 +514,11 @@ impl ProductionEscrowContract {
     /// Set the registry contract address. Authorized caller is the governance
     /// contract once configured via `set_governance_contract` (Issue #660);
     /// falls back to admin-only while governance is unset.
-    pub fn set_registry_contract(env: Env, admin_caller: Address, registry: Address) -> Result<(), EscrowError> {
+    pub fn set_registry_contract(
+        env: Env,
+        admin_caller: Address,
+        registry: Address,
+    ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
         require_governed_caller(&env, &admin_caller)?;
         env.storage()
@@ -578,15 +600,17 @@ impl ProductionEscrowContract {
 
     /// Set the independent attester role. Can be called by admin.
     /// The attester is required to sign off on mark_harvest to prevent farmer self-attest exploits.
-    pub fn set_attester(env: Env, admin_caller: Address, attester: Address) -> Result<(), EscrowError> {
+    pub fn set_attester(
+        env: Env,
+        admin_caller: Address,
+        attester: Address,
+    ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
         let admin = admin(&env)?;
         if admin_caller != admin {
             return Err(EscrowError::NotAdmin);
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::Attester, &attester);
+        env.storage().instance().set(&DataKey::Attester, &attester);
         Ok(())
     }
 
@@ -769,7 +793,12 @@ impl ProductionEscrowContract {
 
     /// Farmer signals harvest done. Releases the harvest tranche.
     /// Requires independent attester co-signature to prevent farmer self-attest exploits.
-    pub fn mark_harvest(env: Env, farmer: Address, attester_caller: Address, campaign_id: u64) -> Result<(), EscrowError> {
+    pub fn mark_harvest(
+        env: Env,
+        farmer: Address,
+        attester_caller: Address,
+        campaign_id: u64,
+    ) -> Result<(), EscrowError> {
         farmer.require_auth();
         attester_caller.require_auth();
         require_not_paused(&env)?;
@@ -786,8 +815,10 @@ impl ProductionEscrowContract {
         }
         campaign.status = CampaignStatus::Harvested;
 
-        let cumulative_target =
-            checked_mul(campaign.total_raised, TRANCHE_START_BPS + TRANCHE_HARVEST_BPS)? / BPS_DENOM;
+        let cumulative_target = checked_mul(
+            campaign.total_raised,
+            TRANCHE_START_BPS + TRANCHE_HARVEST_BPS,
+        )? / BPS_DENOM;
         let delta = checked_sub(cumulative_target, campaign.tranche_released)?;
         if delta > 0 {
             release_tranche_internal(&env, &mut campaign, delta)?;
@@ -896,7 +927,8 @@ impl ProductionEscrowContract {
         }
 
         let cfg = configs.get(next_idx).unwrap();
-        let tranche_amount = checked_mul(campaign.total_raised, cfg.release_bps as i128)? / BPS_DENOM;
+        let tranche_amount =
+            checked_mul(campaign.total_raised, cfg.release_bps as i128)? / BPS_DENOM;
         if tranche_amount > 0 {
             release_tranche_internal(&env, &mut campaign, tranche_amount)?;
         }
@@ -1189,8 +1221,8 @@ impl ProductionEscrowContract {
         order.confirmed_count += 1;
         order.confirmed_value = checked_add(order.confirmed_value, share)?;
 
-        let majority_by_value = order.confirmed_value.checked_mul(2).unwrap_or(i128::MAX)
-            > order.total_amount;
+        let majority_by_value =
+            order.confirmed_value.checked_mul(2).unwrap_or(i128::MAX) > order.total_amount;
         let unanimous = order.confirmed_count == order.co_buyers.len();
 
         if majority_by_value || unanimous {
@@ -1298,10 +1330,8 @@ impl ProductionEscrowContract {
 
         save_split_order(&env, order_id, &order);
 
-        env.events().publish(
-            (t_order(), symbol_short!("splitres")),
-            (order_id,),
-        );
+        env.events()
+            .publish((t_order(), symbol_short!("splitres")), (order_id,));
         Ok(())
     }
 
@@ -1362,10 +1392,8 @@ impl ProductionEscrowContract {
             (order_id, buyer, order.campaign_id),
         );
         if order.fee > 0 {
-            env.events().publish(
-                (t_order(), symbol_short!("fee_col")),
-                (order_id, order.fee),
-            );
+            env.events()
+                .publish((t_order(), symbol_short!("fee_col")), (order_id, order.fee));
         }
         Ok(())
     }
@@ -1433,7 +1461,7 @@ impl ProductionEscrowContract {
         // Rounding dust (due to integer division) goes to the platform fee collector (Issue #455).
         let pool = checked_add(
             campaign.total_raised,
-            checked_sub(campaign.total_revenue, campaign.tranche_released)?
+            checked_sub(campaign.total_revenue, campaign.tranche_released)?,
         )?;
         if pool <= 0 {
             return Err(EscrowError::NothingToClaim);
@@ -1517,10 +1545,8 @@ impl ProductionEscrowContract {
 
         campaign.status = CampaignStatus::Failed;
         save_campaign(&env, &campaign);
-        env.events().publish(
-            (t_campaign(), symbol_short!("failed")),
-            (campaign_id,),
-        );
+        env.events()
+            .publish((t_campaign(), symbol_short!("failed")), (campaign_id,));
         Ok(())
     }
 
@@ -1565,11 +1591,7 @@ impl ProductionEscrowContract {
         // If no tranches were released, full refund is available.
         if campaign.tranche_released <= 0 {
             // Full refund: all funds are still in escrow.
-            token_client.transfer(
-                &env.current_contract_address(),
-                &investor,
-                &contribution,
-            );
+            token_client.transfer(&env.current_contract_address(), &investor, &contribution);
             env.events().publish(
                 (t_campaign(), symbol_short!("refunded")),
                 (campaign_id, investor, contribution),
@@ -1580,7 +1602,7 @@ impl ProductionEscrowContract {
         // Proportional refund: remaining pool = raised + revenue - released.
         let pool = checked_add(
             campaign.total_raised,
-            checked_sub(campaign.total_revenue, campaign.tranche_released)?
+            checked_sub(campaign.total_revenue, campaign.tranche_released)?,
         )?;
         if pool <= 0 {
             return Err(EscrowError::NothingToClaim);
@@ -1591,11 +1613,7 @@ impl ProductionEscrowContract {
             return Err(EscrowError::NothingToClaim);
         }
 
-        token_client.transfer(
-            &env.current_contract_address(),
-            &investor,
-            &payout,
-        );
+        token_client.transfer(&env.current_contract_address(), &investor, &payout);
 
         env.events().publish(
             (t_campaign(), symbol_short!("refunded")),
@@ -1606,11 +1624,7 @@ impl ProductionEscrowContract {
 
     /// View the refundable amount for a contributor on a failed campaign.
     /// Returns 0 if not applicable (not failed, not an investor, or already claimed).
-    pub fn refundable_amount(
-        env: Env,
-        investor: Address,
-        campaign_id: u64,
-    ) -> i128 {
+    pub fn refundable_amount(env: Env, investor: Address, campaign_id: u64) -> i128 {
         let campaign = match load_campaign(&env, campaign_id) {
             Ok(c) => c,
             Err(_) => return 0,
@@ -1635,7 +1649,7 @@ impl ProductionEscrowContract {
         }
         let pool = match checked_add(
             campaign.total_raised,
-            checked_sub(campaign.total_revenue, campaign.tranche_released).unwrap_or(0)
+            checked_sub(campaign.total_revenue, campaign.tranche_released).unwrap_or(0),
         ) {
             Ok(p) => p,
             Err(_) => return 0,
@@ -1666,8 +1680,7 @@ impl ProductionEscrowContract {
                 return Err(EscrowError::NotInvestor);
             }
         }
-        if campaign.status == CampaignStatus::Disputed
-            || campaign.status == CampaignStatus::Settled
+        if campaign.status == CampaignStatus::Disputed || campaign.status == CampaignStatus::Settled
         {
             return Err(EscrowError::CampaignAlreadyDisputed);
         }
@@ -1730,7 +1743,7 @@ impl ProductionEscrowContract {
 
         let pool = checked_add(
             campaign.total_raised,
-            checked_sub(campaign.total_revenue, campaign.tranche_released)?
+            checked_sub(campaign.total_revenue, campaign.tranche_released)?,
         )?;
         let full_refund = campaign.tranche_released <= 0;
 
@@ -1767,11 +1780,7 @@ impl ProductionEscrowContract {
                 continue;
             }
 
-            token_client.transfer(
-                &env.current_contract_address(),
-                &investor,
-                &payout,
-            );
+            token_client.transfer(&env.current_contract_address(), &investor, &payout);
             count += 1;
             total = checked_add(total, payout)?;
         }
@@ -1788,10 +1797,7 @@ impl ProductionEscrowContract {
     /// Enforces a hard cap of 50 orders per call to prevent excessive ledger reads.
     /// Silently skips orders that are not pending or have not expired yet.
     /// Emits ONE `order:batch_ref` summary event with (count, total).
-    pub fn batch_refund_orders(
-        env: Env,
-        order_ids: Vec<u64>,
-    ) -> Result<(u32, i128), EscrowError> {
+    pub fn batch_refund_orders(env: Env, order_ids: Vec<u64>) -> Result<(u32, i128), EscrowError> {
         const MAX_BATCH: u32 = 50;
         require_not_paused(&env)?;
         if order_ids.len() > MAX_BATCH {
@@ -1803,11 +1809,7 @@ impl ProductionEscrowContract {
         let mut total: i128 = 0;
 
         for order_id in order_ids.iter() {
-            let mut order: Order = match env
-                .storage()
-                .persistent()
-                .get(&DataKey::Order(order_id))
-            {
+            let mut order: Order = match env.storage().persistent().get(&DataKey::Order(order_id)) {
                 Some(o) => o,
                 None => continue,
             };
@@ -1828,9 +1830,11 @@ impl ProductionEscrowContract {
                 .persistent()
                 .set(&DataKey::Order(order_id), &order);
             // Extend TTL on batch refund (Issue #456).
-            env.storage()
-                .persistent()
-                .extend_ttl(&DataKey::Order(order_id), TTL_THRESHOLD, TTL_EXTEND);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Order(order_id),
+                TTL_THRESHOLD,
+                TTL_EXTEND,
+            );
 
             // Refund full amount (net + fee) to buyer since order was not delivered.
             let refund_amount = checked_add(order.amount, order.fee)?;
@@ -1841,20 +1845,16 @@ impl ProductionEscrowContract {
                 &refund_amount,
             );
             if order.fee > 0 {
-                env.events().publish(
-                    (t_order(), symbol_short!("fee_ref")),
-                    (order_id, order.fee),
-                );
+                env.events()
+                    .publish((t_order(), symbol_short!("fee_ref")), (order_id, order.fee));
             }
             count += 1;
             total = checked_add(total, refund_amount)?;
         }
 
         // Emit a single summary event for the whole batch.
-        env.events().publish(
-            (t_order(), symbol_short!("batch_ref")),
-            (count, total),
-        );
+        env.events()
+            .publish((t_order(), symbol_short!("batch_ref")), (count, total));
         Ok((count, total))
     }
 
@@ -1879,7 +1879,9 @@ impl ProductionEscrowContract {
         }
 
         let contribution_key = DataKey::Contribution(campaign_id, from.clone());
-        let contribution = env.storage().persistent()
+        let contribution = env
+            .storage()
+            .persistent()
             .get::<_, i128>(&contribution_key)
             .ok_or(EscrowError::NotInvestor)?;
         if contribution <= 0 {
@@ -1892,13 +1894,17 @@ impl ProductionEscrowContract {
         }
 
         let to_contribution_key = DataKey::Contribution(campaign_id, to.clone());
-        let to_prev = env.storage().persistent()
+        let to_prev = env
+            .storage()
+            .persistent()
             .get::<_, i128>(&to_contribution_key)
             .unwrap_or(0);
 
         env.storage().persistent().set(&contribution_key, &0i128);
         env.storage().persistent().set(&claim_key_from, &true);
-        env.storage().persistent().set(&to_contribution_key, &checked_add(to_prev, contribution)?);
+        env.storage()
+            .persistent()
+            .set(&to_contribution_key, &checked_add(to_prev, contribution)?);
 
         env.events().publish(
             (symbol_short!("invest"), symbol_short!("transfer")),
@@ -1926,13 +1932,18 @@ impl ProductionEscrowContract {
         if quorum == 0 || quorum > arbitrators.len() as u32 {
             return Err(EscrowError::InvalidAmount);
         }
-        env.storage().instance().set(&DataKey::Arbitrators, &arbitrators);
+        env.storage()
+            .instance()
+            .set(&DataKey::Arbitrators, &arbitrators);
         env.storage().instance().set(&DataKey::Quorum, &quorum);
         Ok(())
     }
 
     pub fn get_arbitrators(env: Env) -> Vec<Address> {
-        env.storage().instance().get(&DataKey::Arbitrators).unwrap_or_else(|| Vec::new(&env))
+        env.storage()
+            .instance()
+            .get(&DataKey::Arbitrators)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn get_quorum(env: Env) -> u32 {
@@ -1947,7 +1958,9 @@ impl ProductionEscrowContract {
     ) -> Result<(), EscrowError> {
         arbitrator.require_auth();
 
-        let arbitrators: Vec<Address> = env.storage().instance()
+        let arbitrators: Vec<Address> = env
+            .storage()
+            .instance()
             .get(&DataKey::Arbitrators)
             .ok_or(EscrowError::ArbitrationNotConfigured)?;
 
@@ -1971,7 +1984,11 @@ impl ProductionEscrowContract {
         let quorum: u32 = env.storage().instance().get(&DataKey::Quorum).unwrap_or(0);
         let mut yes_votes: u32 = 0;
         for a in arbitrators.iter() {
-            if env.storage().persistent().has(&DataKey::ArbitratorVote(campaign_id, a)) {
+            if env
+                .storage()
+                .persistent()
+                .has(&DataKey::ArbitratorVote(campaign_id, a))
+            {
                 yes_votes += 1;
             }
         }
@@ -2070,18 +2087,15 @@ mod governance_client {
 
 // Checked arithmetic for monetary values (Issue #457).
 fn checked_add(a: i128, b: i128) -> Result<i128, EscrowError> {
-    a.checked_add(b)
-        .ok_or(EscrowError::InvalidAmount)
+    a.checked_add(b).ok_or(EscrowError::InvalidAmount)
 }
 
 fn checked_sub(a: i128, b: i128) -> Result<i128, EscrowError> {
-    a.checked_sub(b)
-        .ok_or(EscrowError::InvalidAmount)
+    a.checked_sub(b).ok_or(EscrowError::InvalidAmount)
 }
 
 fn checked_mul(a: i128, b: i128) -> Result<i128, EscrowError> {
-    a.checked_mul(b)
-        .ok_or(EscrowError::InvalidAmount)
+    a.checked_mul(b).ok_or(EscrowError::InvalidAmount)
 }
 
 fn admin(env: &Env) -> Result<Address, EscrowError> {
@@ -2104,7 +2118,12 @@ fn attester(env: &Env) -> Result<Address, EscrowError> {
 /// deployment that never configures governance keeps working exactly as
 /// before.
 fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
-    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+    if env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+    {
         return Err(EscrowError::ContractPaused);
     }
     Ok(())
@@ -2201,7 +2220,10 @@ fn get_buyer_order_volume(env: &Env, campaign_id: u64, buyer: &Address) -> i128 
             .persistent()
             .get::<_, Order>(&DataKey::Order(i))
         {
-            if order.campaign_id == campaign_id && order.buyer == *buyer && order.status == OrderStatus::Confirmed {
+            if order.campaign_id == campaign_id
+                && order.buyer == *buyer
+                && order.status == OrderStatus::Confirmed
+            {
                 total = total.saturating_add(order.amount);
             }
         }
@@ -2237,7 +2259,7 @@ fn resolve_dispute_internal(
             }
             let pool = checked_add(
                 campaign.total_raised,
-                checked_sub(campaign.total_revenue, campaign.tranche_released)?
+                checked_sub(campaign.total_revenue, campaign.tranche_released)?,
             )?;
             if pool > 0 && farmer_bps > 0 {
                 let farmer_cut = checked_mul(pool, farmer_bps as i128)? / BPS_DENOM;
@@ -2275,14 +2297,16 @@ fn has_confirmed_order(env: &Env, campaign_id: u64, buyer: &Address) -> bool {
             .persistent()
             .get::<_, Order>(&DataKey::Order(i))
         {
-            if order.campaign_id == campaign_id && order.buyer == *buyer && order.status == OrderStatus::Confirmed {
+            if order.campaign_id == campaign_id
+                && order.buyer == *buyer
+                && order.status == OrderStatus::Confirmed
+            {
                 return true;
             }
         }
     }
     false
 }
-
 
 fn release_tranche_internal(
     env: &Env,
@@ -2315,8 +2339,8 @@ fn release_tranche_internal(
 }
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
 mod invariant_tests;
 #[cfg(test)]
 mod state_machine_tests;
+#[cfg(test)]
+mod test;

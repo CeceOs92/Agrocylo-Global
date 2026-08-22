@@ -187,7 +187,7 @@ model Order {
   amount         String
   token          String
   status         String
-  productId      String?
+  productId      String?  @db.Uuid
   txHash         String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -282,7 +282,7 @@ model EscrowTransaction {
 
 model PriceHistory {
   id        String   @id @default(uuid())
-  productId String
+  productId String   @db.Uuid
   price     String
   currency  String
   timestamp DateTime
@@ -514,8 +514,8 @@ model IntegratorApiKeyUsage {
 model ContractWatcherCheckpoint {
   service    String   @id
   lastLedger Int      @map("last_ledger")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("contract_watcher_checkpoints")
 }
