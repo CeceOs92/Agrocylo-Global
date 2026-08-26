@@ -28,8 +28,6 @@
 //!   3. Terminal states are immutable                (terminal-state lock)
 //!   4. fee_collector balance never decreases        (fee accounting)
 
-#![cfg(test)]
-
 extern crate std;
 
 use proptest::prelude::*;
@@ -40,6 +38,7 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 use std::collections::{HashMap, HashSet};
+use std::vec;
 use std::vec::Vec as StdVec;
 
 use crate::{
@@ -159,11 +158,8 @@ fn make_sm_harness() -> SMHarness<'static> {
     client.set_attester(&admin, &attester);
 
     let deadline = env.ledger().timestamp() + 30 * 24 * 3600; // 30 days
-    let campaign_id = client
-        .create_campaign(&farmer, &token_id, &CAMPAIGN_TARGET, &deadline)
-        .expect("create_campaign in harness setup");
+    let campaign_id = client.create_campaign(&farmer, &token_id, &CAMPAIGN_TARGET, &deadline);
 
-    let env: Env = unsafe { std::mem::transmute(env) };
     let client: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(client) };
 
     SMHarness {
@@ -207,7 +203,7 @@ fn check_invariants(
     prev_terminal: Option<&CampaignStatus>,
     fee_collector_balance_before: i128,
 ) -> (Option<CampaignStatus>, i128) {
-    let c = h.client.get_campaign(&h.campaign_id).expect("get_campaign");
+    let c = h.client.get_campaign(&h.campaign_id);
 
     // 1. Fund conservation
     assert!(
@@ -290,11 +286,11 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
                 StellarAssetClient::new(&h.env, &h.token_id).mint(&buyer, amount);
             }
             match h.client.try_create_order(&buyer, &h.campaign_id, amount) {
-                Ok(order_id) => {
+                Ok(Ok(order_id)) => {
                     h.created_order_ids.push(order_id);
                     true
                 }
-                Err(_) => false,
+                _ => false,
             }
         }
         Op::ConfirmOrder { order_seq } => {
@@ -305,11 +301,11 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             let order_id = h.created_order_ids[idx];
             // Get the buyer for this order
             match h.client.try_get_order(&order_id) {
-                Ok(order) => {
+                Ok(Ok(order)) => {
                     let buyer = order.buyer.clone();
                     h.client.try_confirm_order(&buyer, &order_id).is_ok()
                 }
-                Err(_) => false,
+                _ => false,
             }
         }
         Op::CancelOrder { order_seq } => {
@@ -319,11 +315,11 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             let idx = order_seq % h.created_order_ids.len();
             let order_id = h.created_order_ids[idx];
             match h.client.try_get_order(&order_id) {
-                Ok(order) => {
+                Ok(Ok(order)) => {
                     let buyer = order.buyer.clone();
                     h.client.try_cancel_order(&buyer, &order_id).is_ok()
                 }
-                Err(_) => false,
+                _ => false,
             }
         }
         Op::Settle => {
@@ -336,7 +332,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             let investor = h.investors[idx].clone();
             let balance_before = token_balance_sm(h, &investor);
             match h.client.try_claim_returns(&investor, &h.campaign_id) {
-                Ok(payout) => {
+                Ok(Ok(payout)) => {
                     // Check double-pay invariant: if we track this investor as
                     // already paid, the call should not have succeeded
                     assert!(
@@ -363,7 +359,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
                     );
                     false
                 }
-                Err(_) => false, // other errors (not settled, not investor, etc.)
+                _ => false, // other errors (not settled, not investor, etc.)
             }
         }
         Op::MarkFailed => {
@@ -377,7 +373,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
             let investor = h.investors[idx].clone();
             let balance_before = token_balance_sm(h, &investor);
             match h.client.try_refund(&investor, &h.campaign_id) {
-                Ok(payout) => {
+                Ok(Ok(payout)) => {
                     assert!(
                         !h.paid_investors.contains(&idx),
                         "INVARIANT 2 VIOLATED: investor {} was paid twice (refund)",
@@ -397,13 +393,13 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
                     assert_eq!(balance_before, balance_after);
                     false
                 }
-                Err(_) => false,
+                _ => false,
             }
         }
         Op::BatchRefundAll => {
             let c = match h.client.try_get_campaign(&h.campaign_id) {
-                Ok(c) => c,
-                Err(_) => return false,
+                Ok(Ok(c)) => c,
+                _ => return false,
             };
             if c.status != CampaignStatus::Failed {
                 return false;
@@ -413,7 +409,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
                 batch.push_back(inv.clone());
             }
             match h.client.try_batch_refund_investors(&h.campaign_id, &batch) {
-                Ok((count, _total)) => {
+                Ok(Ok((count, _total))) => {
                     // Mark each actually-refunded investor as paid
                     // (the batch silently skips already-claimed or zero-contribution)
                     // We don't have a direct way to know which were newly paid in the batch,
@@ -426,7 +422,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
                     }
                     count > 0
                 }
-                Err(_) => false,
+                _ => false,
             }
         }
         Op::AdvanceTime { secs } => {
@@ -450,7 +446,7 @@ fn apply_op(h: &mut SMHarness<'_>, op: &Op) -> bool {
 /// just at the end."
 #[test]
 fn prop_escrow_state_machine_random_ops() {
-    let runner = TestRunner::new(ProptestConfig {
+    let mut runner = TestRunner::new(ProptestConfig {
         cases: 40, // 40 random sequences
         max_shrink_iters: 50,
         ..ProptestConfig::default()
@@ -498,32 +494,24 @@ fn test_state_machine_settle_then_parallel_claims() {
         } else {
             per_investor
         };
-        h.client
-            .invest(inv, &h.campaign_id, &amount)
-            .expect("invest");
+        h.client.invest(inv, &h.campaign_id, &amount);
         *h.contributions.entry(i).or_insert(0) += amount;
     }
 
-    h.client
-        .start_production(&h.farmer, &h.campaign_id)
-        .expect("start_production");
+    h.client.start_production(&h.farmer, &h.campaign_id);
     let (_, fee_bal) = check_invariants(&h, None, 0);
 
     h.client
-        .mark_harvest(&h.farmer, &h.attester, &h.campaign_id)
-        .expect("mark_harvest");
+        .mark_harvest(&h.farmer, &h.attester, &h.campaign_id);
     let (_, fee_bal) = check_invariants(&h, None, fee_bal);
 
-    h.client.settle(&h.farmer, &h.campaign_id).expect("settle");
+    h.client.settle(&h.farmer, &h.campaign_id);
     let terminal = Some(CampaignStatus::Settled);
     let (_, fee_bal) = check_invariants(&h, terminal.as_ref(), fee_bal);
 
     // Each investor claims once (valid), then again (must fail)
     for (i, inv) in h.investors.clone().iter().enumerate() {
-        let payout = h
-            .client
-            .claim_returns(inv, &h.campaign_id)
-            .expect("first claim must succeed");
+        let payout = h.client.claim_returns(inv, &h.campaign_id);
         assert!(payout > 0, "investor {} payout must be positive", i);
 
         // Attempt double-claim
@@ -551,33 +539,24 @@ fn test_state_machine_settle_then_parallel_claims() {
 /// This exercises the "edge-timing" scenario from the issue description.
 #[test]
 fn test_state_machine_interleaved_claim_and_fail() {
-    let mut h = make_sm_harness();
+    let h = make_sm_harness();
 
     // Fund the campaign from investors[0] and investors[1] only
-    h.client
-        .invest(&h.investors[0], &h.campaign_id, &6_000)
-        .expect("invest 0");
-    h.client
-        .invest(&h.investors[1], &h.campaign_id, &6_000)
-        .expect("invest 1");
+    h.client.invest(&h.investors[0], &h.campaign_id, &6_000);
+    h.client.invest(&h.investors[1], &h.campaign_id, &6_000);
 
+    h.client.start_production(&h.farmer, &h.campaign_id);
     h.client
-        .start_production(&h.farmer, &h.campaign_id)
-        .expect("start_production");
-    h.client
-        .mark_harvest(&h.farmer, &h.attester, &h.campaign_id)
-        .expect("mark_harvest");
+        .mark_harvest(&h.farmer, &h.attester, &h.campaign_id);
 
     let fee_bal = token_balance_sm(&h, &h.fee_collector);
 
     // Settle the campaign
-    h.client.settle(&h.farmer, &h.campaign_id).expect("settle");
+    h.client.settle(&h.farmer, &h.campaign_id);
     let (_, fee_bal) = check_invariants(&h, Some(CampaignStatus::Settled).as_ref(), fee_bal);
 
     // investor[0] claims (valid)
-    h.client
-        .claim_returns(&h.investors[0], &h.campaign_id)
-        .expect("investor 0 claims");
+    h.client.claim_returns(&h.investors[0], &h.campaign_id);
     let (_, fee_bal) = check_invariants(&h, Some(CampaignStatus::Settled).as_ref(), fee_bal);
 
     // investor[0] tries to claim again → must be AlreadyClaimed
@@ -589,9 +568,7 @@ fn test_state_machine_interleaved_claim_and_fail() {
     assert_eq!(err, EscrowError::AlreadyClaimed);
 
     // investor[1] claims (valid)
-    h.client
-        .claim_returns(&h.investors[1], &h.campaign_id)
-        .expect("investor 1 claims");
+    h.client.claim_returns(&h.investors[1], &h.campaign_id);
     let (_, _fee_bal) = check_invariants(&h, Some(CampaignStatus::Settled).as_ref(), fee_bal);
 
     // Now try to settle again → must fail (terminal)

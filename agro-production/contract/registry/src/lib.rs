@@ -9,7 +9,8 @@
 // unbounded per-farmer Vec, reducing worst-case from O(n) to O(limit) = O(50) with pagination.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    String, Vec,
 };
 
 #[contracterror]
@@ -26,6 +27,11 @@ pub enum RegistryError {
     BatchNotFound = 8,
     OrderBatchLinkExists = 9,
     CampaignNotHarvested = 10,
+    NotAdmin = 11,
+    InvalidGovernanceContract = 12,
+    ContractPaused = 13,
+    AlreadyPaused = 14,
+    NotPaused = 15,
 }
 
 #[contracttype]
@@ -75,18 +81,6 @@ pub struct BatchRecord {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchRecord {
-    pub batch_id: u64,
-    pub campaign_id: u64,
-    pub farmer: Address,
-    pub crop: String,
-    pub harvest_date: u64,
-    pub quantity: i128,
-    pub linked_order_ids: Vec<u64>,
-}
-
-#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
@@ -109,6 +103,14 @@ pub enum DataKey {
     BatchOrderLink(u64, u64),
     /// Batch ids linked to a given order, for `get_batch_history`.
     OrderBatch(u64),
+    /// On-chain storage layout version (Issue #757).
+    SchemaVersion,
+    /// Governance contract authorized for governance-gated actions (Issue #757).
+    GovernanceContract,
+    /// Guardian allowed to `pause` instantly (Issue #757).
+    Guardian,
+    /// Whether the contract is currently paused (Issue #757).
+    Paused,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -832,7 +834,7 @@ fn require_not_paused(env: &Env) -> Result<(), RegistryError> {
 /// Verifies a candidate governance address is a real deployed governance
 /// contract (mirrors the check added to the escrow contracts in #680).
 mod governance_client {
-    use super::{Address, Env, HostError, Symbol, Val, Vec};
+    use soroban_sdk::{Address, Env, Error as HostError, Symbol, Val, Vec};
 
     pub fn verify(env: &Env, governance: &Address) -> Result<(), ()> {
         let func = Symbol::new(env, "get_admin");

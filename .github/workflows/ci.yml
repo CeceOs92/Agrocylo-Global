@@ -239,10 +239,8 @@ jobs:
           # PROPTEST_CASES: "10"
           RUST_BACKTRACE: "1"
         run: |
-          cargo test --workspace \
-            invariant_tests \
-            state_machine_tests \
-            -- --test-threads=4 2>&1 | tail -50
+          cargo test --workspace invariant_tests -- --test-threads=4 2>&1 | tail -50
+          cargo test --workspace state_machine_tests -- --test-threads=4 2>&1 | tail -50
 
       - name: Build contracts (release)
         run: cargo build --workspace --target wasm32v1-none --release

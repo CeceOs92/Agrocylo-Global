@@ -143,7 +143,12 @@ fn test_report_breach_within_threshold_fails() {
     let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
     let threshold = make_threshold(&_env, WeatherParam::Temperature, 10, 40);
 
-    token.approve(&admin, &client.address, &5000, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(_env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     let result = client.try_report_breach(&oracle, &1, &25);
@@ -158,7 +163,12 @@ fn test_report_breach_non_oracle_fails() {
     let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
     let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
 
-    token.approve(&admin, &client.address, &5000, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(_env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     let not_oracle = Address::generate(&_env);
@@ -187,7 +197,12 @@ fn test_expire_policy_ok() {
     let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
     let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
 
-    token.approve(&admin, &client.address, &5000, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(_env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     client.expire_policy(&admin, &1);
@@ -197,7 +212,7 @@ fn test_expire_policy_ok() {
 
 #[test]
 fn test_expire_policy_non_admin_fails() {
-    let (_env, client, _admin, _oracle, farmer, token) = setup_test_inline();
+    let (_env, client, _admin, _oracle, farmer, _token) = setup_test_inline();
 
     let result = client.try_expire_policy(&farmer, &1);
     assert!(result.is_err());
@@ -225,7 +240,12 @@ fn test_temperature_threshold_breach_pays_out() {
     let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
     let threshold = make_threshold(&_env, WeatherParam::Temperature, 15, 35);
 
-    token.approve(&admin, &client.address, &5000, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(_env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     let balance_before = token.balance(&farmer);
@@ -240,7 +260,12 @@ fn test_policy_count_increments() {
     assert_eq!(client.get_policy_count(), 0);
 
     let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
-    token.approve(&admin, &client.address, &5000, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(_env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
     assert_eq!(client.get_policy_count(), 1);
@@ -269,7 +294,12 @@ fn test_premium_deducted_from_funding() {
     let expected_premium: i128 = funding_amount * 500 / 10_000;
 
     let balance_before = token.balance(&admin);
-    token.approve(&admin, &client.address, &expected_premium, &6311999);
+    token.approve(
+        &admin,
+        &client.address,
+        &expected_premium,
+        &(_env.ledger().sequence() + 50000),
+    );
     let premium = client.take_premium(
         &admin,
         &1,

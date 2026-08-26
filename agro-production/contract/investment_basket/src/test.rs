@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 extern crate std;
 
 use soroban_sdk::{
@@ -56,7 +54,6 @@ fn setup() -> TestEnv<'static> {
     let basket = InvestmentBasketContractClient::new(&env, &basket_id_contract);
     basket.initialize(&admin, &escrow_id);
 
-    let env: Env = unsafe { std::mem::transmute(env) };
     let basket: InvestmentBasketContractClient<'static> = unsafe { std::mem::transmute(basket) };
     let escrow: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(escrow) };
 
@@ -175,15 +172,21 @@ fn test_staggered_settlement_across_multiple_claims_pays_full_fair_share() {
     let sac = StellarAssetClient::new(&t.env, &t.token_id);
     sac.mint(&depositor_b, &10_000_000);
 
+    // Total deposit is 2_000 (1_000 from each depositor); with weights
+    // 3_400/3_300/3_300 bps, `fund_basket` invests exactly 680/660/660 into
+    // c1/c2/c3. Targets must match those amounts exactly so each campaign
+    // auto-transitions to Funded once the basket invests, matching what
+    // this test actually exercises (staggered settlement, not partial
+    // funding).
     let c1 = t
         .escrow
-        .create_campaign(&t.farmer, &t.token_id, &3_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &680, &deadline);
     let c2 = t
         .escrow
-        .create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &660, &deadline);
     let c3 = t
         .escrow
-        .create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
+        .create_campaign(&t.farmer, &t.token_id, &660, &deadline);
 
     let constituents = vec![&t.env, (c1, 3_400u32), (c2, 3_300u32), (c3, 3_300u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);

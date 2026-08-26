@@ -31,8 +31,8 @@
 // per call to prevent ledger thrashing.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, Map,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+    Map, Symbol, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -105,17 +105,59 @@ pub enum EscrowError {
     AlreadyVoted = 93,
     InvestorNotInCampaign = 94,
     CancelWindowClosed = 95,
-    /// Issue #654: multi-party split order errors.
-    SplitSharesMustSumToTotal = 100,
-    SplitOrderNotFullyFunded = 101,
-    NotCoBuyer = 102,
-    AlreadyContributed = 103,
-    AlreadyConfirmed = 104,
-    SplitOrderAlreadyFunded = 105,
-    EmptyCoBuyerList = 106,
-    SplitOrderNotFound = 107,
-    SplitOrderNotDisputed = 108,
-    SplitOrderAlreadyDisputed = 109,
+    /// Issue #757: guardian/governance-gated pause.
+    ContractPaused = 110,
+    AlreadyPaused = 111,
+    NotPaused = 112,
+}
+
+/// Issue #654 multi-party split-order errors, split out of `EscrowError`
+/// (Issue #757 fix): Soroban's `#[contracterror]` hard-caps error enums at
+/// 50 variants (`ScSpecUdtErrorEnumV0::cases` is a `VecM<_, 50>`), and the
+/// governance/pause variants added for #757 pushed `EscrowError` over that
+/// limit. `From<EscrowError>` below covers exactly the shared-helper errors
+/// (`load_campaign`, `checked_add`/`checked_mul`, `admin`) that can flow
+/// into split-order entry points via `?`.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum SplitOrderError {
+    SplitSharesMustSumToTotal = 1,
+    SplitOrderNotFullyFunded = 2,
+    NotCoBuyer = 3,
+    AlreadyContributed = 4,
+    AlreadyConfirmed = 5,
+    SplitOrderAlreadyFunded = 6,
+    EmptyCoBuyerList = 7,
+    SplitOrderNotFound = 8,
+    SplitOrderNotDisputed = 9,
+    SplitOrderAlreadyDisputed = 10,
+    // Mirrors of the `EscrowError` variants that the shared helpers used by
+    // the split-order entry points (`load_campaign`, `checked_add`,
+    // `checked_mul`, `admin`) can actually produce.
+    CampaignNotFound = 20,
+    CampaignNotHarvested = 21,
+    InvalidAmount = 22,
+    ContractNotInitialized = 23,
+    NotBuyer = 24,
+    NotAdmin = 25,
+}
+
+impl From<EscrowError> for SplitOrderError {
+    fn from(err: EscrowError) -> Self {
+        match err {
+            EscrowError::CampaignNotFound => SplitOrderError::CampaignNotFound,
+            EscrowError::CampaignNotHarvested => SplitOrderError::CampaignNotHarvested,
+            EscrowError::InvalidAmount => SplitOrderError::InvalidAmount,
+            EscrowError::ContractNotInitialized => SplitOrderError::ContractNotInitialized,
+            EscrowError::NotBuyer => SplitOrderError::NotBuyer,
+            EscrowError::NotAdmin => SplitOrderError::NotAdmin,
+            // Every other `EscrowError` variant is unreachable from the
+            // shared helpers the split-order flow actually calls; map to the
+            // closest generic fallback rather than panicking.
+            _ => SplitOrderError::ContractNotInitialized,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +324,12 @@ pub enum DataKey {
     /// Multi-party split order (Issue #654).
     SplitOrder(u64),
     SplitOrderCount,
+    /// On-chain storage layout version (Issue #757).
+    SchemaVersion,
+    /// Guardian allowed to `pause` instantly (Issue #757).
+    Guardian,
+    /// Whether the contract is currently paused (Issue #757).
+    Paused,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -318,14 +366,14 @@ pub const CANCEL_WINDOW_SECS: u64 = 30 * 60;
 /// A campaign starts at milestone 0 (no milestones advanced).
 /// Validates that the given milestone index matches the expected milestone type.
 fn validate_milestone_order(idx: u32, milestone: &Milestone) -> bool {
-    match (idx, milestone) {
-        (0, Milestone::Planted) => true,
-        (1, Milestone::Growing) => true,
-        (2, Milestone::Harvested) => true,
-        (3, Milestone::Shipped) => true,
-        (4, Milestone::Delivered) => true,
-        _ => false,
-    }
+    matches!(
+        (idx, milestone),
+        (0, Milestone::Planted)
+            | (1, Milestone::Growing)
+            | (2, Milestone::Harvested)
+            | (3, Milestone::Shipped)
+            | (4, Milestone::Delivered)
+    )
 }
 
 // Event topic helpers.
@@ -356,7 +404,7 @@ impl ProductionEscrowContract {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
-        if supported_tokens.len() < 1 {
+        if supported_tokens.is_empty() {
             return Err(EscrowError::MustSupportOneToken);
         }
         if fee_rate_bps > 10000 {
@@ -585,7 +633,7 @@ impl ProductionEscrowContract {
     ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
         require_governed_caller(&env, &admin_caller)?;
-        if supported_tokens.len() < 1 {
+        if supported_tokens.is_empty() {
             return Err(EscrowError::MustSupportOneToken);
         }
         env.storage()
@@ -737,6 +785,9 @@ impl ProductionEscrowContract {
         env.storage()
             .persistent()
             .set(&contribution_key, &checked_add(prev, amount)?);
+        env.storage()
+            .persistent()
+            .extend_ttl(&contribution_key, TTL_THRESHOLD, TTL_EXTEND);
 
         // Auto-transition to Funded when target reached.
         if campaign.total_raised == campaign.target_amount {
@@ -1073,21 +1124,21 @@ impl ProductionEscrowContract {
         campaign_id: u64,
         co_buyers: Vec<Address>,
         shares: Vec<i128>,
-    ) -> Result<u64, EscrowError> {
+    ) -> Result<u64, SplitOrderError> {
         initiator.require_auth();
 
         if co_buyers.len() < 2 {
-            return Err(EscrowError::EmptyCoBuyerList);
+            return Err(SplitOrderError::EmptyCoBuyerList);
         }
         if co_buyers.len() != shares.len() {
-            return Err(EscrowError::SplitSharesMustSumToTotal);
+            return Err(SplitOrderError::SplitSharesMustSumToTotal);
         }
 
         let campaign = load_campaign(&env, campaign_id)?;
         if campaign.status != CampaignStatus::Harvested
             && campaign.status != CampaignStatus::InProduction
         {
-            return Err(EscrowError::CampaignNotHarvested);
+            return Err(SplitOrderError::CampaignNotHarvested);
         }
 
         let mut shares_map: Map<Address, i128> = Map::new(&env);
@@ -1097,10 +1148,10 @@ impl ProductionEscrowContract {
             let co_buyer = co_buyers.get(i).unwrap();
             let share = shares.get(i).unwrap();
             if share <= 0 {
-                return Err(EscrowError::InvalidAmount);
+                return Err(SplitOrderError::InvalidAmount);
             }
             if shares_map.contains_key(co_buyer.clone()) {
-                return Err(EscrowError::AlreadyContributed);
+                return Err(SplitOrderError::AlreadyContributed);
             }
             if co_buyer == initiator {
                 initiator_included = true;
@@ -1109,7 +1160,7 @@ impl ProductionEscrowContract {
             total_amount = checked_add(total_amount, share)?;
         }
         if !initiator_included {
-            return Err(EscrowError::NotCoBuyer);
+            return Err(SplitOrderError::NotCoBuyer);
         }
 
         let fee_rate_bps: u32 = env
@@ -1155,19 +1206,23 @@ impl ProductionEscrowContract {
 
     /// A listed co-buyer funds their own pledged share. Once every co-buyer
     /// has funded, the order becomes `Active`.
-    pub fn fund_split_order(env: Env, co_buyer: Address, order_id: u64) -> Result<(), EscrowError> {
+    pub fn fund_split_order(
+        env: Env,
+        co_buyer: Address,
+        order_id: u64,
+    ) -> Result<(), SplitOrderError> {
         co_buyer.require_auth();
 
         let mut order = load_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Funding {
-            return Err(EscrowError::SplitOrderAlreadyFunded);
+            return Err(SplitOrderError::SplitOrderAlreadyFunded);
         }
         let share = order
             .shares
             .get(co_buyer.clone())
-            .ok_or(EscrowError::NotCoBuyer)?;
+            .ok_or(SplitOrderError::NotCoBuyer)?;
         if order.funded.get(co_buyer.clone()).unwrap_or(false) {
-            return Err(EscrowError::AlreadyContributed);
+            return Err(SplitOrderError::AlreadyContributed);
         }
 
         let campaign = load_campaign(&env, order.campaign_id)?;
@@ -1202,19 +1257,19 @@ impl ProductionEscrowContract {
         env: Env,
         co_buyer: Address,
         order_id: u64,
-    ) -> Result<(), EscrowError> {
+    ) -> Result<(), SplitOrderError> {
         co_buyer.require_auth();
 
         let mut order = load_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Active {
-            return Err(EscrowError::SplitOrderNotFullyFunded);
+            return Err(SplitOrderError::SplitOrderNotFullyFunded);
         }
         let share = order
             .shares
             .get(co_buyer.clone())
-            .ok_or(EscrowError::NotCoBuyer)?;
+            .ok_or(SplitOrderError::NotCoBuyer)?;
         if order.confirmed.get(co_buyer.clone()).unwrap_or(false) {
-            return Err(EscrowError::AlreadyConfirmed);
+            return Err(SplitOrderError::AlreadyConfirmed);
         }
 
         order.confirmed.set(co_buyer.clone(), true);
@@ -1256,17 +1311,21 @@ impl ProductionEscrowContract {
         Ok(())
     }
 
-    pub fn open_split_dispute(env: Env, caller: Address, order_id: u64) -> Result<(), EscrowError> {
+    pub fn open_split_dispute(
+        env: Env,
+        caller: Address,
+        order_id: u64,
+    ) -> Result<(), SplitOrderError> {
         caller.require_auth();
 
         let mut order = load_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Active {
-            return Err(EscrowError::SplitOrderNotFullyFunded);
+            return Err(SplitOrderError::SplitOrderNotFullyFunded);
         }
         let campaign = load_campaign(&env, order.campaign_id)?;
         let is_co_buyer = order.shares.contains_key(caller.clone());
         if !is_co_buyer && caller != campaign.farmer {
-            return Err(EscrowError::NotBuyer);
+            return Err(SplitOrderError::NotBuyer);
         }
 
         order.status = SplitOrderStatus::Disputed;
@@ -1286,16 +1345,16 @@ impl ProductionEscrowContract {
         admin_caller: Address,
         order_id: u64,
         resolution: SplitOrderResolution,
-    ) -> Result<(), EscrowError> {
+    ) -> Result<(), SplitOrderError> {
         admin_caller.require_auth();
         let admin_addr = admin(&env)?;
         if admin_caller != admin_addr {
-            return Err(EscrowError::NotAdmin);
+            return Err(SplitOrderError::NotAdmin);
         }
 
         let mut order = load_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Disputed {
-            return Err(EscrowError::SplitOrderNotDisputed);
+            return Err(SplitOrderError::SplitOrderNotDisputed);
         }
         let campaign = load_campaign(&env, order.campaign_id)?;
 
@@ -1335,7 +1394,7 @@ impl ProductionEscrowContract {
         Ok(())
     }
 
-    pub fn get_split_order(env: Env, order_id: u64) -> Result<SplitOrder, EscrowError> {
+    pub fn get_split_order(env: Env, order_id: u64) -> Result<SplitOrder, SplitOrderError> {
         load_split_order(&env, order_id)
     }
 
@@ -1929,7 +1988,7 @@ impl ProductionEscrowContract {
         if admin_caller != admin {
             return Err(EscrowError::NotAdmin);
         }
-        if quorum == 0 || quorum > arbitrators.len() as u32 {
+        if quorum == 0 || quorum > arbitrators.len() {
             return Err(EscrowError::InvalidAmount);
         }
         env.storage()
@@ -2161,11 +2220,11 @@ fn save_campaign(env: &Env, c: &Campaign) {
         .extend_ttl(&DataKey::Campaign(c.id), TTL_THRESHOLD, TTL_EXTEND);
 }
 
-fn load_split_order(env: &Env, order_id: u64) -> Result<SplitOrder, EscrowError> {
+fn load_split_order(env: &Env, order_id: u64) -> Result<SplitOrder, SplitOrderError> {
     env.storage()
         .persistent()
         .get(&DataKey::SplitOrder(order_id))
-        .ok_or(EscrowError::SplitOrderNotFound)
+        .ok_or(SplitOrderError::SplitOrderNotFound)
 }
 
 fn save_split_order(env: &Env, order_id: u64, order: &SplitOrder) {
@@ -2187,7 +2246,7 @@ fn refund_split_order_pro_rata(
     order: &SplitOrder,
     token: &Address,
     pool: i128,
-) -> Result<(), EscrowError> {
+) -> Result<(), SplitOrderError> {
     if pool <= 0 {
         return Ok(());
     }
@@ -2284,6 +2343,7 @@ fn resolve_dispute_internal(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn has_confirmed_order(env: &Env, campaign_id: u64, buyer: &Address) -> bool {
     // Scan orders by checking up to order_count for confirmed orders by this buyer.
     let order_count: u64 = env

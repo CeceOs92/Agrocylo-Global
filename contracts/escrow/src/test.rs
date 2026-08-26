@@ -73,6 +73,7 @@ fn setup_test() -> (
     )
 }
 
+#[allow(dead_code)]
 fn create_test_with_tokens() -> (
     Env,
     EscrowContractClient<'static>,
@@ -414,7 +415,16 @@ fn test_cancel_order_emits_distinct_event() {
     // invocation's events, so filtering to the escrow contract after
     // `cancel_order` isolates exactly the event it emitted. Confirms it's
     // the distinct `order:cancelled` topic, not a reused `order:refunded`.
-    let escrow_events = env.events().all().filter_by_contract(&contract_id);
+    let mut escrow_events: soroban_sdk::Vec<(
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    )> = soroban_sdk::Vec::new(&env);
+    for evt in env.events().all().iter() {
+        if evt.0 == contract_id {
+            escrow_events.push_back(evt.clone());
+        }
+    }
     let expected: soroban_sdk::Vec<(
         Address,
         soroban_sdk::Vec<soroban_sdk::Val>,
@@ -528,7 +538,7 @@ fn test_open_dispute_by_buyer() {
 
     let dispute = client.get_dispute(&order_id);
     assert_eq!(dispute.opened_by, buyer);
-    assert_eq!(dispute.resolved, false);
+    assert!(!dispute.resolved);
 }
 
 #[test]
@@ -551,7 +561,7 @@ fn test_open_dispute_by_farmer() {
 
     let dispute = client.get_dispute(&order_id);
     assert_eq!(dispute.opened_by, farmer);
-    assert_eq!(dispute.resolved, false);
+    assert!(!dispute.resolved);
 }
 
 #[test]

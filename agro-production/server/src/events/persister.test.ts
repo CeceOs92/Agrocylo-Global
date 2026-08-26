@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventPersister } from "./persister.js";
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventPersister } from './persister.js';
 import type {
   CampaignCreatedEvent,
   CampaignInvestedEvent,
@@ -12,23 +12,23 @@ import type {
   BasketFundedEvent,
   BasketWithdrawnEvent,
   BasketClaimedEvent,
-} from "./types.js";
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Mock Prisma and logger so tests stay unit-level and don't need a real DB.
 // ---------------------------------------------------------------------------
-vi.mock("../db/client.js", () => {
+vi.mock('../db/client.js', () => {
   const tx = {
     user: { upsert: vi.fn().mockResolvedValue({}) },
     campaign: {
-      upsert: vi.fn().mockResolvedValue({ id: "camp-uuid" }),
+      upsert: vi.fn().mockResolvedValue({ id: 'camp-uuid' }),
       findUnique: vi.fn().mockResolvedValue({
-        id: "camp-uuid",
-        onChainId: "1",
-        targetAmount: "10000",
-        totalRaised: "5000",
-        totalRevenue: "0",
-        status: "FUNDING",
+        id: 'camp-uuid',
+        onChainId: '1',
+        targetAmount: '10000',
+        totalRaised: '5000',
+        totalRevenue: '0',
+        status: 'FUNDING',
       }),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -36,30 +36,30 @@ vi.mock("../db/client.js", () => {
     order: {
       upsert: vi.fn().mockResolvedValue({}),
       findUnique: vi.fn().mockResolvedValue({
-        id: "order-uuid",
-        onChainId: "10",
-        campaignId: "camp-uuid",
-        amount: "500",
+        id: 'order-uuid',
+        onChainId: '10',
+        campaignId: 'camp-uuid',
+        amount: '500',
       }),
       update: vi.fn().mockResolvedValue({}),
     },
     basket: {
-      upsert: vi.fn().mockResolvedValue({ id: "basket-uuid" }),
+      upsert: vi.fn().mockResolvedValue({ id: 'basket-uuid' }),
       findUnique: vi.fn().mockResolvedValue({
-        id: "basket-uuid",
-        onChainId: "1",
-        totalDeposited: "1000",
-        status: "OPEN",
+        id: 'basket-uuid',
+        onChainId: '1',
+        totalDeposited: '1000',
+        status: 'OPEN',
       }),
       update: vi.fn().mockResolvedValue({}),
     },
     basketDeposit: {
       upsert: vi.fn().mockResolvedValue({}),
       findUnique: vi.fn().mockResolvedValue({
-        id: "deposit-uuid",
-        basketId: "basket-uuid",
-        depositorAddress: "GDEPOSITOR",
-        amount: "500",
+        id: 'deposit-uuid',
+        basketId: 'basket-uuid',
+        depositorAddress: 'GDEPOSITOR',
+        amount: '500',
       }),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -76,21 +76,23 @@ vi.mock("../db/client.js", () => {
         create: vi.fn().mockResolvedValue({}),
       },
       campaign: {
-        findUnique: vi.fn().mockResolvedValue({ id: "camp-uuid" }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'camp-uuid' }),
         update: vi.fn().mockResolvedValue({}),
       },
-      $transaction: vi.fn().mockImplementation((fn: (tx: typeof tx) => Promise<unknown>) =>
-        fn(tx),
-      ),
+      $transaction: vi
+        .fn()
+        .mockImplementation((fn: (txArg: typeof tx) => Promise<unknown>) =>
+          fn(tx),
+        ),
     },
   };
 });
 
-vi.mock("../config/logger.js", () => ({
+vi.mock('../config/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("../services/wsServer.js", () => ({ broadcast: vi.fn() }));
+vi.mock('../services/wsServer.js', () => ({ broadcast: vi.fn() }));
 
 // ---------------------------------------------------------------------------
 // Shared fixture builders
@@ -98,129 +100,149 @@ vi.mock("../services/wsServer.js", () => ({ broadcast: vi.fn() }));
 const baseEvent = {
   ledger: 200,
   eventIndex: 0,
-  timestamp: new Date("2024-06-01T00:00:00Z"),
-  rawId: "200-0",
+  timestamp: new Date('2024-06-01T00:00:00Z'),
+  rawId: '200-0',
 };
 
-function makeCampaignCreated(overrides?: Partial<CampaignCreatedEvent>): CampaignCreatedEvent {
+function makeCampaignCreated(
+  overrides?: Partial<CampaignCreatedEvent>,
+): CampaignCreatedEvent {
   return {
     ...baseEvent,
-    action: "campaign.created",
-    campaignId: "1",
-    farmer: "GFARMER000000000000000000000000000000000000000000000000",
-    token: "GTOKEN000000000000000000000000000000000000000000000000AA",
-    targetAmount: "10000",
+    action: 'campaign.created',
+    campaignId: '1',
+    farmer: 'GFARMER000000000000000000000000000000000000000000000000',
+    token: 'GTOKEN000000000000000000000000000000000000000000000000AA',
+    targetAmount: '10000',
     deadline: String(Math.floor(Date.now() / 1000) + 86400),
     ...overrides,
   };
 }
 
-function makeCampaignInvested(overrides?: Partial<CampaignInvestedEvent>): CampaignInvestedEvent {
+function makeCampaignInvested(
+  overrides?: Partial<CampaignInvestedEvent>,
+): CampaignInvestedEvent {
   return {
     ...baseEvent,
-    action: "campaign.invested",
-    campaignId: "1",
-    investor: "GINVESTOR0000000000000000000000000000000000000000000000",
-    amount: "5000",
-    totalRaised: "5000",
+    action: 'campaign.invested',
+    campaignId: '1',
+    investor: 'GINVESTOR0000000000000000000000000000000000000000000000',
+    amount: '5000',
+    totalRaised: '5000',
     ...overrides,
   };
 }
 
-function makeCampaignSettled(overrides?: Partial<CampaignSettledEvent>): CampaignSettledEvent {
+function makeCampaignSettled(
+  overrides?: Partial<CampaignSettledEvent>,
+): CampaignSettledEvent {
   return {
     ...baseEvent,
-    action: "campaign.settled",
-    campaignId: "1",
-    totalRevenue: "2000",
+    action: 'campaign.settled',
+    campaignId: '1',
+    totalRevenue: '2000',
     ...overrides,
   };
 }
 
-function makeOrderCreated(overrides?: Partial<OrderCreatedEvent>): OrderCreatedEvent {
+function makeOrderCreated(
+  overrides?: Partial<OrderCreatedEvent>,
+): OrderCreatedEvent {
   return {
     ...baseEvent,
-    action: "order.created",
-    orderId: "10",
-    buyer: "GBUYER000000000000000000000000000000000000000000000000AA",
-    campaignId: "1",
-    amount: "500",
+    action: 'order.created',
+    orderId: '10',
+    buyer: 'GBUYER000000000000000000000000000000000000000000000000AA',
+    campaignId: '1',
+    amount: '500',
     ...overrides,
   };
 }
 
-function makeOrderConfirmed(overrides?: Partial<OrderConfirmedEvent>): OrderConfirmedEvent {
+function makeOrderConfirmed(
+  overrides?: Partial<OrderConfirmedEvent>,
+): OrderConfirmedEvent {
   return {
     ...baseEvent,
-    action: "order.confirmed",
-    orderId: "10",
-    buyer: "GBUYER000000000000000000000000000000000000000000000000AA",
-    campaignId: "1",
+    action: 'order.confirmed',
+    orderId: '10',
+    buyer: 'GBUYER000000000000000000000000000000000000000000000000AA',
+    campaignId: '1',
     ...overrides,
   };
 }
 
-function makeBasketCreated(overrides?: Partial<BasketCreatedEvent>): BasketCreatedEvent {
+function makeBasketCreated(
+  overrides?: Partial<BasketCreatedEvent>,
+): BasketCreatedEvent {
   return {
     ...baseEvent,
-    action: "basket.created",
-    basketId: "1",
+    action: 'basket.created',
+    basketId: '1',
     constituentsCount: 3,
     ...overrides,
   };
 }
 
-function makeBasketDeposit(overrides?: Partial<BasketDepositEvent>): BasketDepositEvent {
+function makeBasketDeposit(
+  overrides?: Partial<BasketDepositEvent>,
+): BasketDepositEvent {
   return {
     ...baseEvent,
-    action: "basket.deposit",
-    basketId: "1",
-    depositor: "GDEPOSITOR",
-    amount: "500",
+    action: 'basket.deposit',
+    basketId: '1',
+    depositor: 'GDEPOSITOR',
+    amount: '500',
     ...overrides,
   };
 }
 
-function makeBasketFunded(overrides?: Partial<BasketFundedEvent>): BasketFundedEvent {
+function makeBasketFunded(
+  overrides?: Partial<BasketFundedEvent>,
+): BasketFundedEvent {
   return {
     ...baseEvent,
-    action: "basket.funded",
-    basketId: "1",
-    totalDeposit: "1500",
+    action: 'basket.funded',
+    basketId: '1',
+    totalDeposit: '1500',
     ...overrides,
   };
 }
 
-function makeBasketWithdrawn(overrides?: Partial<BasketWithdrawnEvent>): BasketWithdrawnEvent {
+function makeBasketWithdrawn(
+  overrides?: Partial<BasketWithdrawnEvent>,
+): BasketWithdrawnEvent {
   return {
     ...baseEvent,
-    action: "basket.withdrawn",
-    basketId: "1",
-    depositor: "GDEPOSITOR",
-    depositAmount: "500",
+    action: 'basket.withdrawn',
+    basketId: '1',
+    depositor: 'GDEPOSITOR',
+    depositAmount: '500',
     ...overrides,
   };
 }
 
-function makeBasketClaimed(overrides?: Partial<BasketClaimedEvent>): BasketClaimedEvent {
+function makeBasketClaimed(
+  overrides?: Partial<BasketClaimedEvent>,
+): BasketClaimedEvent {
   return {
     ...baseEvent,
-    action: "basket.claimed",
-    basketId: "1",
-    depositor: "GDEPOSITOR",
-    payout: "620",
+    action: 'basket.claimed',
+    basketId: '1',
+    depositor: 'GDEPOSITOR',
+    payout: '620',
     ...overrides,
   };
 }
 
 function makeGenericCampaign(
-  action: GenericCampaignEvent["action"],
+  action: GenericCampaignEvent['action'],
   overrides?: Partial<GenericCampaignEvent>,
 ): GenericCampaignEvent {
   return {
     ...baseEvent,
     action,
-    campaignId: "1",
+    campaignId: '1',
     ...overrides,
   };
 }
@@ -228,17 +250,17 @@ function makeGenericCampaign(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-describe("EventPersister", () => {
+describe('EventPersister', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe("idempotency / deduplication", () => {
-    it("skips an event that already has a transaction record", async () => {
-      const { prisma } = await import("../db/client.js");
-      const logger = (await import("../config/logger.js")).default;
+  describe('idempotency / deduplication', () => {
+    it('skips an event that already has a transaction record', async () => {
+      const { prisma } = await import('../db/client.js');
+      const logger = (await import('../config/logger.js')).default;
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce({
-        id: "tx-1",
+        id: 'tx-1',
       } as never);
 
       await EventPersister.persist(makeCampaignCreated());
@@ -246,13 +268,13 @@ describe("EventPersister", () => {
       // $transaction should never be called when the event is a duplicate.
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
-        "EventPersister: skipping duplicate",
-        expect.objectContaining({ stage: "persist.preflight" }),
+        'EventPersister: skipping duplicate',
+        expect.objectContaining({ stage: 'persist.preflight' }),
       );
     });
 
-    it("processes an event that has not been seen before", async () => {
-      const { prisma } = await import("../db/client.js");
+    it('processes an event that has not been seen before', async () => {
+      const { prisma } = await import('../db/client.js');
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce(null);
 
       await EventPersister.persist(makeCampaignCreated());
@@ -260,13 +282,13 @@ describe("EventPersister", () => {
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
 
-    it("is safe to call persist twice for the same ledger+eventIndex", async () => {
-      const { prisma } = await import("../db/client.js");
+    it('is safe to call persist twice for the same ledger+eventIndex', async () => {
+      const { prisma } = await import('../db/client.js');
       // First call: not seen.
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce(null);
       // Second call: already persisted.
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce({
-        id: "tx-1",
+        id: 'tx-1',
       } as never);
 
       const event = makeCampaignCreated();
@@ -276,19 +298,21 @@ describe("EventPersister", () => {
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
 
-    it("skips writes when duplicate is discovered inside transaction scope", async () => {
-      const { prisma } = await import("../db/client.js");
-      const logger = (await import("../config/logger.js")).default;
+    it('skips writes when duplicate is discovered inside transaction scope', async () => {
+      const { prisma } = await import('../db/client.js');
+      const logger = (await import('../config/logger.js')).default;
       // Preflight sees no duplicate.
       vi.mocked(prisma.transaction.findUnique).mockResolvedValueOnce(null);
       vi.mocked(prisma.$transaction).mockImplementationOnce(
-        async (fn: (tx: unknown) => Promise<unknown>) => {
+        async (fn: (tx: any) => Promise<unknown>) => {
           await fn({
             user: { upsert: vi.fn().mockResolvedValue({}) },
-            campaign: { findUnique: vi.fn().mockResolvedValue({ id: "camp-uuid" }) },
+            campaign: {
+              findUnique: vi.fn().mockResolvedValue({ id: 'camp-uuid' }),
+            },
             order: { upsert: vi.fn().mockResolvedValue({}) },
             transaction: {
-              findUnique: vi.fn().mockResolvedValue({ id: "tx-inside" }),
+              findUnique: vi.fn().mockResolvedValue({ id: 'tx-inside' }),
               create: vi.fn().mockResolvedValue({}),
             },
           });
@@ -298,55 +322,53 @@ describe("EventPersister", () => {
       await EventPersister.persist(makeOrderCreated());
 
       expect(vi.mocked(logger.debug)).toHaveBeenCalledWith(
-        "EventPersister: skipping duplicate",
-        expect.objectContaining({ stage: "persist.tx" }),
+        'EventPersister: skipping duplicate',
+        expect.objectContaining({ stage: 'persist.tx' }),
       );
       expect(prisma.transaction.create).not.toHaveBeenCalled();
     });
   });
 
-  describe("campaign.created", () => {
-    it("persists a campaign.created event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('campaign.created', () => {
+    it('persists a campaign.created event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeCampaignCreated());
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
 
-    it("handles unix-timestamp deadline", async () => {
+    it('handles unix-timestamp deadline', async () => {
       await expect(
-        EventPersister.persist(
-          makeCampaignCreated({ deadline: "1700000000" }),
-        ),
+        EventPersister.persist(makeCampaignCreated({ deadline: '1700000000' })),
       ).resolves.not.toThrow();
     });
 
-    it("handles ISO string deadline", async () => {
+    it('handles ISO string deadline', async () => {
       await expect(
         EventPersister.persist(
-          makeCampaignCreated({ deadline: "2030-01-01T00:00:00.000Z" }),
+          makeCampaignCreated({ deadline: '2030-01-01T00:00:00.000Z' }),
         ),
       ).resolves.not.toThrow();
     });
   });
 
-  describe("campaign.invested", () => {
-    it("persists a campaign.invested event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('campaign.invested', () => {
+    it('persists a campaign.invested event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeCampaignInvested());
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
 
-    it("warns and skips when campaign is unknown", async () => {
-      const logger = (await import("../config/logger.js")).default;
-      const { prisma } = await import("../db/client.js");
+    it('warns and skips when campaign is unknown', async () => {
+      const logger = (await import('../config/logger.js')).default;
+      const { prisma } = await import('../db/client.js');
 
       // Simulate the inner tx.campaign.findUnique returning null.
       vi.mocked(prisma.$transaction).mockImplementationOnce(
-        async (fn: (tx: unknown) => Promise<unknown>) => {
+        async (fn: (tx: any) => Promise<unknown>) => {
           await fn({
             user: { upsert: vi.fn().mockResolvedValue({}) },
             campaign: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -358,18 +380,20 @@ describe("EventPersister", () => {
         },
       );
 
-      await EventPersister.persist(makeCampaignInvested({ campaignId: "unknown" }));
+      await EventPersister.persist(
+        makeCampaignInvested({ campaignId: 'unknown' }),
+      );
 
       expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-        "EventPersister: investment for unknown campaign",
-        expect.objectContaining({ campaignId: "unknown" }),
+        'EventPersister: investment for unknown campaign',
+        expect.objectContaining({ campaignId: 'unknown' }),
       );
     });
   });
 
-  describe("campaign.settled", () => {
-    it("persists a campaign.settled event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('campaign.settled', () => {
+    it('persists a campaign.settled event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeCampaignSettled());
 
@@ -377,9 +401,9 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("order.created", () => {
-    it("persists an order.created event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('order.created', () => {
+    it('persists an order.created event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeOrderCreated());
 
@@ -387,9 +411,9 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("order.confirmed", () => {
-    it("persists an order.confirmed event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('order.confirmed', () => {
+    it('persists an order.confirmed event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeOrderConfirmed());
 
@@ -397,9 +421,9 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("basket.created", () => {
-    it("persists a basket.created event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('basket.created', () => {
+    it('persists a basket.created event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeBasketCreated());
 
@@ -407,21 +431,21 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("basket.deposit", () => {
-    it("persists a basket.deposit event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('basket.deposit', () => {
+    it('persists a basket.deposit event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeBasketDeposit());
 
       expect(prisma.$transaction).toHaveBeenCalledOnce();
     });
 
-    it("warns and skips when basket is unknown", async () => {
-      const logger = (await import("../config/logger.js")).default;
-      const { prisma } = await import("../db/client.js");
+    it('warns and skips when basket is unknown', async () => {
+      const logger = (await import('../config/logger.js')).default;
+      const { prisma } = await import('../db/client.js');
 
       vi.mocked(prisma.$transaction).mockImplementationOnce(
-        async (fn: (tx: unknown) => Promise<unknown>) => {
+        async (fn: (tx: any) => Promise<unknown>) => {
           await fn({
             user: { upsert: vi.fn().mockResolvedValue({}) },
             basket: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -433,18 +457,18 @@ describe("EventPersister", () => {
         },
       );
 
-      await EventPersister.persist(makeBasketDeposit({ basketId: "unknown" }));
+      await EventPersister.persist(makeBasketDeposit({ basketId: 'unknown' }));
 
       expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-        "EventPersister: deposit for unknown basket",
-        expect.objectContaining({ basketId: "unknown" }),
+        'EventPersister: deposit for unknown basket',
+        expect.objectContaining({ basketId: 'unknown' }),
       );
     });
   });
 
-  describe("basket.funded", () => {
-    it("persists a basket.funded event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('basket.funded', () => {
+    it('persists a basket.funded event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeBasketFunded());
 
@@ -452,9 +476,9 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("basket.withdrawn", () => {
-    it("persists a basket.withdrawn event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('basket.withdrawn', () => {
+    it('persists a basket.withdrawn event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeBasketWithdrawn());
 
@@ -462,9 +486,9 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("basket.claimed", () => {
-    it("persists a basket.claimed event", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('basket.claimed', () => {
+    it('persists a basket.claimed event', async () => {
+      const { prisma } = await import('../db/client.js');
 
       await EventPersister.persist(makeBasketClaimed());
 
@@ -472,17 +496,17 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("generic campaign lifecycle events", () => {
-    const statusActions: GenericCampaignEvent["action"][] = [
-      "campaign.produce",
-      "campaign.harvest",
-      "campaign.failed",
-      "campaign.disputed",
+  describe('generic campaign lifecycle events', () => {
+    const statusActions: GenericCampaignEvent['action'][] = [
+      'campaign.produce',
+      'campaign.harvest',
+      'campaign.failed',
+      'campaign.disputed',
     ];
 
     for (const action of statusActions) {
       it(`persists ${action} via $transaction`, async () => {
-        const { prisma } = await import("../db/client.js");
+        const { prisma } = await import('../db/client.js');
 
         await EventPersister.persist(makeGenericCampaign(action));
 
@@ -490,15 +514,15 @@ describe("EventPersister", () => {
       });
     }
 
-    const rawActions: GenericCampaignEvent["action"][] = [
-      "campaign.claimed",
-      "campaign.refunded",
-      "campaign.tranche",
+    const rawActions: GenericCampaignEvent['action'][] = [
+      'campaign.claimed',
+      'campaign.refunded',
+      'campaign.tranche',
     ];
 
     for (const action of rawActions) {
       it(`persists ${action} via recordTransaction`, async () => {
-        const { prisma } = await import("../db/client.js");
+        const { prisma } = await import('../db/client.js');
 
         await EventPersister.persist(makeGenericCampaign(action));
 
@@ -508,15 +532,15 @@ describe("EventPersister", () => {
     }
   });
 
-  describe("unknown action (fallback)", () => {
-    it("records the raw transaction without touching domain models", async () => {
-      const { prisma } = await import("../db/client.js");
+  describe('unknown action (fallback)', () => {
+    it('records the raw transaction without touching domain models', async () => {
+      const { prisma } = await import('../db/client.js');
 
       // Use an action that falls through to the default branch.
       const event = {
         ...baseEvent,
-        action: "campaign.unknown" as never,
-        campaignId: "1",
+        action: 'campaign.unknown' as never,
+        campaignId: '1',
       };
 
       await EventPersister.persist(event);
@@ -527,14 +551,16 @@ describe("EventPersister", () => {
     });
   });
 
-  describe("error resilience", () => {
-    it("propagates DB errors so the caller can handle them", async () => {
-      const { prisma } = await import("../db/client.js");
-      vi.mocked(prisma.$transaction).mockRejectedValueOnce(new Error("DB connection lost"));
-
-      await expect(EventPersister.persist(makeCampaignCreated())).rejects.toThrow(
-        "DB connection lost",
+  describe('error resilience', () => {
+    it('propagates DB errors so the caller can handle them', async () => {
+      const { prisma } = await import('../db/client.js');
+      vi.mocked(prisma.$transaction).mockRejectedValueOnce(
+        new Error('DB connection lost'),
       );
+
+      await expect(
+        EventPersister.persist(makeCampaignCreated()),
+      ).rejects.toThrow('DB connection lost');
     });
   });
 });

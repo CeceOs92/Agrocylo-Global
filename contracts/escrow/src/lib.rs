@@ -51,6 +51,10 @@ pub enum EscrowError {
     EmptyCoBuyerList = 37,
     SplitOrderNotDisputed = 38,
     SplitOrderAlreadyDisputed = 39,
+    /// Issue #757: guardian/governance-gated pause.
+    ContractPaused = 40,
+    AlreadyPaused = 41,
+    NotPaused = 42,
 }
 
 #[contracttype]
@@ -203,6 +207,12 @@ pub enum DataKey {
     SplitOrder(u64),
     SplitOrderCount,
     SplitOrderDispute(u64),
+    /// On-chain storage layout version (Issue #757).
+    SchemaVersion,
+    /// Guardian allowed to `pause` instantly (Issue #757).
+    Guardian,
+    /// Whether the contract is currently paused (Issue #757).
+    Paused,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -587,6 +597,20 @@ fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), EscrowErro
     let admin_addr = read_admin(env)?;
     if *caller != admin_addr {
         return Err(EscrowError::NotAdmin);
+    }
+    Ok(())
+}
+
+/// Gates state-changing entry points while the contract is paused (Issue
+/// #757), mirroring `production_escrow`/`registry`'s identical guard.
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
+    if env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+    {
+        return Err(EscrowError::ContractPaused);
     }
     Ok(())
 }
@@ -1694,7 +1718,7 @@ impl EscrowContract {
         if admin_caller != stored_admin {
             return Err(EscrowError::NotAdmin);
         }
-        if quorum == 0 || quorum > arbitrators.len() as u32 {
+        if quorum == 0 || quorum > arbitrators.len() {
             return Err(EscrowError::InvalidSplitRatio);
         }
         env.storage()

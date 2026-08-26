@@ -18,6 +18,7 @@
 //! not block collection from the others — see `sweep_constituent`.
 
 use soroban_sdk::{
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
     Error as HostError, IntoVal, Symbol, Val, Vec,
 };
@@ -590,7 +591,13 @@ impl InvestmentBasketContract {
                 (basket.total_deposit * c.weight_bps as i128) / BPS_DENOM as i128
             };
             if share > 0 {
-                if escrow_client::try_invest(&env, &basket.escrow_contract, c.campaign_id, share) {
+                if escrow_client::try_invest(
+                    &env,
+                    &basket.escrow_contract,
+                    &basket.token,
+                    c.campaign_id,
+                    share,
+                ) {
                     c.invested_amount = share;
                 } else {
                     c.collected_amount = share;
@@ -890,10 +897,44 @@ mod escrow_client {
     /// the call failed for any reason (deadline passed, overfunded, wrong
     /// status, ...) — callers skip a `false` constituent rather than
     /// aborting the whole `fund_basket` call (Issue #682).
-    pub fn try_invest(env: &Env, escrow: &Address, campaign_id: u64, amount: i128) -> bool {
+    ///
+    /// `escrow.invest` pulls `amount` out of this contract's own token
+    /// balance via `token.transfer(investor=self, escrow, amount)` — a call
+    /// two levels deep (escrow -> token) made on this contract's behalf.
+    /// Soroban only auto-authorizes the *direct* call a contract makes
+    /// (basket -> escrow here); a deeper sub-invocation requiring this
+    /// contract's auth must be explicitly pre-authorized via
+    /// `authorize_as_current_contract` before making that direct call,
+    /// otherwise the token transfer fails with "authorization not tied to
+    /// the root contract invocation".
+    pub fn try_invest(
+        env: &Env,
+        escrow: &Address,
+        token: &Address,
+        campaign_id: u64,
+        amount: i128,
+    ) -> bool {
+        let investor = env.current_contract_address();
+
+        let mut transfer_args: Vec<Val> = Vec::new(env);
+        transfer_args.push_back(investor.clone().into_val(env));
+        transfer_args.push_back(escrow.clone().into_val(env));
+        transfer_args.push_back(amount.into_val(env));
+        env.authorize_as_current_contract(soroban_sdk::vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: token.clone(),
+                    fn_name: Symbol::new(env, "transfer"),
+                    args: transfer_args,
+                },
+                sub_invocations: Vec::new(env),
+            }),
+        ]);
+
         let func = Symbol::new(env, "invest");
         let mut args: Vec<Val> = Vec::new(env);
-        args.push_back(env.current_contract_address().into_val(env));
+        args.push_back(investor.into_val(env));
         args.push_back(campaign_id.into_val(env));
         args.push_back(amount.into_val(env));
         env.try_invoke_contract::<(), soroban_sdk::Error>(escrow, &func, args)

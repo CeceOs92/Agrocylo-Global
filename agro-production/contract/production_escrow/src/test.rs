@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 extern crate std;
 
 use soroban_sdk::{
@@ -11,8 +9,8 @@ use soroban_sdk::{
 
 use crate::{
     CampaignStatus, DisputeResolution, EscrowError, OrderStatus, ProductionEscrowContract,
-    ProductionEscrowContractClient, SplitOrderResolution, SplitOrderStatus, CANCEL_WINDOW_SECS,
-    ORDER_EXPIRY_SECS,
+    ProductionEscrowContractClient, SplitOrderError, SplitOrderResolution, SplitOrderStatus,
+    CANCEL_WINDOW_SECS, ORDER_EXPIRY_SECS,
 };
 
 // ---------------------------------------------------------------------------
@@ -69,7 +67,6 @@ fn setup_with_fee(fee_bps: u32) -> TestEnv<'static> {
     client.set_attester(&admin, &attester);
 
     // Leak lifetimes to 'static for convenience struct.
-    let env: Env = unsafe { std::mem::transmute(env) };
     let client: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(client) };
 
     TestEnv {
@@ -2700,16 +2697,20 @@ fn test_mark_campaign_failed_from_funded_state_full_refund() {
         .client
         .create_campaign(&t.farmer, &t.token_id, &10_000, &deadline);
     t.client.invest(&t.investor1, &id, &10_000);
-    t.client.start_production(&t.farmer, &id);
-    t.client.mark_harvest(&t.farmer, &t.attester, &id);
+    let investor1_balance_before_refund = balance(&t, &t.investor1);
 
-    // Mark campaign as failed after harvest
+    // Mark campaign as failed while still Funded, before any tranche release
     t.client.mark_campaign_failed(&t.admin, &id);
     assert_eq!(t.client.get_campaign(&id).status, CampaignStatus::Failed);
 
-    // All investors should be refunded their full investment
-    let investor1_balance_after = t.token_contract.balance(&t.investor1);
-    assert_eq!(investor1_balance_after, 10_000 + 10_000); // initial + refund
+    // Investor should be refunded their full investment
+    let payout = t.client.refund(&t.investor1, &id);
+    assert_eq!(payout, 10_000);
+    let investor1_balance_after = balance(&t, &t.investor1);
+    assert_eq!(
+        investor1_balance_after,
+        investor1_balance_before_refund + 10_000
+    );
 }
 
 #[test]
@@ -3598,7 +3599,7 @@ fn test_create_split_order_validates_share_count() {
     );
     assert_eq!(
         result.unwrap_err().unwrap(),
-        EscrowError::SplitSharesMustSumToTotal
+        SplitOrderError::SplitSharesMustSumToTotal
     );
 }
 
@@ -3675,7 +3676,7 @@ fn test_split_order_fund_twice_fails() {
         .try_fund_split_order(&co_buyers.get(0).unwrap(), &order_id);
     assert_eq!(
         result.unwrap_err().unwrap(),
-        EscrowError::AlreadyContributed
+        SplitOrderError::AlreadyContributed
     );
 }
 
@@ -3788,5 +3789,5 @@ fn test_fund_split_order_non_co_buyer_fails() {
 
     let stranger = Address::generate(&t.env);
     let result = t.client.try_fund_split_order(&stranger, &order_id);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::NotCoBuyer);
+    assert_eq!(result.unwrap_err().unwrap(), SplitOrderError::NotCoBuyer);
 }

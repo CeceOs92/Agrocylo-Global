@@ -1,10 +1,8 @@
-#![cfg(test)]
-
 extern crate std;
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    vec, Address, Env, IntoVal, Symbol, Val,
+    vec, Address, BytesN, Env, IntoVal, Symbol, Val,
 };
 
 use production_escrow_v2::{ProductionEscrowContract, ProductionEscrowContractClient};
@@ -16,6 +14,7 @@ const TIMELOCK_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
 const UPGRADE_TIMELOCK_DELAY: u64 = 14 * 24 * 60 * 60; // 14 days
 const QUORUM: u64 = 100;
 
+#[allow(dead_code)]
 struct TestEnv<'a> {
     env: Env,
     gov: GovernanceContractClient<'a>,
@@ -64,7 +63,6 @@ fn setup() -> TestEnv<'static> {
     // passes when governance invokes it on the escrow's behalf.
     escrow.initialize(&gov_id, &tokens, &fee_collector, &300);
 
-    let env: Env = unsafe { std::mem::transmute(env) };
     let gov: GovernanceContractClient<'static> = unsafe { std::mem::transmute(gov) };
     let escrow: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(escrow) };
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { prisma } from '../db/client.js';
 import request from 'supertest';
 import express from 'express';
@@ -6,7 +6,27 @@ import conversationRoutes from './conversations.js';
 import { verifySession } from '../services/walletAuthService.js';
 
 vi.mock('../services/walletAuthService.js');
-vi.mock('../db/client.js');
+vi.mock('../db/client.js', () => ({
+  prisma: {
+    conversation: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      update: vi.fn(),
+    },
+    message: {
+      findUnique: vi.fn(),
+      create: vi.fn(),
+    },
+    blockedUser: {
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+    },
+    messageReport: {
+      create: vi.fn(),
+    },
+  },
+  connectDB: vi.fn(),
+}));
 
 const app = express();
 app.use(express.json());
@@ -15,6 +35,9 @@ app.use('/api/v1', conversationRoutes);
 const mockToken = 'valid-session-token';
 const mockWalletA = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const mockWalletB = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+const mockConversationId = '11111111-1111-1111-1111-111111111111';
+const mockMessageId = '22222222-2222-2222-2222-222222222222';
+const mockCampaignId = '33333333-3333-3333-3333-333333333333';
 
 describe('POST /api/v1/conversations/:id/messages', () => {
   beforeEach(() => {
@@ -23,72 +46,40 @@ describe('POST /api/v1/conversations/:id/messages', () => {
   });
 
   it('should reject message when sender is blocked', async () => {
-    const conversationId = 'conv-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
+      id: mockConversationId,
       investorAddress: mockWalletA.toLowerCase(),
       farmerAddress: mockWalletB.toLowerCase(),
-      campaignId: 'campaign-123',
+      campaignId: mockCampaignId,
     });
 
     (prisma.blockedUser.findUnique as any).mockResolvedValue({
       id: 'block-123',
-      conversationId,
+      conversationId: mockConversationId,
       blockerAddress: mockWalletB.toLowerCase(),
       blockedAddress: mockWalletA.toLowerCase(),
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/messages`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/messages`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ content: 'Test message' });
 
     expect(response.status).toBe(403);
     expect(response.body.title).toBe('Forbidden');
   });
 
-  it('should reject message with rate limit exceeded', async () => {
-    const conversationId = 'conv-123';
-
-    (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
-      investorAddress: mockWalletA.toLowerCase(),
-      farmerAddress: mockWalletB.toLowerCase(),
-      campaignId: 'campaign-123',
-    });
-
-    (prisma.blockedUser.findUnique as any).mockResolvedValue(null);
-
-    // Send max requests to trigger rate limit
-    for (let i = 0; i < 30; i++) {
-      await request(app)
-        .post(`/api/v1/conversations/${conversationId}/messages`)
-        .set('x-session-token', mockToken)
-        .send({ content: `Message ${i}` });
-    }
-
-    const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/messages`)
-      .set('x-session-token', mockToken)
-      .send({ content: 'Over limit' });
-
-    expect(response.status).toBe(429);
-  });
-
   it('should reject message from non-participant', async () => {
-    const conversationId = 'conv-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
-      investorAddress: 'GCCC...',
-      farmerAddress: 'GDDD...',
-      campaignId: 'campaign-123',
+      id: mockConversationId,
+      investorAddress: 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+      farmerAddress: 'GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      campaignId: mockCampaignId,
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/messages`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/messages`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ content: 'Test message' });
 
     expect(response.status).toBe(403);
@@ -99,11 +90,39 @@ describe('POST /api/v1/conversations/:id/messages', () => {
     const oversizedContent = 'x'.repeat(5001);
 
     const response = await request(app)
-      .post('/api/v1/conversations/conv-123/messages')
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/messages`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ content: oversizedContent });
 
     expect(response.status).toBe(400);
+  });
+
+  // Runs last: exhausts the shared per-wallet message rate limiter, which
+  // would otherwise mask the assertions in the tests above with 429s.
+  it('should reject message with rate limit exceeded', async () => {
+    (prisma.conversation.findUnique as any).mockResolvedValue({
+      id: mockConversationId,
+      investorAddress: mockWalletA.toLowerCase(),
+      farmerAddress: mockWalletB.toLowerCase(),
+      campaignId: mockCampaignId,
+    });
+
+    (prisma.blockedUser.findUnique as any).mockResolvedValue(null);
+
+    // Send max requests to trigger rate limit
+    for (let i = 0; i < 30; i++) {
+      await request(app)
+        .post(`/api/v1/conversations/${mockConversationId}/messages`)
+        .set('Authorization', `Bearer ${mockToken}`)
+        .send({ content: `Message ${i}` });
+    }
+
+    const response = await request(app)
+      .post(`/api/v1/conversations/${mockConversationId}/messages`)
+      .set('Authorization', `Bearer ${mockToken}`)
+      .send({ content: 'Over limit' });
+
+    expect(response.status).toBe(429);
   });
 });
 
@@ -114,25 +133,23 @@ describe('POST /api/v1/conversations/:id/block', () => {
   });
 
   it('should block a user in a conversation', async () => {
-    const conversationId = 'conv-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
+      id: mockConversationId,
       investorAddress: mockWalletA.toLowerCase(),
       farmerAddress: mockWalletB.toLowerCase(),
-      campaignId: 'campaign-123',
+      campaignId: mockCampaignId,
     });
 
     (prisma.blockedUser.upsert as any).mockResolvedValue({
       id: 'block-123',
-      conversationId,
+      conversationId: mockConversationId,
       blockerAddress: mockWalletA.toLowerCase(),
       blockedAddress: mockWalletB.toLowerCase(),
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/block`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/block`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ blockedAddress: mockWalletB });
 
     expect(response.status).toBe(201);
@@ -140,18 +157,16 @@ describe('POST /api/v1/conversations/:id/block', () => {
   });
 
   it('should reject block attempt from non-participant', async () => {
-    const conversationId = 'conv-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
-      investorAddress: 'GCCC...',
-      farmerAddress: 'GDDD...',
-      campaignId: 'campaign-123',
+      id: mockConversationId,
+      investorAddress: 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+      farmerAddress: 'GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      campaignId: mockCampaignId,
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/block`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/block`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ blockedAddress: mockWalletB });
 
     expect(response.status).toBe(403);
@@ -165,19 +180,16 @@ describe('POST /api/v1/conversations/:id/messages/:messageId/report', () => {
   });
 
   it('should report a message', async () => {
-    const conversationId = 'conv-123';
-    const messageId = 'msg-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
+      id: mockConversationId,
       investorAddress: mockWalletA.toLowerCase(),
       farmerAddress: mockWalletB.toLowerCase(),
-      campaignId: 'campaign-123',
+      campaignId: mockCampaignId,
     });
 
     (prisma.message.findUnique as any).mockResolvedValue({
-      id: messageId,
-      conversationId,
+      id: mockMessageId,
+      conversationId: mockConversationId,
       senderAddress: mockWalletB.toLowerCase(),
       content: 'Offensive content',
       createdAt: new Date(),
@@ -185,14 +197,14 @@ describe('POST /api/v1/conversations/:id/messages/:messageId/report', () => {
 
     (prisma.messageReport.create as any).mockResolvedValue({
       id: 'report-123',
-      messageId,
+      messageId: mockMessageId,
       reporterAddress: mockWalletA.toLowerCase(),
       reason: 'Abusive language',
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/messages/${messageId}/report`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/messages/${mockMessageId}/report`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ reason: 'Abusive language' });
 
     expect(response.status).toBe(201);
@@ -200,19 +212,16 @@ describe('POST /api/v1/conversations/:id/messages/:messageId/report', () => {
   });
 
   it('should reject report from non-participant', async () => {
-    const conversationId = 'conv-123';
-    const messageId = 'msg-123';
-
     (prisma.conversation.findUnique as any).mockResolvedValue({
-      id: conversationId,
-      investorAddress: 'GCCC...',
-      farmerAddress: 'GDDD...',
-      campaignId: 'campaign-123',
+      id: mockConversationId,
+      investorAddress: 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+      farmerAddress: 'GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD',
+      campaignId: mockCampaignId,
     });
 
     const response = await request(app)
-      .post(`/api/v1/conversations/${conversationId}/messages/${messageId}/report`)
-      .set('x-session-token', mockToken)
+      .post(`/api/v1/conversations/${mockConversationId}/messages/${mockMessageId}/report`)
+      .set('Authorization', `Bearer ${mockToken}`)
       .send({ reason: 'Abusive language' });
 
     expect(response.status).toBe(403);
