@@ -115,20 +115,20 @@ Enable swift, fair, and transparent trade
 
 ### 🤝 Contributing
 
-### Contributions are welcome!
-#### To Contribute:
+Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.
 
-   * Fork the repository
-   * Clone your Forked version
-   * cd contracts
-   * Please keep a clean working tree (create a branch and be sure its free from conlicts)
-   * Please Do not push uncompiled code
-#### You can assist by:
-    * Improving smart contract logic
-    * Enhancing UI/UX
-    * Adding indexing or notification services
-    * Writing documentation or tests
-    * Please open an issue or submit a pull request.
+**See [CONTRIBUTING.md](CONTRIBUTING.md) for:**
+- Local setup instructions per app (Rust contracts, Node.js backend, Next.js frontend)
+- Pre-PR expectations (test requirements, Rust-specific checks like `cargo check`, etc.)
+- Merge & review practices (especially important for Rust contracts holding real funds)
+- Stellar Wave bounty workflow for external contributors
+
+**Quick start:**
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Agrocylo-Global.git`
+3. Create a feature branch: `git checkout -b fix/issue-number`
+4. Follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md)
+5. Open a PR referencing the issue(s) it closes
 
 ### 🧪 Running Tests
 
