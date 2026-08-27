@@ -82,9 +82,12 @@ export function disputeResolutionScVal(r: DisputeResolution): StellarSdk.xdr.ScV
 export async function buildContractTx(
   source: string,
   method: string,
-  args: StellarSdk.xdr.ScVal[],
+  buildArgs: () => StellarSdk.xdr.ScVal[],
 ): Promise<ContractResult<string>> {
   try {
+    // ScVal construction (address strkey parsing, i128 range) is done here so a
+    // bad argument returns a graceful error instead of throwing synchronously.
+    const args = buildArgs();
     const rpcServer = server();
     const escrow = contract();
     const sourceAccount = await rpcServer.getAccount(source);
@@ -134,7 +137,7 @@ export function buildCreateCampaign(
   targetAmount: bigint,
   deadline: number,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(farmer, "create_campaign", [
+  return buildContractTx(farmer, "create_campaign", () => [
     addr(farmer),
     addr(tokenAddress),
     i128(targetAmount),
@@ -151,7 +154,7 @@ export function buildInvest(
   campaignId: string,
   amount: bigint,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(investor, "invest", [
+  return buildContractTx(investor, "invest", () => [
     addr(investor),
     u64(campaignId),
     i128(amount),
@@ -165,7 +168,7 @@ export function buildStartProduction(
   farmer: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(farmer, "start_production", [addr(farmer), u64(campaignId)]);
+  return buildContractTx(farmer, "start_production", () => [addr(farmer), u64(campaignId)]);
 }
 
 /** Farmer marks harvest done; requires an independent attester co-signature. */
@@ -174,7 +177,7 @@ export function buildMarkHarvest(
   attesterCaller: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(farmer, "mark_harvest", [
+  return buildContractTx(farmer, "mark_harvest", () => [
     addr(farmer),
     addr(attesterCaller),
     u64(campaignId),
@@ -187,7 +190,7 @@ export function buildAdvanceMilestone(
   attesterCaller: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(caller, "advance_milestone", [
+  return buildContractTx(caller, "advance_milestone", () => [
     addr(caller),
     addr(attesterCaller),
     u64(campaignId),
@@ -199,7 +202,7 @@ export function buildSettle(
   caller: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(caller, "settle", [addr(caller), u64(campaignId)]);
+  return buildContractTx(caller, "settle", () => [addr(caller), u64(campaignId)]);
 }
 
 /** Farmer or admin marks a campaign failed, opening the refund path for investors. */
@@ -207,7 +210,7 @@ export function buildMarkCampaignFailed(
   caller: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(caller, "mark_campaign_failed", [addr(caller), u64(campaignId)]);
+  return buildContractTx(caller, "mark_campaign_failed", () => [addr(caller), u64(campaignId)]);
 }
 
 // --- Investor fund-safety paths -------------------------------------------------
@@ -217,7 +220,7 @@ export function buildClaimReturns(
   investor: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(investor, "claim_returns", [addr(investor), u64(campaignId)]);
+  return buildContractTx(investor, "claim_returns", () => [addr(investor), u64(campaignId)]);
 }
 
 /** Investor reclaims their contribution on a failed campaign. */
@@ -225,7 +228,7 @@ export function buildRefund(
   investor: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(investor, "refund", [addr(investor), u64(campaignId)]);
+  return buildContractTx(investor, "refund", () => [addr(investor), u64(campaignId)]);
 }
 
 /** Admin batch-refunds up to 50 investors on a failed campaign. */
@@ -234,7 +237,7 @@ export function buildBatchRefundInvestors(
   campaignId: string,
   investors: string[],
 ): Promise<ContractResult<string>> {
-  return buildContractTx(caller, "batch_refund_investors", [
+  return buildContractTx(caller, "batch_refund_investors", () => [
     u64(campaignId),
     addrVec(investors),
   ]);
@@ -246,7 +249,7 @@ export function buildTransferInvestment(
   to: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(from, "transfer_investment", [
+  return buildContractTx(from, "transfer_investment", () => [
     addr(from),
     addr(to),
     u64(campaignId),
@@ -260,7 +263,7 @@ export function buildOpenDispute(
   caller: string,
   campaignId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(caller, "open_dispute", [addr(caller), u64(campaignId)]);
+  return buildContractTx(caller, "open_dispute", () => [addr(caller), u64(campaignId)]);
 }
 
 /** Admin resolves a dispute with the chosen `DisputeResolution`. */
@@ -269,7 +272,7 @@ export function buildResolveDispute(
   campaignId: string,
   resolution: DisputeResolution,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(adminCaller, "resolve_dispute", [
+  return buildContractTx(adminCaller, "resolve_dispute", () => [
     addr(adminCaller),
     u64(campaignId),
     disputeResolutionScVal(resolution),
@@ -282,7 +285,7 @@ export function buildVoteToResolve(
   campaignId: string,
   resolution: DisputeResolution,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(arbitrator, "vote_to_resolve", [
+  return buildContractTx(arbitrator, "vote_to_resolve", () => [
     addr(arbitrator),
     u64(campaignId),
     disputeResolutionScVal(resolution),
@@ -303,7 +306,7 @@ export function buildCreateOrder(
   campaignId: string,
   amount: bigint,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(buyer, "create_order", [
+  return buildContractTx(buyer, "create_order", () => [
     addr(buyer),
     u64(campaignId),
     i128(amount),
@@ -315,7 +318,7 @@ export function buildConfirmOrder(
   buyer: string,
   orderId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(buyer, "confirm_order", [addr(buyer), u64(orderId)]);
+  return buildContractTx(buyer, "confirm_order", () => [addr(buyer), u64(orderId)]);
 }
 
 /** Buyer cancels a pending order and is refunded. */
@@ -323,5 +326,5 @@ export function buildCancelOrder(
   buyer: string,
   orderId: string,
 ): Promise<ContractResult<string>> {
-  return buildContractTx(buyer, "cancel_order", [addr(buyer), u64(orderId)]);
+  return buildContractTx(buyer, "cancel_order", () => [addr(buyer), u64(orderId)]);
 }

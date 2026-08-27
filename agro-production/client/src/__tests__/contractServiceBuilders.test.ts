@@ -157,4 +157,19 @@ describe("contractService builders — XDR contents", () => {
       expect(typeof res.data).toBe("string");
     }
   });
+
+  it("returns a graceful error (never throws) for an invalid address", async () => {
+    // A malformed strkey must not throw synchronously out of the builder —
+    // ScVal construction happens inside buildContractTx's try/catch.
+    const bad = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    let res: Awaited<ReturnType<typeof builders.buildInvest>> | undefined;
+    await expect(
+      (async () => {
+        res = await builders.buildInvest(bad, "1", 100_000n);
+      })(),
+    ).resolves.not.toThrow();
+    expect(res?.success).toBe(false);
+    expect(typeof res?.error).toBe("string");
+    expect(callSpy).not.toHaveBeenCalled();
+  });
 });
