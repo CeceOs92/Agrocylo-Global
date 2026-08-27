@@ -186,6 +186,8 @@ const TTL_EXTEND: u32 = 100_000;
 /// this long becomes withdrawable by its depositors (Issue #682).
 const OPEN_BASKET_WITHDRAW_DELAY_SECONDS: u64 = 7 * 24 * 60 * 60;
 
+const EVENT_SCHEMA_VERSION: u32 = 1;
+
 fn t_basket() -> Symbol {
     symbol_short!("basket")
 }
@@ -267,7 +269,7 @@ impl InvestmentBasketContract {
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         env.events()
-            .publish((t_basket(), symbol_short!("upgraded")), (new_wasm_hash,));
+            .publish((t_basket(), symbol_short!("upgraded")), (EVENT_SCHEMA_VERSION, new_wasm_hash));
         Ok(())
     }
 
@@ -309,7 +311,7 @@ impl InvestmentBasketContract {
         }
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
-            .publish((t_basket(), symbol_short!("paused")), (caller,));
+            .publish((t_basket(), symbol_short!("paused")), (EVENT_SCHEMA_VERSION, caller));
         Ok(())
     }
 
@@ -329,7 +331,7 @@ impl InvestmentBasketContract {
         }
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events()
-            .publish((t_basket(), symbol_short!("unpausd")), (caller,));
+            .publish((t_basket(), symbol_short!("unpausd")), (EVENT_SCHEMA_VERSION, caller));
         Ok(())
     }
 
@@ -505,7 +507,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("created")),
-            (id, constituents.len()),
+            (EVENT_SCHEMA_VERSION, id, constituents.len()),
         );
         Ok(id)
     }
@@ -557,7 +559,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("deposit")),
-            (basket_id, depositor, amount),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, amount),
         );
         Ok(())
     }
@@ -624,7 +626,7 @@ impl InvestmentBasketContract {
                         .unwrap_or(basket.total_skipped);
                     env.events().publish(
                         (t_basket(), symbol_short!("skipped")),
-                        (basket_id, c.campaign_id, share),
+                        (EVENT_SCHEMA_VERSION, basket_id, c.campaign_id, share),
                     );
                 }
                 allocated = allocated
@@ -639,7 +641,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("funded")),
-            (basket_id, basket.total_deposit, basket.total_invested, basket.total_skipped),
+            (EVENT_SCHEMA_VERSION, basket_id, basket.total_deposit, basket.total_invested, basket.total_skipped),
         );
         Ok(())
     }
@@ -689,7 +691,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("withdrawn")),
-            (basket_id, depositor, deposit_amount),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, deposit_amount),
         );
         Ok(deposit_amount)
     }
@@ -782,7 +784,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("claimed")),
-            (basket_id, depositor, payout),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, payout),
         );
         Ok(payout)
     }
