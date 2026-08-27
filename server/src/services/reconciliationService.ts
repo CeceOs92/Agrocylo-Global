@@ -298,12 +298,60 @@ async function reconcileDisputes(
 }
 
 // ---------------------------------------------------------------------------
-// Alert persistence
+// Auto-repair for safe drift classes
+// ---------------------------------------------------------------------------
+
+interface AutoRepairResult {
+  success: boolean;
+  message: string;
+}
+
+async function attemptAutoRepair(finding: DriftFinding): Promise<AutoRepairResult> {
+  try {
+    // Only auto-repair orders with simple missing-in-db cases that can be safely re-derived
+    // More complex drifts (status mismatches, amount mismatches) require manual review
+    if (finding.entityType !== "order") {
+      return { success: false, message: "Auto-repair not supported for this entity type" };
+    }
+
+    if (finding.driftType === "missing_in_db") {
+      // This is safe: on-chain record exists but DB is missing it
+      // In a real deployment, we'd re-derive the order from chain data
+      // For now, just mark as requiring manual review
+      return { success: false, message: "Missing DB record requires manual review and data recovery" };
+    }
+
+    if (finding.driftType === "status_mismatch") {
+      // Status mismatches could indicate genuine state divergence or indexer lag
+      // Require manual review — never auto-repair without human verification
+      return { success: false, message: "Status mismatch requires manual investigation" };
+    }
+
+    if (finding.driftType === "amount_mismatch") {
+      // Amount changes could indicate lost precision or actual bugs
+      // Require manual review
+      return { success: false, message: "Amount mismatch requires manual verification" };
+    }
+
+    return { success: false, message: `Unknown drift type: ${finding.driftType}` };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Auto-repair failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alert persistence with auto-repair attempt
 // ---------------------------------------------------------------------------
 
 async function persistAlerts(findings: DriftFinding[]): Promise<void> {
   for (const finding of findings) {
     try {
+      const repairResult = await attemptAutoRepair(finding);
+      const autoRepaired = repairResult.success;
+
       await prisma.reconciliationAlert.create({
         data: {
           entityType: finding.entityType,
@@ -312,14 +360,66 @@ async function persistAlerts(findings: DriftFinding[]): Promise<void> {
           driftType: finding.driftType,
           dbValue: finding.dbValue,
           chainValue: finding.chainValue,
+          notes: autoRepaired ? `Auto-repaired: ${repairResult.message}` : `Requires review: ${repairResult.message}`,
         },
       });
+
+      if (autoRepaired) {
+        logger.info("[Reconciliation] Auto-repair succeeded", {
+          entityType: finding.entityType,
+          entityId: finding.entityId,
+          driftType: finding.driftType,
+        });
+      } else {
+        logger.debug("[Reconciliation] Auto-repair not applied", {
+          entityType: finding.entityType,
+          entityId: finding.entityId,
+          driftType: finding.driftType,
+          reason: repairResult.message,
+        });
+      }
     } catch (err) {
       logger.error("[Reconciliation] Failed to persist alert", {
         error: err instanceof Error ? err.message : String(err),
         finding,
       });
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Metrics emission
+// ---------------------------------------------------------------------------
+
+interface ReconciliationMetric {
+  timestamp: Date;
+  driftsFound: number;
+  ordersChecked: number;
+  campaignsChecked: number;
+  disputesChecked: number;
+  durationMs: number;
+}
+
+export function emitReconciliationMetric(metric: ReconciliationMetric): void {
+  // Emit reconciliation_drift metric for monitoring systems to pick up
+  // In a production setup, this would be sent to Prometheus, DataDog, etc.
+  logger.info("[Reconciliation] Drift metric", {
+    metric_name: "reconciliation_drift",
+    metric_value: metric.driftsFound,
+    timestamp: metric.timestamp.toISOString(),
+    ordersChecked: metric.ordersChecked,
+    campaignsChecked: metric.campaignsChecked,
+    disputesChecked: metric.disputesChecked,
+    durationMs: metric.durationMs,
+  });
+
+  // Alert when drift is detected (non-zero)
+  if (metric.driftsFound > 0) {
+    logger.warn("[Reconciliation] Non-zero drift detected - alert should fire", {
+      metric_name: "reconciliation_drift",
+      alert_threshold: 0,
+      current_value: metric.driftsFound,
+    });
   }
 }
 
@@ -376,6 +476,8 @@ export async function runReconciliation(): Promise<ReconciliationReport> {
   }
 
   const completedAt = new Date();
+  const durationMs = completedAt.getTime() - startedAt.getTime();
+
   const report: ReconciliationReport = {
     startedAt,
     completedAt,
@@ -387,12 +489,36 @@ export async function runReconciliation(): Promise<ReconciliationReport> {
     errors: allErrors,
   };
 
+  // Emit reconciliation_drift metric for monitoring/alerting
+  emitReconciliationMetric({
+    timestamp: completedAt,
+    driftsFound: allFindings.length,
+    ordersChecked,
+    campaignsChecked,
+    disputesChecked,
+    durationMs,
+  });
+
+  // Audit logging: log the full reconciliation run for audit trail
+  logger.info("[Reconciliation] Run completed - audit record", {
+    audit_event: "reconciliation_completed",
+    startedAt: startedAt.toISOString(),
+    completedAt: completedAt.toISOString(),
+    ordersChecked,
+    campaignsChecked,
+    disputesChecked,
+    driftsFound: allFindings.length,
+    errors: allErrors.length,
+    durationMs,
+    status: allErrors.length > 0 ? "completed_with_errors" : "completed_successfully",
+  });
+
   if (allFindings.length > 0) {
     logger.warn("[Reconciliation] Drift detected", {
       driftsFound: allFindings.length,
       ordersChecked,
       disputesChecked,
-      durationMs: completedAt.getTime() - startedAt.getTime(),
+      durationMs,
     });
   } else {
     logger.info("[Reconciliation] No drift detected", {
@@ -400,7 +526,7 @@ export async function runReconciliation(): Promise<ReconciliationReport> {
       campaignsChecked,
       disputesChecked,
       errors: allErrors.length,
-      durationMs: completedAt.getTime() - startedAt.getTime(),
+      durationMs,
     });
   }
 
