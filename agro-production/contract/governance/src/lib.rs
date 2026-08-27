@@ -64,6 +64,7 @@ pub enum GovernanceError {
     TimelockNotElapsed = 25,
     AlreadyExecuted = 26,
     AlreadyQueued = 27,
+    ProposalCancelled = 28,
 
     InvalidConfig = 30,
 
@@ -84,6 +85,8 @@ pub enum ProposalStatus {
     Executed,
     /// Voting period ended without reaching quorum; cannot be queued.
     Rejected,
+    /// Proposal was cancelled during the timelock; cannot be executed.
+    Cancelled,
 }
 
 /// Distinguishes an ordinary parameter-change proposal from a contract
@@ -401,6 +404,9 @@ impl GovernanceContract {
     pub fn queue(env: Env, caller: Address, proposal_id: u64) -> Result<(), GovernanceError> {
         caller.require_auth();
         let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(GovernanceError::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Voting {
             return Err(GovernanceError::AlreadyQueued);
         }
@@ -430,15 +436,50 @@ impl GovernanceContract {
         Ok(())
     }
 
+    /// Cancel a proposal while it is Queued (during the timelock). Only
+    /// callable by the guardian. Transitions the proposal to a terminal
+    /// Cancelled state; cancelled proposals cannot be executed or re-queued.
+    pub fn cancel_proposal(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<(), GovernanceError> {
+        caller.require_auth();
+        let is_guardian = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Guardian)
+            .map(|g| g == caller)
+            .unwrap_or(false);
+        if !is_guardian {
+            return Err(GovernanceError::NotSelfGoverned);
+        }
+
+        let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status != ProposalStatus::Queued {
+            return Err(GovernanceError::NotQueued);
+        }
+
+        proposal.status = ProposalStatus::Cancelled;
+        save_proposal(&env, &proposal);
+
+        env.events()
+            .publish((t_governance(), symbol_short!("cancelled")), (proposal_id,));
+        Ok(())
+    }
+
     /// After the timelock delay has elapsed since queuing, anyone can
     /// execute the proposal, invoking `target_contract::function_name(args)`.
     /// A direct-bypass attempt (calling execute before queue/timelock, or on
-    /// a rejected/unqueued proposal) is rejected by the status/time checks
-    /// below — there is no other path to invoke the target contract through
-    /// this contract.
+    /// a rejected/unqueued/cancelled proposal) is rejected by the status/time
+    /// checks below — there is no other path to invoke the target contract
+    /// through this contract.
     pub fn execute(env: Env, caller: Address, proposal_id: u64) -> Result<(), GovernanceError> {
         caller.require_auth();
         let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(GovernanceError::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Queued {
             return Err(GovernanceError::NotQueued);
         }
