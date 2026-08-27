@@ -23,6 +23,7 @@ import { createOrderFormSchema } from "@/lib/validation";
 import { FormError } from "@/components/FormError";
 import { getInitials } from "@/lib/utils";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
+import { ContractGuard } from "@/components/ContractGuard";
 
 import { requireNativeTokenContractId } from "@/services/stellar/networkConfig";
 import {
@@ -238,6 +239,7 @@ export function CreateOrderForm({
   }
 
   return (
+    <ContractGuard>
     <Card className="mx-auto max-w-lg">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
@@ -390,6 +392,7 @@ export function CreateOrderForm({
         </Button>
       </CardContent>
     </Card>
+    </ContractGuard>
   );
 }
 

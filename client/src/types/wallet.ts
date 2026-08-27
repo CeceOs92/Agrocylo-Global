@@ -1,6 +1,7 @@
 import type { SignAndSubmitResult } from "../lib/signTransaction";
+import type { UserRole } from "./user";
 
-export type ProfileRole = "farmer" | "buyer" | "admin";
+export type ProfileRole = UserRole;
 
 export interface WalletState {
   address: string | null;

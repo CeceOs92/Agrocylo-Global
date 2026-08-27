@@ -1,4 +1,5 @@
 import AuthGuard from "@/components/AuthGuard";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AdminSidebar } from "./_components/admin-sidebar";
 import { AdminHeader } from "./_components/admin-header";
 import { DashboardFooter } from "@/components/shared/dashboard-footer";
@@ -31,7 +32,9 @@ export default function AdminLayout({
           className="flex-1 overflow-y-auto p-4 pb-24 sm:p-6"
           data-lenis-prevent
         >
-          <AuthGuard>{children}</AuthGuard>
+          <ErrorBoundary>
+            <AuthGuard>{children}</AuthGuard>
+          </ErrorBoundary>
         </main>
         <DashboardFooter />
       </div>
