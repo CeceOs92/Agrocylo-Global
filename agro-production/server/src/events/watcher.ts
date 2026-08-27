@@ -12,6 +12,10 @@ const POLL_INTERVAL_MS = parseInt(
   process.env['EVENT_POLL_INTERVAL_MS'] ?? '5000',
   10,
 );
+const CONFIRMATION_DEPTH = parseInt(
+  process.env['CONFIRMATION_DEPTH'] ?? '10',
+  10,
+);
 const MAX_BACKFILL_BATCH = 100;
 // base64 encoding of "campaign" and "order" short symbols
 const CAMPAIGN_TOPIC = 'AAAADwAAAAhjYW1wYWlnbg==';
@@ -58,6 +62,7 @@ async function loadCursor(
 async function advanceCursor(
   ledger: number,
   eventIndex: number,
+  ledgerHash?: string,
 ): Promise<void> {
   await prisma.eventCursor.upsert({
     where: { contractId: CONTRACT_ID },
@@ -65,10 +70,12 @@ async function advanceCursor(
       contractId: CONTRACT_ID,
       ledger,
       eventIndex,
+      ledgerHash,
     },
     update: {
       ledger,
       eventIndex,
+      ...(ledgerHash && { ledgerHash }),
     },
   });
 }
@@ -144,6 +151,85 @@ function parseEventIndex(id: string): number {
 }
 
 /**
+ * Detect if a reorg occurred by comparing the tracked ledger hash against
+ * the RPC's reported hash for that sequence. Returns null if no divergence,
+ * or the fork point ledger if a reorg is detected.
+ */
+async function detectReorg(
+  server: rpc.Server,
+  trackedLedger: number,
+  trackedHash: string | null,
+): Promise<number | null> {
+  if (!trackedHash) {
+    return null; // No prior hash to compare against
+  }
+
+  try {
+    const ledger = await server.getLedger(trackedLedger);
+    if (ledger.hash !== trackedHash) {
+      logger.warn('Reorg detected: ledger hash mismatch', {
+        trackedLedger,
+        expectedHash: trackedHash,
+        observedHash: ledger.hash,
+      });
+      return trackedLedger; // Fork point is at this ledger
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch ledger for reorg detection', {
+      ledger: trackedLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return null;
+}
+
+/**
+ * On detected reorg, roll back the cursor to the fork point and remove
+ * stale Transaction records that were projected from the reorg'd chain.
+ */
+async function handleReorg(forkPointLedger: number): Promise<void> {
+  logger.info('Handling reorg: rolling back transactions', {
+    forkPointLedger,
+  });
+
+  try {
+    // Remove all transaction records with ledger >= forkPointLedger
+    // These were projected from the reorg'd chain and are no longer valid
+    const deleted = await prisma.transaction.deleteMany({
+      where: {
+        ledger: {
+          gte: forkPointLedger,
+        },
+      },
+    });
+
+    logger.info('Reorg rollback complete', {
+      forkPointLedger,
+      transactionsDeleted: deleted.count,
+    });
+
+    // Emit metric for reorg detection
+    recordReorgRollback(deleted.count);
+  } catch (err) {
+    logger.error('Failed to handle reorg', {
+      forkPointLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * Record a rollback metric when a reorg is detected.
+ */
+function recordReorgRollback(transactionsReverted: number): void {
+  // Metrics would be recorded here — for now, this is a placeholder
+  // that allows the event persister to track reorgs
+  logger.info('Reorg rollback metric recorded', { transactionsReverted });
+}
+
+/**
  * Poll the Soroban RPC for events starting at the given cursor.
  * Uses bounded paginated requests instead of fast-forwarding large gaps.
  */
@@ -207,9 +293,28 @@ export async function startProductionWatcher(): Promise<
   let currentLedger = cursor.ledger;
   let currentEventIndex = cursor.eventIndex;
 
+  let trackedLedgerHash: string | null = cursor.ledger > 0 ? null : null;
+
   const interval = setInterval(async () => {
     try {
       const { events, latestLedger } = await pollEvents(server, currentLedger);
+      const confirmedTipLedger = Math.max(0, latestLedger - CONFIRMATION_DEPTH);
+
+      // Check for reorg before processing new events
+      const reorgForkPoint = await detectReorg(
+        server,
+        currentLedger,
+        trackedLedgerHash,
+      );
+      if (reorgForkPoint !== null) {
+        await handleReorg(reorgForkPoint);
+        // Reset cursor to before the fork point
+        if (reorgForkPoint > 0) {
+          currentLedger = reorgForkPoint - 1;
+          currentEventIndex = 0;
+          trackedLedgerHash = null;
+        }
+      }
 
       // If the gap is so large that even MAX_BACKFILL_BATCH doesn't cover it,
       // alert the operator via a dead_letter record and pause advancement.
@@ -236,6 +341,15 @@ export async function startProductionWatcher(): Promise<
           rawEvent.ledger < currentLedger ||
           (rawEvent.ledger === currentLedger && eventIndex <= currentEventIndex)
         ) {
+          continue;
+        }
+
+        // Do not project events that are not yet confirmed (within CONFIRMATION_DEPTH of tip)
+        if (rawEvent.ledger > confirmedTipLedger) {
+          logger.debug('Skipping unconfirmed event', {
+            ledger: rawEvent.ledger,
+            confirmedTip: confirmedTipLedger,
+          });
           continue;
         }
 
@@ -274,12 +388,26 @@ export async function startProductionWatcher(): Promise<
       // Advance cursor only after all events up to maxEventLedger/maxEventIndex
       // have been durably handled. This cursor is persisted atomically.
       if (maxEventLedger > currentLedger || maxEventIndex > currentEventIndex) {
+        // Fetch the hash of the new cursor ledger for future reorg detection
+        try {
+          const ledger = await server.getLedger(maxEventLedger);
+          trackedLedgerHash = ledger.hash;
+        } catch (err) {
+          logger.warn('Failed to fetch ledger hash for cursor tracking', {
+            ledger: maxEventLedger,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          trackedLedgerHash = null;
+        }
+
         currentLedger = maxEventLedger;
         currentEventIndex = maxEventIndex;
-        await advanceCursor(currentLedger, currentEventIndex);
+        await advanceCursor(currentLedger, currentEventIndex, trackedLedgerHash ?? undefined);
         logger.debug('Production watcher: cursor advanced', {
           ledger: currentLedger,
           eventIndex: currentEventIndex,
+          confirmedTip: confirmedTipLedger,
+          ledgerHash: trackedLedgerHash,
         });
       }
     } catch (err) {
