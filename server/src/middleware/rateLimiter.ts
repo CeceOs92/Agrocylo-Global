@@ -11,9 +11,10 @@ const shouldSkipInTest = () => isTest && process.env['ENABLE_TEST_RATE_LIMIT'] !
 
 // Initialize shared Redis client for all rate limiters
 let rateLimitStore: ReturnType<typeof createRateLimitStore> | null = null;
+export let sharedRedisClient: Redis | null = null;
 
 try {
-  const redisClient = new Redis(config.redisUrl, {
+  sharedRedisClient = new Redis(config.redisUrl, {
     retryStrategy: (times: number) => {
       const delay = Math.min(times * 50, 2000);
       return delay;
@@ -22,18 +23,18 @@ try {
     enableOfflineQueue: false,
   });
 
-  redisClient.on('error', (error: Error) => {
+  sharedRedisClient.on('error', (error: Error) => {
     logger.error('[RateLimit] Redis connection error', { error });
     if (config.nodeEnv === 'production') {
       logger.error('[RateLimit] CRITICAL: Rate limiting will FAIL CLOSED in production due to Redis unavailability');
     }
   });
 
-  redisClient.on('connect', () => {
+  sharedRedisClient.on('connect', () => {
     logger.info('[RateLimit] Redis connected for rate limiting');
   });
 
-  rateLimitStore = createRateLimitStore(redisClient);
+  rateLimitStore = createRateLimitStore(sharedRedisClient);
 } catch (error) {
   logger.error('[RateLimit] Failed to initialize Redis client', { error });
   if (config.nodeEnv === 'production') {

@@ -13,6 +13,8 @@ import {
 import { ApiError, sendProblem } from "./http/errors.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { createIdempotencyMiddleware } from "./middleware/idempotency.js";
+import { sharedRedisClient } from "./middleware/rateLimiter.js";
 import productImageRoutes, {
   productImageErrorHandler,
 } from "./routes/productImageRoutes.js";
@@ -78,6 +80,11 @@ app.use(cors({
 app.use(express.json());
 app.use(requestContext);
 app.use(requestLogger);
+
+// Idempotency middleware (if Redis is available)
+if (sharedRedisClient) {
+  app.use(createIdempotencyMiddleware(sharedRedisClient));
+}
 
 // Metrics middleware
 app.use((_req, _res, next) => {

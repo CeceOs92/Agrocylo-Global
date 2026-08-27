@@ -5,6 +5,9 @@ import logger from "../config/logger.js";
 // Request counter for metrics
 let requestCount = 0;
 let errorCount = 0;
+let idempotencyHits = 0;
+let idempotencyMisses = 0;
+let idempotencyConflicts = 0;
 
 export function incrementRequestCount() {
   requestCount++;
@@ -14,10 +17,25 @@ export function incrementErrorCount() {
   errorCount++;
 }
 
+export function incrementIdempotencyHits() {
+  idempotencyHits++;
+}
+
+export function incrementIdempotencyMisses() {
+  idempotencyMisses++;
+}
+
+export function incrementIdempotencyConflicts() {
+  idempotencyConflicts++;
+}
+
 export function getAppMetrics() {
   return {
     request_count: requestCount,
     error_count: errorCount,
+    idempotency_hits: idempotencyHits,
+    idempotency_misses: idempotencyMisses,
+    idempotency_conflicts: idempotencyConflicts,
   };
 }
 
