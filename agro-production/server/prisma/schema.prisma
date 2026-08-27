@@ -13,7 +13,7 @@ datasource db {
 model User {
   id            String   @id @default(uuid())
   walletAddress String   @unique
-  role          String   @default("INVESTOR") // INVESTOR | FARMER | BUYER
+  role          UserRole @default(INVESTOR)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -463,4 +463,26 @@ model ReconciliationAlert {
   @@index([resolvedAt])
   @@index([driftType])
   @@map("reconciliation_alerts")
+}
+
+model AdminAuditLog {
+  id            String   @id @default(uuid())
+  actorAddress  String
+  action        String   // e.g., "reconciliation_run", "alert_resolved"
+  resourceType  String?  // e.g., "reconciliation_alert", "campaign"
+  resourceId    String?
+  details       Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([actorAddress])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+  @@map("admin_audit_logs")
+}
+
+enum UserRole {
+  INVESTOR
+  FARMER
+  BUYER
+  ADMIN
 }

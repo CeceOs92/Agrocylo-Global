@@ -2,32 +2,40 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 import { prisma } from "../db/client.js";
 import { runProductionReconciliation, reconcileSingleCampaign } from "../services/reconciliationService.js";
+import { requireRole, type RoleRequest } from "../middleware/requireRole.js";
 import logger from "../config/logger.js";
 
 const router = Router();
 
-// Admin check helper — mirrors the pattern in disputes.ts
-async function requireAdminWallet(req: Request, res: Response): Promise<string | null> {
-  const walletAddress = req.header("x-wallet-address") ?? "";
-  if (!walletAddress) {
-    res.status(401).json({ message: "Missing x-wallet-address header" });
-    return null;
+// Apply admin role requirement to all routes in this router
+router.use(requireRole("ADMIN"));
+
+// Helper to log admin actions
+async function logAdminAction(
+  actorAddress: string,
+  action: string,
+  resourceType?: string,
+  resourceId?: string,
+  details?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await prisma.adminAuditLog.create({
+      data: {
+        actorAddress,
+        action,
+        resourceType,
+        resourceId,
+        details: details ?? {},
+      },
+    });
+  } catch (err) {
+    logger.warn("[AdminAuditLog] Failed to log action", err);
   }
-  const user = await prisma.user.findUnique({
-    where: { walletAddress },
-    select: { role: true },
-  });
-  if (user?.role !== "ADMIN") {
-    res.status(403).json({ message: "Admin access required" });
-    return null;
-  }
-  return walletAddress;
 }
 
 // GET /api/v1/admin/reconciliation/alerts — list reconciliation alerts
 router.get("/admin/reconciliation/alerts", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
@@ -64,8 +72,7 @@ router.get("/admin/reconciliation/alerts", async (req: Request, res: Response) =
 
 // GET /api/v1/admin/reconciliation/alerts/:id — get a single alert
 router.get("/admin/reconciliation/alerts/:id", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const alert = await prisma.reconciliationAlert.findUnique({
@@ -84,8 +91,7 @@ router.get("/admin/reconciliation/alerts/:id", async (req: Request, res: Respons
 
 // POST /api/v1/admin/reconciliation/alerts/:id/resolve — mark alert as resolved
 router.post("/admin/reconciliation/alerts/:id/resolve", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const alert = await prisma.reconciliationAlert.findUnique({
@@ -109,6 +115,7 @@ router.post("/admin/reconciliation/alerts/:id/resolve", async (req: Request, res
       },
     });
 
+    await logAdminAction(adminWallet, "alert_resolved", "reconciliation_alert", req.params.id);
     res.json(updated);
   } catch (err) {
     logger.error("[Admin/Reconciliation] Failed to resolve alert", err);
@@ -118,11 +125,11 @@ router.post("/admin/reconciliation/alerts/:id/resolve", async (req: Request, res
 
 // POST /api/v1/admin/reconciliation/run — trigger manual reconciliation
 router.post("/admin/reconciliation/run", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const report = await runProductionReconciliation();
+    await logAdminAction(adminWallet, "reconciliation_run");
     res.json(report);
   } catch (err) {
     logger.error("[Admin/Reconciliation] Manual run failed", err);
@@ -132,11 +139,13 @@ router.post("/admin/reconciliation/run", async (req: Request, res: Response) => 
 
 // POST /api/v1/admin/reconciliation/reconcile-campaign/:campaignId — force reconcile a campaign
 router.post("/admin/reconciliation/reconcile-campaign/:campaignId", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const findings = await reconcileSingleCampaign(req.params.campaignId);
+    await logAdminAction(adminWallet, "campaign_reconcile", "campaign", req.params.campaignId, {
+      driftDetected: findings.length > 0,
+    });
     res.json({ campaignId: req.params.campaignId, findings, driftDetected: findings.length > 0 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -151,8 +160,7 @@ router.post("/admin/reconciliation/reconcile-campaign/:campaignId", async (req: 
 
 // GET /api/v1/admin/reconciliation/summary — reconciliation summary stats
 router.get("/admin/reconciliation/summary", async (req: Request, res: Response) => {
-  const adminWallet = await requireAdminWallet(req, res);
-  if (!adminWallet) return;
+  const adminWallet = (req as RoleRequest).walletAddress;
 
   try {
     const [totalAlerts, unresolvedAlerts, recentAlerts] = await Promise.all([
