@@ -61,3 +61,7 @@ Thumbs.db
 # Rust / Soroban
 target/
 *.rs.bk
+
+# Scratch / working notes
+scratch/
+*.local.md
