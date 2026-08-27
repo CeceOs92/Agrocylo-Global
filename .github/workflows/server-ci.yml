@@ -101,3 +101,18 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=high
         working-directory: agro-production/server
+
+  secret-scanning:
+    runs-on: ubuntu-latest
+    name: Secret Scanning
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run TruffleHog secret scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./agro-production/server
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
