@@ -85,6 +85,7 @@ describe("Product checkout error handling", () => {
     });
     mockSignAndSubmit.mockResolvedValue({
       success: false,
+      outcome: "failed",
       error: "Transaction rejected by wallet",
     });
 
@@ -127,6 +128,7 @@ describe("Product checkout error handling", () => {
     });
     mockSignAndSubmit.mockResolvedValue({
       success: true,
+      outcome: "confirmed",
       txHash: "a".repeat(64),
       status: "SUCCESS",
     });
