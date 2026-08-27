@@ -1,6 +1,7 @@
 import express from "express";
 import type { Request, Response } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import logger from "./config/logger.js";
 import { config } from "./config/index.js";
 import { prisma } from "./config/database.js";
@@ -44,6 +45,22 @@ import governanceRoutes from "./routes/governanceRoutes.js";
 import ussdRoutes from "./routes/ussdRoutes.js";
 
 const app = express();
+
+// Trust proxy to correctly extract client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Security headers middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  hsts: config.nodeEnv === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
 
 app.use(cors({
   origin: (origin, callback) => {
