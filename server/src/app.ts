@@ -42,8 +42,13 @@ import integratorRoutes, { integratorErrorHandler } from "./routes/integratorRou
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import governanceRoutes from "./routes/governanceRoutes.js";
 import ussdRoutes from "./routes/ussdRoutes.js";
+import documentRoutes from "./routes/documentRoutes.js";
+import { registerAllEndpoints } from "./openapi/endpoints.js";
 
 const app = express();
+
+// Initialize OpenAPI endpoint registry
+registerAllEndpoints();
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -91,6 +96,9 @@ app.use(referralRoutes);
 app.use(integratorRoutes);
 app.use(governanceRoutes);
 app.use(ussdRoutes);
+
+// Documentation endpoints (OpenAPI spec and Swagger UI)
+app.use(documentRoutes);
 
 app.get("/health", async (_req: Request, res: Response) => {
   logger.info("Health check endpoint hit");
