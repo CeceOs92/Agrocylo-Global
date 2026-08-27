@@ -101,13 +101,13 @@ Network: Stellar Testnet
 
 Smart Contracts: Rust (Soroban)
 
-Frontend: Astro (React)
+Frontend: Next.js (React)
 
 Wallets: Freighter 
 
 Indexing: Custom event indexer / Subgraph-style service
 
-Notifications: Webhooks, Firebase, or Push APIs
+Notifications: In-app (DB-persisted, delivered via REST API)
 
 ### 📦 Project Goals
 
@@ -141,7 +141,14 @@ cd client && npm test
 cd server && npm run test:coverage
 
 # Contract tests (Rust soroban-sdk)
-cd contracts && cargo test
+cargo test --workspace 
+# Or test individual crates:
+cargo test -p escrow
+cargo test -p weather-insurance
+cargo test -p registry
+cargo test -p production-escrow-v2
+cargo test -p investment-basket
+cargo test -p governance
 ```
 
 #### E2E Tests
