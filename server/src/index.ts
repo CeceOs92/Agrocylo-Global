@@ -2,6 +2,7 @@ import http from "http";
 import app from "./app.js";
 import logger from "./config/logger.js";
 import { config } from "./config/index.js";
+import { initializeSentry } from "./config/observability.js";
 import { connectDb } from "./config/database.js";
 import { startContractWatcher } from "./services/contractWatcher.js";
 import { startWorkers } from "./queues/workers.js";
@@ -10,6 +11,9 @@ import { startWeatherPolling } from "./services/weatherService.js";
 import { wsManager } from "./services/wsManager.js";
 
 async function bootstrap() {
+  // Initialize error tracking and tracing first
+  initializeSentry('api');
+
   try {
     logger.info("[bootstrap]: Starting Agrocylo Backend");
     logger.info(`[bootstrap]: Environment: ${config.nodeEnv}`);
