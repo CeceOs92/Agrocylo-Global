@@ -178,9 +178,19 @@ pub const MAX_BASKET_SIZE: u32 = 20;
 const TTL_THRESHOLD: u32 = 1_000;
 const TTL_EXTEND: u32 = 100_000;
 
+const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
+const INSTANCE_TTL_EXTEND: u32 = 100_000;
+
 /// A basket stuck `Open` (nobody has successfully called `fund_basket`) for
 /// this long becomes withdrawable by its depositors (Issue #682).
 const OPEN_BASKET_WITHDRAW_DELAY_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+// Extend instance storage TTL to prevent archival (Issue #777).
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+}
 
 fn t_basket() -> Symbol {
     symbol_short!("basket")
@@ -205,6 +215,7 @@ impl InvestmentBasketContract {
             return Err(BasketError::AlreadyInitialized);
         }
         admin.require_auth();
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -238,6 +249,7 @@ impl InvestmentBasketContract {
         require_governed_caller(&env, &caller)?;
         governance_client::verify(&env, &governance)
             .map_err(|_| BasketError::InvalidGovernanceContract)?;
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::GovernanceContract, &governance);
@@ -272,6 +284,7 @@ impl InvestmentBasketContract {
     pub fn set_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         Ok(())
     }
@@ -280,6 +293,7 @@ impl InvestmentBasketContract {
     /// configured governance contract.
     pub fn pause(env: Env, caller: Address) -> Result<(), BasketError> {
         caller.require_auth();
+        bump_instance(&env);
         let is_guardian = env
             .storage()
             .instance()
@@ -315,6 +329,7 @@ impl InvestmentBasketContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         if !env
             .storage()
             .instance()
@@ -336,6 +351,13 @@ impl InvestmentBasketContract {
             .unwrap_or(false)
     }
 
+    /// Permissionless TTL bump for instance storage. Called by contract entry points
+    /// automatically, but also callable directly by keepers/cron to extend TTL during
+    /// quiet periods with no user-initiated transactions. Requires no auth.
+    pub fn bump_instance_ttl(env: Env) {
+        bump_instance(&env);
+    }
+
     /// Storage migration (Issue #757), worked example: translates baskets
     /// stored under the pre-#682 shape (`OldBasketV1`, no `created_at`) into
     /// the current `Basket` shape, backfilling `created_at` with 0 (unknown
@@ -352,6 +374,7 @@ impl InvestmentBasketContract {
     pub fn migrate(env: Env, caller: Address, batch_size: u32) -> Result<u32, BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
 
         let stored: u32 = env
             .storage()
@@ -434,6 +457,7 @@ impl InvestmentBasketContract {
         if admin_caller != admin {
             return Err(BasketError::NotAdmin);
         }
+        bump_instance(&env);
 
         if constituents.is_empty() {
             return Err(BasketError::EmptyConstituents);
