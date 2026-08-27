@@ -39,7 +39,6 @@ jobs:
       - name: Run linter
         run: npm run lint
         working-directory: agro-production/server
-        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest
