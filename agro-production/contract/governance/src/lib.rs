@@ -163,6 +163,16 @@ fn t_governance() -> Symbol {
 const TTL_THRESHOLD: u32 = 1_000;
 const TTL_EXTEND: u32 = 100_000;
 
+const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
+const INSTANCE_TTL_EXTEND: u32 = 100_000;
+
+// Extend instance storage TTL to prevent archival (Issue #777).
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -196,6 +206,7 @@ impl GovernanceContract {
         if upgrade_timelock_delay_secs < timelock_delay_secs {
             return Err(GovernanceError::InvalidConfig);
         }
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -232,6 +243,7 @@ impl GovernanceContract {
         if admin_caller != admin {
             return Err(GovernanceError::NotVoter);
         }
+        bump_instance(&env);
 
         let key = DataKey::VoterWeight(voter);
         let prev: u64 = env.storage().instance().get(&key).unwrap_or(0);
@@ -312,6 +324,7 @@ impl GovernanceContract {
         if weight == 0 {
             return Err(GovernanceError::NotVoter);
         }
+        bump_instance(env);
 
         let voting_period_secs: u64 = env
             .storage()
@@ -364,6 +377,7 @@ impl GovernanceContract {
         if weight == 0 {
             return Err(GovernanceError::NotVoter);
         }
+        bump_instance(&env);
 
         let mut proposal = load_proposal(&env, proposal_id)?;
         if proposal.status != ProposalStatus::Voting {
@@ -400,6 +414,7 @@ impl GovernanceContract {
     /// quorum. Starts the timelock clock.
     pub fn queue(env: Env, caller: Address, proposal_id: u64) -> Result<(), GovernanceError> {
         caller.require_auth();
+        bump_instance(&env);
         let mut proposal = load_proposal(&env, proposal_id)?;
         if proposal.status != ProposalStatus::Voting {
             return Err(GovernanceError::AlreadyQueued);
@@ -438,6 +453,7 @@ impl GovernanceContract {
     /// this contract.
     pub fn execute(env: Env, caller: Address, proposal_id: u64) -> Result<(), GovernanceError> {
         caller.require_auth();
+        bump_instance(&env);
         let mut proposal = load_proposal(&env, proposal_id)?;
         if proposal.status != ProposalStatus::Queued {
             return Err(GovernanceError::NotQueued);
@@ -598,6 +614,7 @@ impl GovernanceContract {
     /// can still be used to pause/fix every *other* contract.
     pub fn pause(env: Env, caller: Address) -> Result<(), GovernanceError> {
         caller.require_auth();
+        bump_instance(&env);
         let is_guardian = env
             .storage()
             .instance()
@@ -626,6 +643,13 @@ impl GovernanceContract {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Permissionless TTL bump for instance storage. Called by contract entry points
+    /// automatically, but also callable directly by keepers/cron to extend TTL during
+    /// quiet periods with no user-initiated transactions. Requires no auth.
+    pub fn bump_instance_ttl(env: Env) {
+        bump_instance(&env);
     }
 
     pub fn get_schema_version(env: Env) -> u32 {
