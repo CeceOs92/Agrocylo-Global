@@ -17,6 +17,7 @@ export type TxPhase =
   | "submitting"  // broadcasting to Stellar
   | "confirming"  // waiting for ledger inclusion
   | "success"
+  | "pending"     // submitted, not yet confirmed — NOT failed, do not resubmit
   | "failed";
 
 export interface TxMachineState {
@@ -47,8 +48,10 @@ export function advanceMachine(
     idle:       ["recording"],
     recording:  ["signing", "failed"],
     signing:    ["submitting", "failed"],
-    submitting: ["confirming", "success", "failed"],
-    confirming: ["success", "failed"],
+    submitting: ["confirming", "success", "pending", "failed"],
+    confirming: ["success", "pending", "failed"],
+    // A pending transaction may still confirm, fail, or be abandoned later.
+    pending:    ["success", "failed", "idle"],
     success:    [],
     failed:     ["idle"],
   };
@@ -80,6 +83,11 @@ export function advanceMachine(
       // mark the last active step as done
       if (steps.confirm === "active") steps.confirm = "done";
       else if (steps.submit === "active") steps.submit = "done";
+      break;
+    case "pending":
+      // Broadcast succeeded; confirmation is still outstanding (not an error).
+      steps.submit = "done";
+      steps.confirm = "active";
       break;
     case "failed":
       // mark the current active step as error

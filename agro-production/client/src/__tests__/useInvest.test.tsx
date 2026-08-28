@@ -58,7 +58,7 @@ function mockConfirmedTransaction() {
     onStage?.("signing");
     onStage?.("submitting");
     onStage?.("confirming");
-    return { success: true, txHash: indexedInvestment.txHash, status: "SUCCESS" };
+    return { success: true, outcome: "confirmed" as const, txHash: indexedInvestment.txHash, status: "SUCCESS" };
   });
 }
 
@@ -82,7 +82,7 @@ describe("useInvest", () => {
 
   it("surfaces wallet rejection without treating an API response as success", async () => {
     mockBuildInvest.mockResolvedValue({ success: true, data: "prepared-xdr" });
-    mockSignAndSubmit.mockResolvedValue({ success: false, error: "Transaction rejected by wallet" });
+    mockSignAndSubmit.mockResolvedValue({ success: false, outcome: "failed", error: "Transaction rejected by wallet" });
     const { result } = renderHook(() => useInvest());
 
     await act(async () => {
@@ -92,6 +92,51 @@ describe("useInvest", () => {
     expect(result.current.phase).toBe("failed");
     expect(result.current.error).toContain("rejected by wallet");
     expect(mockWaitForIndexedInvestment).not.toHaveBeenCalled();
+  });
+
+  it("treats a still-pending submission as recovery, not failure, and does not resubmit", async () => {
+    mockBuildInvest.mockResolvedValue({ success: true, data: "prepared-xdr" });
+    mockSignAndSubmit.mockResolvedValue({
+      success: false,
+      outcome: "pending",
+      txHash: "b".repeat(64),
+      status: "PENDING",
+      error: "Transaction is still pending.",
+    });
+    const { result } = renderHook(() => useInvest());
+
+    await act(async () => {
+      await result.current.invest(request);
+    });
+
+    expect(result.current.phase).toBe("awaiting_index");
+    expect(result.current.phase).not.toBe("failed");
+    expect(result.current.txHash).toBe("b".repeat(64));
+    expect(mockWaitForIndexedInvestment).not.toHaveBeenCalled();
+
+    // A second attempt for the same intent must not build/submit again.
+    await act(async () => {
+      await result.current.invest(request);
+    });
+    expect(mockBuildInvest).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a stable per-investment intent to the submit guard", async () => {
+    mockConfirmedTransaction();
+    mockWaitForIndexedInvestment.mockResolvedValue(indexedInvestment);
+    const { result } = renderHook(() => useInvest());
+
+    await act(async () => {
+      await result.current.invest(request);
+    });
+
+    expect(mockSignAndSubmit).toHaveBeenCalledWith(
+      "prepared-xdr",
+      expect.any(Function),
+      expect.objectContaining({
+        intent: `invest:${request.campaignId}:${request.investorAddress}`,
+      }),
+    );
   });
 
   it("keeps a confirmed transaction in recovery mode when indexing times out", async () => {
@@ -122,7 +167,7 @@ describe("useInvest", () => {
         resolveBuild = resolve;
       }),
     );
-    mockSignAndSubmit.mockResolvedValue({ success: false, error: "Transaction rejected by wallet" });
+    mockSignAndSubmit.mockResolvedValue({ success: false, outcome: "failed", error: "Transaction rejected by wallet" });
     const { result } = renderHook(() => useInvest());
 
     let first: Promise<unknown>;
