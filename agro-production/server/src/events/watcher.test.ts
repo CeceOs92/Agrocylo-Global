@@ -8,14 +8,18 @@ const {
   mockEventCursorFindUnique,
   mockEventCursorUpsert,
   mockTransactionCreate,
+  mockTransactionDeleteMany,
   mockGetEvents,
   mockGetLatestLedger,
+  mockGetLedger,
 } = vi.hoisted(() => ({
   mockEventCursorFindUnique: vi.fn().mockResolvedValue(null),
   mockEventCursorUpsert: vi.fn().mockResolvedValue({}),
   mockTransactionCreate: vi.fn().mockResolvedValue({}),
+  mockTransactionDeleteMany: vi.fn().mockResolvedValue({ count: 0 }),
   mockGetEvents: vi.fn().mockResolvedValue({ events: [] }),
   mockGetLatestLedger: vi.fn().mockResolvedValue({ sequence: 500 }),
+  mockGetLedger: vi.fn().mockResolvedValue({ hash: 'abcd1234' }),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -26,6 +30,7 @@ vi.mock("../db/client.js", () => ({
     },
     transaction: {
       create: mockTransactionCreate,
+      deleteMany: mockTransactionDeleteMany,
     },
   },
 }));
@@ -54,6 +59,7 @@ vi.mock("@stellar/stellar-sdk", () => ({
     Server: vi.fn().mockImplementation(() => ({
       getEvents: mockGetEvents,
       getLatestLedger: mockGetLatestLedger,
+      getLedger: mockGetLedger,
     })),
   },
 }));
@@ -323,6 +329,134 @@ describe("startProductionWatcher", () => {
 
       // Cursor should NOT have advanced past the failed event
       expect(mockEventCursorUpsert).not.toHaveBeenCalled();
+    });
+
+    it("respects confirmation depth and skips unconfirmed events", async () => {
+      mockEventCursorFindUnique.mockResolvedValueOnce({
+        contractId: "CTEST",
+        ledger: 480,
+        eventIndex: 0,
+        ledgerHash: "hash480",
+      });
+      // Tip is 500, confirmation depth is 10, so confirmed tip is 490
+      // Events at 491-500 should be skipped
+      mockGetLatestLedger.mockResolvedValue({ sequence: 500 });
+
+      const unconfirmedEvent = {
+        ledger: 495, // > confirmed tip (490)
+        id: "495-0",
+        type: "contract",
+        ledgerClosedAt: new Date().toISOString(),
+        contractId: "CTEST",
+        topic: [],
+        value: "",
+      };
+      const confirmedEvent = {
+        ledger: 485, // < confirmed tip (490)
+        id: "485-0",
+        type: "contract",
+        ledgerClosedAt: new Date().toISOString(),
+        contractId: "CTEST",
+        topic: [],
+        value: "",
+      };
+      mockGetEvents.mockResolvedValueOnce({
+        events: [confirmedEvent, unconfirmedEvent],
+      });
+
+      const parsedEvent = {
+        action: "campaign.created" as const,
+        ledger: 485,
+        eventIndex: 0,
+        timestamp: new Date(),
+        rawId: "485-0",
+        campaignId: "1",
+        farmer: "GFARMER",
+        token: "GTOKEN",
+        targetAmount: "10000",
+        deadline: "9999999",
+      };
+      vi.mocked(ProductionEventParser.tryParse).mockReturnValueOnce(parsedEvent);
+      mockGetLedger.mockResolvedValueOnce({ hash: "hash485" });
+
+      await startProductionWatcher();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      // Only the confirmed event (485) should be persisted
+      expect(EventPersister.persist).toHaveBeenCalledTimes(1);
+      expect(EventPersister.persist).toHaveBeenCalledWith(parsedEvent);
+
+      // Cursor should advance to confirmed event only
+      expect(mockEventCursorUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ ledger: 485, eventIndex: 0 }),
+        }),
+      );
+    });
+
+    it("detects reorg when ledger hash diverges and rolls back stale transactions", async () => {
+      mockEventCursorFindUnique.mockResolvedValueOnce({
+        contractId: "CTEST",
+        ledger: 400,
+        eventIndex: 0,
+        ledgerHash: "original_hash_400",
+      });
+      mockGetLatestLedger.mockResolvedValue({ sequence: 410 });
+
+      // Reorg detected: hash at ledger 400 has changed
+      mockGetLedger.mockResolvedValueOnce({ hash: "NEW_hash_400" });
+
+      mockGetEvents.mockResolvedValueOnce({ events: [] });
+      mockTransactionDeleteMany.mockResolvedValueOnce({ count: 5 });
+
+      await startProductionWatcher();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      // Should detect reorg and attempt rollback
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Reorg detected: ledger hash mismatch",
+        expect.objectContaining({
+          trackedLedger: 400,
+          expectedHash: "original_hash_400",
+          observedHash: "NEW_hash_400",
+        }),
+      );
+
+      // Should delete stale transactions from the reorg'd ledger onward
+      expect(mockTransactionDeleteMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { ledger: { gte: 400 } },
+        }),
+      );
+    });
+
+    it("handles rollback poison pill by removing conflicting transactions before re-projection", async () => {
+      // This test verifies that the @@unique([ledger, eventIndex]) constraint
+      // no longer causes a poison-pill by ensuring transactions are deleted
+      // before re-projecting from the fork point
+      mockEventCursorFindUnique.mockResolvedValueOnce({
+        contractId: "CTEST",
+        ledger: 350,
+        eventIndex: 0,
+        ledgerHash: "hash350",
+      });
+      mockGetLatestLedger.mockResolvedValue({ sequence: 360 });
+
+      // Reorg at ledger 355
+      mockGetLedger.mockResolvedValueOnce({ hash: "different_hash_350" });
+      mockTransactionDeleteMany.mockResolvedValueOnce({
+        count: 2, // 2 stale transactions from ledger 350+ were deleted
+      });
+
+      mockGetEvents.mockResolvedValueOnce({ events: [] });
+
+      await startProductionWatcher();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      // Verify rollback occurred before any re-projection would happen
+      expect(mockTransactionDeleteMany).toHaveBeenCalledBefore(
+        mockEventCursorUpsert as any,
+      );
     });
   });
 });

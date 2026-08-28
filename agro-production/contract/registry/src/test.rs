@@ -373,3 +373,48 @@ fn test_guardian_pause_blocks_register_farmer_governance_only_unpauses() {
     client.register_farmer(&farmer_one);
     assert!(client.is_farmer_registered(&farmer_one));
 }
+
+// ── Provenance registry: mint_batch farmer-identity validation (Issue #754 audit) ──
+
+#[test]
+fn test_mint_batch_rejects_farmer_mismatch() {
+    let (env, client, _, _, production_contract, _, farmer_one, farmer_two) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_farmer(&farmer_two);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    // Campaign 1 belongs to farmer_one; a caller-supplied farmer_two must be
+    // rejected rather than minting a batch that misattributes provenance.
+    let result = client.try_mint_batch(
+        &production_contract,
+        &1,
+        &farmer_two,
+        &String::from_str(&env, "Maize"),
+        &0,
+        &100,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        RegistryError::InvalidFarmerAddress
+    );
+}
+
+#[test]
+fn test_mint_batch_succeeds_for_matching_farmer() {
+    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    let batch_id = client.mint_batch(
+        &production_contract,
+        &1,
+        &farmer_one,
+        &String::from_str(&env, "Maize"),
+        &0,
+        &100,
+    );
+
+    let batch = client.get_batch(&batch_id).unwrap().unwrap();
+    assert_eq!(batch.farmer, farmer_one);
+    assert_eq!(batch.campaign_id, 1);
+}
