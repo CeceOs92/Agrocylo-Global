@@ -26,16 +26,13 @@
 //! (including delay = 0) and asserts that an attempt to execute immediately
 //! after queuing always fails when delay > 0.
 
-#![cfg(test)]
-
 extern crate std;
 
 use proptest::prelude::*;
 use proptest::test_runner::{Config as ProptestConfig, TestRunner};
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    token::StellarAssetClient,
-    vec, Address, Env, IntoVal, Symbol, Val,
+    Address, Env, IntoVal, Symbol, Val,
 };
 use std::vec::Vec as StdVec;
 
@@ -49,8 +46,10 @@ use crate::{GovernanceContract, GovernanceContractClient, GovernanceError, Propo
 
 const VOTING_PERIOD: u64 = 7 * 24 * 3600; // 7 days
 const TIMELOCK_DELAY: u64 = 2 * 24 * 3600; // 2 days
+const UPGRADE_TIMELOCK_DELAY: u64 = 14 * 24 * 3600; // 14 days
 const QUORUM: u64 = 60;
 
+#[allow(dead_code)]
 struct GovHarness<'a> {
     env: Env,
     gov: GovernanceContractClient<'a>,
@@ -70,7 +69,13 @@ fn make_gov_harness(voter_weights: &[u64], quorum: u64) -> GovHarness<'static> {
 
     let gov_id = env.register(GovernanceContract, ());
     let gov = GovernanceContractClient::new(&env, &gov_id);
-    gov.initialize(&admin, &VOTING_PERIOD, &TIMELOCK_DELAY, &quorum);
+    gov.initialize(
+        &admin,
+        &VOTING_PERIOD,
+        &TIMELOCK_DELAY,
+        &UPGRADE_TIMELOCK_DELAY,
+        &quorum,
+    );
 
     let mut voters = StdVec::new();
     for &w in voter_weights {
@@ -93,7 +98,6 @@ fn make_gov_harness(voter_weights: &[u64], quorum: u64) -> GovHarness<'static> {
     // governance contract is the "admin" of the escrow for governed params
     escrow.initialize(&gov_id, &tokens, &fee_collector, &300);
 
-    let env: Env = unsafe { std::mem::transmute(env) };
     let gov: GovernanceContractClient<'static> = unsafe { std::mem::transmute(gov) };
     let escrow: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(escrow) };
 
@@ -133,9 +137,7 @@ fn propose_set_fee_config(h: &GovHarness<'_>) -> u64 {
     args.push_back(new_fee_collector.into_val(&h.env));
     args.push_back(200u32.into_val(&h.env)); // new fee rate
 
-    h.gov
-        .propose(proposer, &h.escrow_id, &function_name, &args)
-        .expect("propose must succeed")
+    h.gov.propose(proposer, &h.escrow_id, &function_name, &args)
 }
 
 // ---------------------------------------------------------------------------
@@ -153,8 +155,8 @@ fn test_invariant_vote_weight_conservation() {
 
     // Each voter votes for
     for (voter, _) in &h.voters {
-        h.gov.vote(voter, &pid, &true).expect("vote should succeed");
-        let p = h.gov.get_proposal(&pid).expect("get_proposal");
+        h.gov.vote(voter, &pid, &true);
+        let p = h.gov.get_proposal(&pid);
         assert!(
             p.votes_for + p.votes_against <= total_weight,
             "INVARIANT VIOLATED: votes_for({}) + votes_against({}) > total_weight({})",
@@ -173,11 +175,11 @@ fn test_invariant_vote_weight_conservation_mixed_votes() {
     let pid = propose_set_fee_config(&h);
 
     // voters[0] votes for, voters[1] votes against, voters[2] votes for
-    h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote for");
-    h.gov.vote(&h.voters[1].0, &pid, &false).expect("vote against");
-    h.gov.vote(&h.voters[2].0, &pid, &true).expect("vote for");
+    h.gov.vote(&h.voters[0].0, &pid, &true);
+    h.gov.vote(&h.voters[1].0, &pid, &false);
+    h.gov.vote(&h.voters[2].0, &pid, &true);
 
-    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p = h.gov.get_proposal(&pid);
     assert!(p.votes_for + p.votes_against <= total_weight);
     // votes_for = 60 + 10 = 70, votes_against = 50
     assert_eq!(p.votes_for, 70);
@@ -189,7 +191,7 @@ fn test_invariant_vote_weight_conservation_mixed_votes() {
 /// conservation invariant holds.
 #[test]
 fn test_invariant_vote_weight_conservation_proptest() {
-    let runner = TestRunner::new(ProptestConfig {
+    let mut runner = TestRunner::new(ProptestConfig {
         cases: 30,
         ..ProptestConfig::default()
     });
@@ -208,9 +210,8 @@ fn test_invariant_vote_weight_conservation_proptest() {
 
                 for (i, (_, support)) in voter_specs.iter().enumerate() {
                     h.gov
-                        .vote(&h.voters[i].0, &pid, support)
-                        .expect("vote should succeed");
-                    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+                        .vote(&h.voters[i].0, &pid, support);
+                    let p = h.gov.get_proposal(&pid);
                     assert!(
                         p.votes_for + p.votes_against <= total_weight,
                         "INVARIANT VIOLATED: votes_for({}) + votes_against({}) > total_weight({}) after voter {}",
@@ -238,8 +239,8 @@ fn test_invariant_lifecycle_voting_cannot_execute() {
     let pid = propose_set_fee_config(&h);
 
     // All voters vote for — but voting period still open
-    h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote");
-    h.gov.vote(&h.voters[1].0, &pid, &true).expect("vote");
+    h.gov.vote(&h.voters[0].0, &pid, &true);
+    h.gov.vote(&h.voters[1].0, &pid, &true);
 
     let err = h
         .gov
@@ -252,7 +253,7 @@ fn test_invariant_lifecycle_voting_cannot_execute() {
         "proposal in Voting state must not be executable"
     );
 
-    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p = h.gov.get_proposal(&pid);
     assert_eq!(
         p.status,
         ProposalStatus::Voting,
@@ -268,16 +269,16 @@ fn test_invariant_lifecycle_rejected_cannot_queue() {
     let pid = propose_set_fee_config(&h);
 
     // All voters vote AGAINST — quorum not met for "for"
-    h.gov.vote(&h.voters[0].0, &pid, &false).expect("vote");
-    h.gov.vote(&h.voters[1].0, &pid, &false).expect("vote");
+    h.gov.vote(&h.voters[0].0, &pid, &false);
+    h.gov.vote(&h.voters[1].0, &pid, &false);
 
     // Advance past voting period
     advance_gov(&h, VOTING_PERIOD + 1);
 
     // Queue — this should transition to Rejected since votes_for < quorum
-    h.gov.queue(&caller, &pid).expect("queue call should not panic");
+    h.gov.queue(&caller, &pid);
 
-    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p = h.gov.get_proposal(&pid);
     assert_eq!(
         p.status,
         ProposalStatus::Rejected,
@@ -301,21 +302,21 @@ fn test_invariant_lifecycle_executed_cannot_reexecute() {
     let pid = propose_set_fee_config(&h);
 
     // All vote for
-    h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote");
-    h.gov.vote(&h.voters[1].0, &pid, &true).expect("vote");
+    h.gov.vote(&h.voters[0].0, &pid, &true);
+    h.gov.vote(&h.voters[1].0, &pid, &true);
 
     // Advance past voting period, queue
     advance_gov(&h, VOTING_PERIOD + 1);
-    h.gov.queue(&caller, &pid).expect("queue");
+    h.gov.queue(&caller, &pid);
 
-    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p = h.gov.get_proposal(&pid);
     assert_eq!(p.status, ProposalStatus::Queued);
 
     // Advance past timelock, execute
     advance_gov(&h, TIMELOCK_DELAY + 1);
-    h.gov.execute(&caller, &pid).expect("execute");
+    h.gov.execute(&caller, &pid);
 
-    let p = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p = h.gov.get_proposal(&pid);
     assert_eq!(p.status, ProposalStatus::Executed);
 
     // Re-execute must fail
@@ -338,7 +339,7 @@ fn test_invariant_no_double_vote() {
     let pid = propose_set_fee_config(&h);
     let (voter, _) = &h.voters[0];
 
-    h.gov.vote(voter, &pid, &true).expect("first vote");
+    h.gov.vote(voter, &pid, &true);
     let err = h
         .gov
         .try_vote(voter, &pid, &true)
@@ -352,7 +353,7 @@ fn test_invariant_no_double_vote() {
 /// changes the status.
 #[test]
 fn test_invariant_lifecycle_lock_proptest() {
-    let runner = TestRunner::new(ProptestConfig {
+    let mut runner = TestRunner::new(ProptestConfig {
         cases: 20,
         ..ProptestConfig::default()
     });
@@ -366,40 +367,43 @@ fn test_invariant_lifecycle_lock_proptest() {
 
             if path == 0 {
                 // Execute path: vote for, queue after period, execute after timelock
-                h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote");
-                h.gov.vote(&h.voters[1].0, &pid, &true).expect("vote");
+                h.gov.vote(&h.voters[0].0, &pid, &true);
+                h.gov.vote(&h.voters[1].0, &pid, &true);
                 advance_gov(&h, VOTING_PERIOD + 1);
-                h.gov.queue(&caller, &pid).expect("queue");
+                h.gov.queue(&caller, &pid);
                 advance_gov(&h, TIMELOCK_DELAY + 1);
-                h.gov.execute(&caller, &pid).expect("execute");
+                h.gov.execute(&caller, &pid);
 
-                let p = h.gov.get_proposal(&pid).expect("proposal");
+                let p = h.gov.get_proposal(&pid);
                 assert_eq!(p.status, ProposalStatus::Executed);
 
                 // Must not re-execute
-                h.gov
+                let _ = h
+                    .gov
                     .try_execute(&caller, &pid)
                     .expect_err("must fail on re-execute");
             } else {
                 // Rejected path: vote against, queue (→ Rejected)
-                h.gov.vote(&h.voters[0].0, &pid, &false).expect("vote");
-                h.gov.vote(&h.voters[1].0, &pid, &false).expect("vote");
+                h.gov.vote(&h.voters[0].0, &pid, &false);
+                h.gov.vote(&h.voters[1].0, &pid, &false);
                 advance_gov(&h, VOTING_PERIOD + 1);
-                h.gov.queue(&caller, &pid).expect("queue");
+                h.gov.queue(&caller, &pid);
 
-                let p = h.gov.get_proposal(&pid).expect("proposal");
+                let p = h.gov.get_proposal(&pid);
                 assert_eq!(p.status, ProposalStatus::Rejected);
 
                 // Must not transition from Rejected
-                h.gov
+                let _ = h
+                    .gov
                     .try_queue(&caller, &pid)
                     .expect_err("must fail after Rejected");
-                h.gov
+                let _ = h
+                    .gov
                     .try_execute(&caller, &pid)
                     .expect_err("must fail after Rejected");
 
                 // Status still Rejected
-                let p2 = h.gov.get_proposal(&pid).expect("proposal");
+                let p2 = h.gov.get_proposal(&pid);
                 assert_eq!(p2.status, ProposalStatus::Rejected);
             }
             Ok(())
@@ -418,12 +422,12 @@ fn test_invariant_timelock_enforced() {
     let caller = Address::generate(&h.env);
     let pid = propose_set_fee_config(&h);
 
-    h.gov.vote(&h.voters[0].0, &pid, &true).expect("vote");
-    h.gov.vote(&h.voters[1].0, &pid, &true).expect("vote");
+    h.gov.vote(&h.voters[0].0, &pid, &true);
+    h.gov.vote(&h.voters[1].0, &pid, &true);
     advance_gov(&h, VOTING_PERIOD + 1);
-    h.gov.queue(&caller, &pid).expect("queue");
+    h.gov.queue(&caller, &pid);
 
-    let p_before = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p_before = h.gov.get_proposal(&pid);
     assert_eq!(p_before.status, ProposalStatus::Queued);
 
     // Try to execute immediately (before timelock elapsed)
@@ -449,16 +453,16 @@ fn test_invariant_timelock_enforced() {
 
     // Now advance past the timelock: should succeed
     advance_gov(&h, 2); // now at queued_at + TIMELOCK_DELAY + 1
-    h.gov.execute(&caller, &pid).expect("execute must succeed after timelock");
+    h.gov.execute(&caller, &pid);
 
-    let p_after = h.gov.get_proposal(&pid).expect("get_proposal");
+    let p_after = h.gov.get_proposal(&pid);
     assert_eq!(p_after.status, ProposalStatus::Executed);
 }
 
 /// Proptest: for any timelock_delay (including 0), execute before delay fails.
 #[test]
 fn test_invariant_timelock_proptest() {
-    let runner = TestRunner::new(ProptestConfig {
+    let mut runner = TestRunner::new(ProptestConfig {
         cases: 25,
         ..ProptestConfig::default()
     });
@@ -477,7 +481,13 @@ fn test_invariant_timelock_proptest() {
 
                 let gov_id = env.register(GovernanceContract, ());
                 let gov = GovernanceContractClient::new(&env, &gov_id);
-                gov.initialize(&admin, &VOTING_PERIOD, &timelock_delay, &QUORUM);
+                gov.initialize(
+                    &admin,
+                    &VOTING_PERIOD,
+                    &timelock_delay,
+                    &UPGRADE_TIMELOCK_DELAY,
+                    &QUORUM,
+                );
                 gov.set_voter_weight(&admin, &voter1, &60);
                 gov.set_voter_weight(&admin, &voter2, &50);
 
@@ -500,11 +510,10 @@ fn test_invariant_timelock_proptest() {
                 args.push_back(new_fc.into_val(&env));
                 args.push_back(200u32.into_val(&env));
 
-                let pid = gov.propose(&voter1, &escrow_id, &function_name, &args)
-                    .expect("propose");
+                let pid = gov.propose(&voter1, &escrow_id, &function_name, &args);
 
-                gov.vote(&voter1, &pid, &true).expect("vote 1");
-                gov.vote(&voter2, &pid, &true).expect("vote 2");
+                gov.vote(&voter1, &pid, &true);
+                gov.vote(&voter2, &pid, &true);
 
                 // Advance past voting period
                 env.ledger().set(LedgerInfo {
@@ -519,7 +528,7 @@ fn test_invariant_timelock_proptest() {
                 });
 
                 let caller = Address::generate(&env);
-                gov.queue(&caller, &pid).expect("queue");
+                gov.queue(&caller, &pid);
 
                 // Attempt to execute immediately (0 seconds elapsed since queue)
                 let err = gov
@@ -583,17 +592,17 @@ fn test_invariant_total_weight_tracking() {
     let v1 = Address::generate(&h.env);
     let v2 = Address::generate(&h.env);
 
-    h.gov.set_voter_weight(&admin, &v1, &40).expect("set weight");
+    h.gov.set_voter_weight(&admin, &v1, &40);
     assert_eq!(h.gov.get_voter_weight(&v1), 40);
 
-    h.gov.set_voter_weight(&admin, &v2, &60).expect("set weight");
+    h.gov.set_voter_weight(&admin, &v2, &60);
     assert_eq!(h.gov.get_voter_weight(&v2), 60);
 
     // Update v1's weight — this should not double-count
-    h.gov.set_voter_weight(&admin, &v1, &20).expect("update weight");
+    h.gov.set_voter_weight(&admin, &v1, &20);
     assert_eq!(h.gov.get_voter_weight(&v1), 20);
 
     // Revoke v2
-    h.gov.set_voter_weight(&admin, &v2, &0).expect("revoke weight");
+    h.gov.set_voter_weight(&admin, &v2, &0);
     assert_eq!(h.gov.get_voter_weight(&v2), 0);
 }

@@ -437,10 +437,8 @@ impl GovernanceContract {
         if proposal.votes_for < quorum || proposal.votes_for <= proposal.votes_against {
             proposal.status = ProposalStatus::Rejected;
             save_proposal(&env, &proposal);
-            env.events().publish(
-                (t_governance(), symbol_short!("rejected")),
-                (proposal_id,),
-            );
+            env.events()
+                .publish((t_governance(), symbol_short!("rejected")), (proposal_id,));
             return Ok(());
         }
 
@@ -502,7 +500,11 @@ impl GovernanceContract {
 
         env.events().publish(
             (t_governance(), symbol_short!("executed")),
-            (proposal_id, proposal.target_contract, proposal.function_name),
+            (
+                proposal_id,
+                proposal.target_contract,
+                proposal.function_name,
+            ),
         );
         Ok(())
     }
@@ -543,9 +545,12 @@ impl GovernanceContract {
                 .get(1)
                 .ok_or(GovernanceError::InvalidConfig)?
                 .into_val(env);
-            env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
-            env.events()
-                .publish((t_governance(), symbol_short!("upgraded")), (new_wasm_hash,));
+            env.deployer()
+                .update_current_contract_wasm(new_wasm_hash.clone());
+            env.events().publish(
+                (t_governance(), symbol_short!("upgraded")),
+                (new_wasm_hash,),
+            );
             Ok(())
         } else if *function_name == Symbol::new(env, "set_guardian") {
             let guardian: Address = args
@@ -555,7 +560,12 @@ impl GovernanceContract {
             env.storage().instance().set(&DataKey::Guardian, &guardian);
             Ok(())
         } else if *function_name == Symbol::new(env, "unpause") {
-            if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            if !env
+                .storage()
+                .instance()
+                .get(&DataKey::Paused)
+                .unwrap_or(false)
+            {
                 return Err(GovernanceError::NotPaused);
             }
             env.storage().instance().set(&DataKey::Paused, &false);
@@ -618,7 +628,12 @@ impl GovernanceContract {
         if !is_guardian {
             return Err(GovernanceError::NotSelfGoverned);
         }
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(GovernanceError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -628,7 +643,10 @@ impl GovernanceContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     pub fn get_schema_version(env: Env) -> u32 {
@@ -706,6 +724,6 @@ fn save_proposal(env: &Env, p: &Proposal) {
 }
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
 mod invariant_tests;
+#[cfg(test)]
+mod test;

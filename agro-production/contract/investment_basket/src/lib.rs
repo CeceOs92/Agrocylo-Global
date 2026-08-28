@@ -18,8 +18,9 @@
 //! not block collection from the others — see `sweep_constituent`.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN,
-    Env, Error as HostError, IntoVal, Symbol, Val, Vec,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
+    Error as HostError, IntoVal, Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -252,10 +253,15 @@ impl InvestmentBasketContract {
     /// use governance's `propose_upgrade`, which applies the longer upgrade
     /// timelock. See `docs/CONTRACT_UPGRADES.md` for the required
     /// pause -> upgrade -> migrate -> unpause sequencing.
-    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), BasketError> {
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
         env.events()
             .publish((t_basket(), symbol_short!("upgraded")), (new_wasm_hash,));
         Ok(())
@@ -289,7 +295,12 @@ impl InvestmentBasketContract {
         if !is_guardian && !is_governance {
             return Err(BasketError::NotAdmin);
         }
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(BasketError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -304,7 +315,12 @@ impl InvestmentBasketContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if !env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(BasketError::NotPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -314,7 +330,10 @@ impl InvestmentBasketContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Storage migration (Issue #757), worked example: translates baskets
@@ -469,13 +488,17 @@ impl InvestmentBasketContract {
             constituents: entries,
             created_at: env.ledger().timestamp(),
         };
-        env.storage().persistent().set(&DataKey::Basket(id), &basket);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Basket(id), &basket);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Basket(id), TTL_THRESHOLD, TTL_EXTEND);
 
-        env.events()
-            .publish((t_basket(), symbol_short!("created")), (id, constituents.len()));
+        env.events().publish(
+            (t_basket(), symbol_short!("created")),
+            (id, constituents.len()),
+        );
         Ok(id)
     }
 
@@ -512,9 +535,7 @@ impl InvestmentBasketContract {
 
         let deposit_key = DataKey::Deposit(basket_id, depositor.clone());
         let prev: i128 = env.storage().persistent().get(&deposit_key).unwrap_or(0);
-        let new_deposit = prev
-            .checked_add(amount)
-            .ok_or(BasketError::InvalidAmount)?;
+        let new_deposit = prev.checked_add(amount).ok_or(BasketError::InvalidAmount)?;
         env.storage().persistent().set(&deposit_key, &new_deposit);
         env.storage()
             .persistent()
@@ -570,7 +591,13 @@ impl InvestmentBasketContract {
                 (basket.total_deposit * c.weight_bps as i128) / BPS_DENOM as i128
             };
             if share > 0 {
-                if escrow_client::try_invest(&env, &basket.escrow_contract, c.campaign_id, share) {
+                if escrow_client::try_invest(
+                    &env,
+                    &basket.escrow_contract,
+                    &basket.token,
+                    c.campaign_id,
+                    share,
+                ) {
                     c.invested_amount = share;
                 } else {
                     c.collected_amount = share;
@@ -794,7 +821,12 @@ fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), BasketErro
 }
 
 fn require_not_paused(env: &Env) -> Result<(), BasketError> {
-    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+    if env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+    {
         return Err(BasketError::ContractPaused);
     }
     Ok(())
@@ -805,7 +837,7 @@ fn require_not_paused(env: &Env) -> Result<(), BasketError> {
 /// in #680), so `set_governance_contract` can't be pointed at an arbitrary
 /// admin-controlled address.
 mod governance_client {
-    use super::{Env, HostError, Address, Symbol, Val, Vec};
+    use super::{Address, Env, HostError, Symbol, Val, Vec};
 
     pub fn verify(env: &Env, governance: &Address) -> Result<(), ()> {
         let func = Symbol::new(env, "get_admin");
@@ -847,8 +879,7 @@ fn sweep_constituent(
             return Some(amount);
         }
     }
-    if let Some(amount) = escrow_client::try_refund(env, escrow_contract, constituent.campaign_id)
-    {
+    if let Some(amount) = escrow_client::try_refund(env, escrow_contract, constituent.campaign_id) {
         if amount > 0 {
             return Some(amount);
         }
@@ -866,10 +897,44 @@ mod escrow_client {
     /// the call failed for any reason (deadline passed, overfunded, wrong
     /// status, ...) — callers skip a `false` constituent rather than
     /// aborting the whole `fund_basket` call (Issue #682).
-    pub fn try_invest(env: &Env, escrow: &Address, campaign_id: u64, amount: i128) -> bool {
+    ///
+    /// `escrow.invest` pulls `amount` out of this contract's own token
+    /// balance via `token.transfer(investor=self, escrow, amount)` — a call
+    /// two levels deep (escrow -> token) made on this contract's behalf.
+    /// Soroban only auto-authorizes the *direct* call a contract makes
+    /// (basket -> escrow here); a deeper sub-invocation requiring this
+    /// contract's auth must be explicitly pre-authorized via
+    /// `authorize_as_current_contract` before making that direct call,
+    /// otherwise the token transfer fails with "authorization not tied to
+    /// the root contract invocation".
+    pub fn try_invest(
+        env: &Env,
+        escrow: &Address,
+        token: &Address,
+        campaign_id: u64,
+        amount: i128,
+    ) -> bool {
+        let investor = env.current_contract_address();
+
+        let mut transfer_args: Vec<Val> = Vec::new(env);
+        transfer_args.push_back(investor.clone().into_val(env));
+        transfer_args.push_back(escrow.clone().into_val(env));
+        transfer_args.push_back(amount.into_val(env));
+        env.authorize_as_current_contract(soroban_sdk::vec![
+            env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: token.clone(),
+                    fn_name: Symbol::new(env, "transfer"),
+                    args: transfer_args,
+                },
+                sub_invocations: Vec::new(env),
+            }),
+        ]);
+
         let func = Symbol::new(env, "invest");
         let mut args: Vec<Val> = Vec::new(env);
-        args.push_back(env.current_contract_address().into_val(env));
+        args.push_back(investor.into_val(env));
         args.push_back(campaign_id.into_val(env));
         args.push_back(amount.into_val(env));
         env.try_invoke_contract::<(), soroban_sdk::Error>(escrow, &func, args)
@@ -900,6 +965,6 @@ mod escrow_client {
 }
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
 mod invariant_tests;
+#[cfg(test)]
+mod test;

@@ -8,6 +8,7 @@ let connection: ConnectionOptions | undefined;
 let indexingQueue: any;
 let analyticsQueue: any;
 let notificationsQueue: any;
+let reconciliationQueue: any;
 
 function getConnection(): ConnectionOptions {
   connection ??= createRedisConnection();
@@ -30,7 +31,14 @@ export function getNotificationsQueue(): any {
   return notificationsQueue;
 }
 
+export function getReconciliationQueue(): any {
+  if (!reconciliationQueue)
+    reconciliationQueue = new Queue("reconciliation", { connection: getConnection() });
+  return reconciliationQueue;
+}
+
 const PRICE_INDEX_INTERVAL_MS = 60 * 60 * 1000;
+const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function schedulePriceIndexAggregation(): Promise<void> {
   await getAnalyticsQueue().add(
@@ -45,10 +53,24 @@ export async function schedulePriceIndexAggregation(): Promise<void> {
   );
 }
 
+export async function scheduleReconciliation(): Promise<void> {
+  await getReconciliationQueue().add(
+    "reconciliation",
+    {},
+    {
+      repeat: { every: RECONCILIATION_INTERVAL_MS },
+      jobId: "reconciliation",
+      removeOnComplete: 10,
+      removeOnFail: 10,
+    },
+  );
+}
+
 export async function closeQueues(): Promise<void> {
   await Promise.allSettled([
     indexingQueue?.close(),
     analyticsQueue?.close(),
     notificationsQueue?.close(),
+    reconciliationQueue?.close(),
   ]);
 }

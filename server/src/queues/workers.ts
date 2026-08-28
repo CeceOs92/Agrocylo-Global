@@ -4,8 +4,7 @@ import { createRedisConnection, type ConnectionOptions } from "./connection.js";
 import { processIndexing } from "./processors/indexing.js";
 import { processAnalytics } from "./processors/analytics.js";
 import { processNotifications } from "./processors/notifications.js";
-import { queueJobLagSeconds, queueJobFailuresTotal } from "../services/promMetrics.js";
-import { captureAlert } from "../config/sentry.js";
+import { processReconciliation } from "./processors/reconciliation.js";
 
 const { Worker, QueueEvents } = require("bullmq") as {
   Worker: any;
@@ -38,8 +37,12 @@ export function startWorkers(): RunningWorkers {
     withJobContext("notifications", String(job.id), job.name, () => processNotifications(job)),
     opts,
   );
+  const reconciliation = new Worker("reconciliation", (job: any) =>
+    withJobContext("reconciliation", String(job.id), job.name, () => processReconciliation(job)),
+    { ...opts, concurrency: 1 },
+  );
 
-  const workers = [indexing, analytics, notifications];
+  const workers = [indexing, analytics, notifications, reconciliation];
 
   for (const w of workers) {
     w.on("active", (job: any) =>
@@ -85,6 +88,7 @@ export function startWorkers(): RunningWorkers {
     new QueueEvents("indexing", { connection }),
     new QueueEvents("analytics", { connection }),
     new QueueEvents("notifications", { connection }),
+    new QueueEvents("reconciliation", { connection }),
   ];
 
   for (const e of events) {

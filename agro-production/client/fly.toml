@@ -1,0 +1,23 @@
+# fly.toml — Agro-production client (Next.js)
+# Fly.io app: agrocylo-agro-client (prod) / agrocylo-agro-client-staging (staging)
+
+app = "agrocylo-agro-client"
+primary = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,64 @@
+name: Database Backup
+
+# Automated daily backup for each production Postgres database. Each job
+# no-ops with a warning (does not fail the run) until the corresponding
+# *_DATABASE_URL repo secret is configured — there's no deployment target
+# for either database yet (see #747), so this ships pre-wired and starts
+# actually backing up as soon as a target exists and the secret is set.
+on:
+  schedule:
+    - cron: "0 2 * * *" # daily, 02:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    name: Backup · ${{ matrix.database.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        database:
+          - label: marketplace
+            secret_name: MARKETPLACE_DATABASE_URL
+          - label: production
+            secret_name: PRODUCTION_DATABASE_URL
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check database secret is configured
+        id: check
+        run: |
+          if [ -n "${{ secrets[matrix.database.secret_name] }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${{ matrix.database.secret_name }} is not set — skipping the ${{ matrix.database.label }} backup. Configure this repo secret once a hosting target for this database exists."
+          fi
+
+      - name: Install postgresql-client
+        if: steps.check.outputs.configured == 'true'
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run backup
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DATABASE_URL: ${{ secrets[matrix.database.secret_name] }}
+        run: ./scripts/db-backup.sh "${{ matrix.database.label }}" "backups/${{ matrix.database.label }}" 30
+
+      - name: Verify backup archive integrity
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          dump_file=$(ls -t backups/${{ matrix.database.label }}/${{ matrix.database.label }}_*.dump | head -1)
+          pg_restore --list "$dump_file" > /dev/null
+          echo "Backup archive is well-formed: $dump_file"
+
+      - name: Upload backup artifact
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ matrix.database.label }}-${{ github.run_id }}
+          path: backups/${{ matrix.database.label }}/*.dump
+          retention-days: 35
