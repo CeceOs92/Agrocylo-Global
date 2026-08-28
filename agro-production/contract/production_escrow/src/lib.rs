@@ -353,6 +353,15 @@ const MAX_TRANCHE_BPS: i128 = 7_000;
 const TTL_THRESHOLD: u32 = 1_000;
 const TTL_EXTEND: u32 = 100_000;
 
+/// Instance storage TTL threshold (ledgers). Set conservatively to detect imminent expiry
+/// well before actual archival. A threshold of 1000 ledgers (~83 minutes at 5s/ledger)
+/// gives operators a reasonable window to bump before the instance is archived.
+const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
+/// Instance storage TTL extension (ledgers). Set to ~6.6 days (100_000 ledgers at 5s/ledger),
+/// assuming a quiet campaign with no traffic will go at least that long between bumpings;
+/// on mainnet with actual user activity, bump calls via entry points will be far more frequent.
+const INSTANCE_TTL_EXTEND: u32 = 100_000;
+
 /// Orders expire and become refundable after 96 hours of inactivity.
 pub const ORDER_EXPIRY_SECS: u64 = 96 * 3600;
 
@@ -410,6 +419,7 @@ impl ProductionEscrowContract {
         if fee_rate_bps > 10000 {
             return Err(EscrowError::InvalidAmount);
         }
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -459,6 +469,7 @@ impl ProductionEscrowContract {
     pub fn set_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         Ok(())
     }
@@ -491,6 +502,7 @@ impl ProductionEscrowContract {
         {
             return Err(EscrowError::AlreadyPaused);
         }
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
             .publish((t_campaign(), symbol_short!("paused")), (caller,));
@@ -512,6 +524,7 @@ impl ProductionEscrowContract {
         {
             return Err(EscrowError::NotPaused);
         }
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events()
             .publish((t_campaign(), symbol_short!("unpausd")), (caller,));
@@ -525,6 +538,13 @@ impl ProductionEscrowContract {
             .unwrap_or(false)
     }
 
+    /// Permissionless TTL bump for instance storage. Called by contract entry points
+    /// automatically, but also callable directly by keepers/cron to extend TTL during
+    /// quiet periods with no user-initiated transactions. Requires no auth.
+    pub fn bump_instance_ttl(env: Env) {
+        bump_instance(&env);
+    }
+
     /// Storage migration hook. This contract's schema hasn't changed since
     /// `CURRENT_SCHEMA_VERSION` was introduced — nothing to translate yet.
     /// A future layout-changing upgrade extends this with an old-shape read
@@ -535,6 +555,7 @@ impl ProductionEscrowContract {
     pub fn migrate(env: Env, caller: Address) -> Result<u32, EscrowError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         let stored: u32 = env
             .storage()
             .instance()
@@ -569,6 +590,7 @@ impl ProductionEscrowContract {
     ) -> Result<(), EscrowError> {
         admin_caller.require_auth();
         require_governed_caller(&env, &admin_caller)?;
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::RegistryContract, &registry);
@@ -590,6 +612,7 @@ impl ProductionEscrowContract {
         if fee_rate_bps > 10000 {
             return Err(EscrowError::InvalidAmount);
         }
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &fee_collector);
@@ -616,6 +639,7 @@ impl ProductionEscrowContract {
         require_governed_caller(&env, &admin_caller)?;
         governance_client::verify(&env, &governance)
             .map_err(|_| EscrowError::InvalidGovernanceContract)?;
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::GovernanceContract, &governance);
@@ -636,6 +660,7 @@ impl ProductionEscrowContract {
         if supported_tokens.is_empty() {
             return Err(EscrowError::MustSupportOneToken);
         }
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::SupportedTokens, &supported_tokens);
@@ -658,6 +683,7 @@ impl ProductionEscrowContract {
         if admin_caller != admin {
             return Err(EscrowError::NotAdmin);
         }
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Attester, &attester);
         Ok(())
     }
@@ -675,6 +701,7 @@ impl ProductionEscrowContract {
     ) -> Result<u64, EscrowError> {
         farmer.require_auth();
         require_not_paused(&env)?;
+        bump_instance(&env);
 
         if target_amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -753,6 +780,7 @@ impl ProductionEscrowContract {
     ) -> Result<(), EscrowError> {
         investor.require_auth();
         require_not_paused(&env)?;
+        bump_instance(&env);
 
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -822,6 +850,7 @@ impl ProductionEscrowContract {
     ) -> Result<(), EscrowError> {
         farmer.require_auth();
         require_not_paused(&env)?;
+        bump_instance(&env);
         let mut campaign = load_campaign(&env, campaign_id)?;
         if campaign.farmer != farmer {
             return Err(EscrowError::NotFarmer);
@@ -853,6 +882,7 @@ impl ProductionEscrowContract {
         farmer.require_auth();
         attester_caller.require_auth();
         require_not_paused(&env)?;
+        bump_instance(&env);
         let attester_addr = attester(&env)?;
         if attester_caller != attester_addr {
             return Err(EscrowError::NotAdmin);
@@ -1006,6 +1036,7 @@ impl ProductionEscrowContract {
     ) -> Result<u64, EscrowError> {
         buyer.require_auth();
         require_not_paused(&env)?;
+        bump_instance(&env);
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
@@ -1069,6 +1100,7 @@ impl ProductionEscrowContract {
     /// amount for the same not-yet-confirmed state.
     pub fn cancel_order(env: Env, buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         buyer.require_auth();
+        bump_instance(&env);
         let mut order: Order = env
             .storage()
             .persistent()
@@ -1991,6 +2023,7 @@ impl ProductionEscrowContract {
         if quorum == 0 || quorum > arbitrators.len() {
             return Err(EscrowError::InvalidAmount);
         }
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::Arbitrators, &arbitrators);
@@ -2155,6 +2188,13 @@ fn checked_sub(a: i128, b: i128) -> Result<i128, EscrowError> {
 
 fn checked_mul(a: i128, b: i128) -> Result<i128, EscrowError> {
     a.checked_mul(b).ok_or(EscrowError::InvalidAmount)
+}
+
+// Extend instance storage TTL to prevent archival (Issue #777).
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
 }
 
 fn admin(env: &Env) -> Result<Address, EscrowError> {
@@ -2404,3 +2444,7 @@ mod invariant_tests;
 mod state_machine_tests;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod pause_gating_tests;
+#[cfg(test)]
+mod cost_harness_tests;

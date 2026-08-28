@@ -3,7 +3,7 @@ import request from "supertest";
 
 vi.mock("../db/client.js", () => ({
   prisma: {
-    campaign: { count: vi.fn(() => Promise.resolve(0)) },
+    campaign: { count: vi.fn() },
     connectDB: vi.fn(),
   },
 }));

@@ -118,8 +118,21 @@ pub enum DataKey {
 /// translate existing entries — see `docs/CONTRACT_UPGRADES.md`.
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 
+const TTL_THRESHOLD: u32 = 1_000;
+const TTL_EXTEND: u32 = 100_000;
+
+const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
+const INSTANCE_TTL_EXTEND: u32 = 100_000;
+
 const COMPLETION_POINTS: i64 = 10;
 const DISPUTE_PENALTY_POINTS: i64 = 15;
+
+// Extend instance storage TTL to prevent archival (Issue #777).
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+}
 
 #[contract]
 pub struct RegistryContract;
@@ -137,6 +150,7 @@ impl RegistryContract {
         }
 
         admin.require_auth();
+        bump_instance(&env);
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
@@ -177,6 +191,7 @@ impl RegistryContract {
         require_governed_caller(&env, &caller)?;
         governance_client::verify(&env, &governance)
             .map_err(|_| RegistryError::InvalidGovernanceContract)?;
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::GovernanceContract, &governance);
@@ -199,6 +214,7 @@ impl RegistryContract {
     ) -> Result<(), RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         env.events().publish(
@@ -213,6 +229,7 @@ impl RegistryContract {
     pub fn set_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         Ok(())
     }
@@ -221,6 +238,7 @@ impl RegistryContract {
     /// configured governance contract.
     pub fn pause(env: Env, caller: Address) -> Result<(), RegistryError> {
         caller.require_auth();
+        bump_instance(&env);
         let is_guardian = env
             .storage()
             .instance()
@@ -256,6 +274,7 @@ impl RegistryContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         if !env
             .storage()
             .instance()
@@ -279,6 +298,13 @@ impl RegistryContract {
             .unwrap_or(false)
     }
 
+    /// Permissionless TTL bump for instance storage. Called by contract entry points
+    /// automatically, but also callable directly by keepers/cron to extend TTL during
+    /// quiet periods with no user-initiated transactions. Requires no auth.
+    pub fn bump_instance_ttl(env: Env) {
+        bump_instance(&env);
+    }
+
     /// Storage migration hook. This contract's schema hasn't changed since
     /// `CURRENT_SCHEMA_VERSION` was introduced — nothing to translate yet.
     /// A future layout-changing upgrade extends this with an old-shape read
@@ -289,6 +315,7 @@ impl RegistryContract {
     pub fn migrate(env: Env, caller: Address) -> Result<u32, RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         let stored: u32 = env
             .storage()
             .instance()

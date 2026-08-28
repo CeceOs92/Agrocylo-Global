@@ -1,10 +1,46 @@
 import rateLimit from 'express-rate-limit';
 import type { Request, Response } from 'express';
+import Redis from 'ioredis';
 import logger from '../config/logger.js';
+import { config } from '../config/index.js';
 import { ApiError, sendProblem } from '../http/errors.js';
+import { createRateLimitStore } from './rateLimitStore.js';
 
 const isTest = process.env['NODE_ENV'] === 'test';
 const shouldSkipInTest = () => isTest && process.env['ENABLE_TEST_RATE_LIMIT'] !== 'true';
+
+// Initialize shared Redis client for all rate limiters
+let rateLimitStore: ReturnType<typeof createRateLimitStore> | null = null;
+export let sharedRedisClient: Redis | null = null;
+
+try {
+  sharedRedisClient = new Redis(config.redisUrl, {
+    retryStrategy: (times: number) => {
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    },
+    enableReadyCheck: true,
+    enableOfflineQueue: false,
+  });
+
+  sharedRedisClient.on('error', (error: Error) => {
+    logger.error('[RateLimit] Redis connection error', { error });
+    if (config.nodeEnv === 'production') {
+      logger.error('[RateLimit] CRITICAL: Rate limiting will FAIL CLOSED in production due to Redis unavailability');
+    }
+  });
+
+  sharedRedisClient.on('connect', () => {
+    logger.info('[RateLimit] Redis connected for rate limiting');
+  });
+
+  rateLimitStore = createRateLimitStore(sharedRedisClient);
+} catch (error) {
+  logger.error('[RateLimit] Failed to initialize Redis client', { error });
+  if (config.nodeEnv === 'production') {
+    throw new Error('CRITICAL: Rate limiting requires Redis in production. Set REDIS_URL environment variable.');
+  }
+}
 
 function rateLimitHandler(req: Request, res: Response): void {
   logger.warn('[RateLimit] Request throttled', {
@@ -51,6 +87,8 @@ export const authRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
   skip: shouldSkipInTest,
+  store: rateLimitStore || undefined,
+  keyGenerator: (req: Request) => `auth:${req.ip}`,
 });
 
 /**
@@ -77,6 +115,8 @@ export const uploadRateLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
   skip: shouldSkipInTest,
+  store: rateLimitStore || undefined,
+  keyGenerator: (req: Request) => `upload:${req.ip}`,
 });
 
 /**
@@ -113,6 +153,8 @@ export const writeLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
   skip: shouldSkipInTest,
+  store: rateLimitStore || undefined,
+  keyGenerator: (req: Request) => `write:${req.ip}`,
 });
 
 export const writeRateLimiter = writeLimiter;
