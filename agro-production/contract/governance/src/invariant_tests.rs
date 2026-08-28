@@ -349,8 +349,8 @@ fn test_invariant_no_double_vote() {
 }
 
 /// Proptest: proposal lifecycle always moves strictly forward —
-/// after any terminal state (Executed or Rejected) no mutating call
-/// changes the status.
+/// after any terminal state (Executed, Rejected, or Cancelled) no mutating
+/// call changes the status.
 #[test]
 fn test_invariant_lifecycle_lock_proptest() {
     let mut runner = TestRunner::new(ProptestConfig {
@@ -358,12 +358,32 @@ fn test_invariant_lifecycle_lock_proptest() {
         ..ProptestConfig::default()
     });
 
-    // path: 0 = Executed path, 1 = Rejected path
+    // path: 0 = Executed, 1 = Rejected, 2 = Cancelled
     runner
-        .run(&(0usize..=1usize), |path| {
+        .run(&(0usize..=2usize), |path| {
             let h = make_gov_harness(&[60, 50], QUORUM);
             let caller = Address::generate(&h.env);
+            let guardian = Address::generate(&h.env);
             let pid = propose_set_fee_config(&h);
+
+            // Set guardian for Cancelled path
+            if path == 2 {
+                let gov_id = h.gov.address.clone();
+                let guardian_args: soroban_sdk::Vec<soroban_sdk::Val> =
+                    soroban_sdk::vec![&h.env, gov_id.into_val(&h.env), guardian.into_val(&h.env)];
+                let gid = h.gov.propose(
+                    &h.voters[0].0,
+                    &gov_id,
+                    &soroban_sdk::Symbol::new(&h.env, "set_guardian"),
+                    &guardian_args,
+                );
+                h.gov.vote(&h.voters[0].0, &gid, &true);
+                h.gov.vote(&h.voters[1].0, &gid, &true);
+                advance_gov(&h, VOTING_PERIOD + 1);
+                h.gov.queue(&caller, &gid);
+                advance_gov(&h, TIMELOCK_DELAY + 1);
+                h.gov.execute(&caller, &gid);
+            }
 
             if path == 0 {
                 // Execute path: vote for, queue after period, execute after timelock
@@ -382,7 +402,7 @@ fn test_invariant_lifecycle_lock_proptest() {
                     .gov
                     .try_execute(&caller, &pid)
                     .expect_err("must fail on re-execute");
-            } else {
+            } else if path == 1 {
                 // Rejected path: vote against, queue (→ Rejected)
                 h.gov.vote(&h.voters[0].0, &pid, &false);
                 h.gov.vote(&h.voters[1].0, &pid, &false);
@@ -405,6 +425,26 @@ fn test_invariant_lifecycle_lock_proptest() {
                 // Status still Rejected
                 let p2 = h.gov.get_proposal(&pid);
                 assert_eq!(p2.status, ProposalStatus::Rejected);
+            } else {
+                // Cancelled path: vote for, queue, cancel, verify terminal
+                h.gov.vote(&h.voters[0].0, &pid, &true);
+                h.gov.vote(&h.voters[1].0, &pid, &true);
+                advance_gov(&h, VOTING_PERIOD + 1);
+                h.gov.queue(&caller, &pid);
+                h.gov.cancel_proposal(&guardian, &pid);
+
+                let p = h.gov.get_proposal(&pid);
+                assert_eq!(p.status, ProposalStatus::Cancelled);
+
+                // Must not execute a cancelled proposal
+                let _ = h
+                    .gov
+                    .try_execute(&caller, &pid)
+                    .expect_err("must fail on cancelled proposal");
+
+                // Status still Cancelled
+                let p2 = h.gov.get_proposal(&pid);
+                assert_eq!(p2.status, ProposalStatus::Cancelled);
             }
             Ok(())
         })

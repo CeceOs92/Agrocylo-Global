@@ -64,6 +64,7 @@ pub enum GovernanceError {
     TimelockNotElapsed = 25,
     AlreadyExecuted = 26,
     AlreadyQueued = 27,
+    ProposalCancelled = 28,
 
     InvalidConfig = 30,
 
@@ -84,6 +85,8 @@ pub enum ProposalStatus {
     Executed,
     /// Voting period ended without reaching quorum; cannot be queued.
     Rejected,
+    /// Proposal was cancelled during the timelock; cannot be executed.
+    Cancelled,
 }
 
 /// Distinguishes an ordinary parameter-change proposal from a contract
@@ -162,6 +165,7 @@ fn t_governance() -> Symbol {
 
 const TTL_THRESHOLD: u32 = 1_000;
 const TTL_EXTEND: u32 = 100_000;
+const EVENT_SCHEMA_VERSION: u32 = 1;
 
 const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
 const INSTANCE_TTL_EXTEND: u32 = 100_000;
@@ -359,7 +363,7 @@ impl GovernanceContract {
 
         env.events().publish(
             (t_governance(), symbol_short!("proposed")),
-            (id, proposer, target_contract, function_name),
+            (EVENT_SCHEMA_VERSION, id, proposer, target_contract, function_name),
         );
         Ok(id)
     }
@@ -405,7 +409,7 @@ impl GovernanceContract {
 
         env.events().publish(
             (t_governance(), symbol_short!("voted")),
-            (proposal_id, voter, support, weight),
+            (EVENT_SCHEMA_VERSION, proposal_id, voter, support, weight),
         );
         Ok(())
     }
@@ -416,6 +420,9 @@ impl GovernanceContract {
         caller.require_auth();
         bump_instance(&env);
         let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(GovernanceError::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Voting {
             return Err(GovernanceError::AlreadyQueued);
         }
@@ -432,7 +439,7 @@ impl GovernanceContract {
             proposal.status = ProposalStatus::Rejected;
             save_proposal(&env, &proposal);
             env.events()
-                .publish((t_governance(), symbol_short!("rejected")), (proposal_id,));
+                .publish((t_governance(), symbol_short!("rejected")), (EVENT_SCHEMA_VERSION, proposal_id));
             return Ok(());
         }
 
@@ -441,20 +448,55 @@ impl GovernanceContract {
         save_proposal(&env, &proposal);
 
         env.events()
-            .publish((t_governance(), symbol_short!("queued")), (proposal_id,));
+            .publish((t_governance(), symbol_short!("queued")), (EVENT_SCHEMA_VERSION, proposal_id));
+        Ok(())
+    }
+
+    /// Cancel a proposal while it is Queued (during the timelock). Only
+    /// callable by the guardian. Transitions the proposal to a terminal
+    /// Cancelled state; cancelled proposals cannot be executed or re-queued.
+    pub fn cancel_proposal(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<(), GovernanceError> {
+        caller.require_auth();
+        let is_guardian = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Guardian)
+            .map(|g| g == caller)
+            .unwrap_or(false);
+        if !is_guardian {
+            return Err(GovernanceError::NotSelfGoverned);
+        }
+
+        let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status != ProposalStatus::Queued {
+            return Err(GovernanceError::NotQueued);
+        }
+
+        proposal.status = ProposalStatus::Cancelled;
+        save_proposal(&env, &proposal);
+
+        env.events()
+            .publish((t_governance(), symbol_short!("cancelled")), (EVENT_SCHEMA_VERSION, proposal_id));
         Ok(())
     }
 
     /// After the timelock delay has elapsed since queuing, anyone can
     /// execute the proposal, invoking `target_contract::function_name(args)`.
     /// A direct-bypass attempt (calling execute before queue/timelock, or on
-    /// a rejected/unqueued proposal) is rejected by the status/time checks
-    /// below — there is no other path to invoke the target contract through
-    /// this contract.
+    /// a rejected/unqueued/cancelled proposal) is rejected by the status/time
+    /// checks below — there is no other path to invoke the target contract
+    /// through this contract.
     pub fn execute(env: Env, caller: Address, proposal_id: u64) -> Result<(), GovernanceError> {
         caller.require_auth();
         bump_instance(&env);
         let mut proposal = load_proposal(&env, proposal_id)?;
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(GovernanceError::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Queued {
             return Err(GovernanceError::NotQueued);
         }
@@ -496,6 +538,7 @@ impl GovernanceContract {
         env.events().publish(
             (t_governance(), symbol_short!("executed")),
             (
+                EVENT_SCHEMA_VERSION,
                 proposal_id,
                 proposal.target_contract,
                 proposal.function_name,
@@ -544,7 +587,7 @@ impl GovernanceContract {
                 .update_current_contract_wasm(new_wasm_hash.clone());
             env.events().publish(
                 (t_governance(), symbol_short!("upgraded")),
-                (new_wasm_hash,),
+                (EVENT_SCHEMA_VERSION, new_wasm_hash),
             );
             Ok(())
         } else if *function_name == Symbol::new(env, "set_guardian") {
@@ -565,7 +608,7 @@ impl GovernanceContract {
             }
             env.storage().instance().set(&DataKey::Paused, &false);
             env.events()
-                .publish((t_governance(), symbol_short!("unpausd")), ());
+                .publish((t_governance(), symbol_short!("unpausd")), (EVENT_SCHEMA_VERSION,));
             Ok(())
         } else if *function_name == Symbol::new(env, "migrate") {
             let stored: u32 = env
@@ -634,7 +677,7 @@ impl GovernanceContract {
         }
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
-            .publish((t_governance(), symbol_short!("paused")), (caller,));
+            .publish((t_governance(), symbol_short!("paused")), (EVENT_SCHEMA_VERSION, caller));
         Ok(())
     }
 

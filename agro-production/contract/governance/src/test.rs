@@ -335,7 +335,220 @@ fn test_governance_self_upgrade_requires_full_proposal_cycle() {
     assert!(!t.gov.is_paused());
 }
 
+#[test]
+fn test_cancel_proposal_while_queued() {
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let new_collector = Address::generate(&t.env);
+    let args = set_fee_config_args(&t.env, &gov_id, &new_collector, 500);
+
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "set_fee_config"),
+        &args,
+    );
+
+    t.gov.vote(&t.voter1, &proposal_id, &true);
+    t.gov.vote(&t.voter2, &proposal_id, &true);
+
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &proposal_id);
+
+    let queued = t.gov.get_proposal(&proposal_id);
+    assert_eq!(queued.status, ProposalStatus::Queued);
+
+    // Set guardian
+    let guardian = Address::generate(&t.env);
+    let guardian_args: soroban_sdk::Vec<Val> =
+        vec![&t.env, gov_id.into_val(&t.env), guardian.into_val(&t.env)];
+    let guardian_proposal_id = t.gov.propose(
+        &t.voter1,
+        &gov_id,
+        &Symbol::new(&t.env, "set_guardian"),
+        &guardian_args,
+    );
+    t.gov.vote(&t.voter1, &guardian_proposal_id, &true);
+    t.gov.vote(&t.voter2, &guardian_proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &guardian_proposal_id);
+    advance_time(&t.env, TIMELOCK_DELAY + 1);
+    t.gov.execute(&t.voter1, &guardian_proposal_id);
+
+    // Cancel the proposal as guardian
+    t.gov.cancel_proposal(&guardian, &proposal_id);
+
+    let cancelled = t.gov.get_proposal(&proposal_id);
+    assert_eq!(cancelled.status, ProposalStatus::Cancelled);
+
+    // Attempt to execute must fail
+    advance_time(&t.env, TIMELOCK_DELAY);
+    let err = t
+        .gov
+        .try_execute(&t.voter1, &proposal_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, GovernanceError::ProposalCancelled);
+}
+
+#[test]
+fn test_cancel_proposal_requires_guardian() {
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let new_collector = Address::generate(&t.env);
+    let args = set_fee_config_args(&t.env, &gov_id, &new_collector, 500);
+
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "set_fee_config"),
+        &args,
+    );
+
+    t.gov.vote(&t.voter1, &proposal_id, &true);
+    t.gov.vote(&t.voter2, &proposal_id, &true);
+
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &proposal_id);
+
+    let non_guardian = Address::generate(&t.env);
+    let err = t
+        .gov
+        .try_cancel_proposal(&non_guardian, &proposal_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, GovernanceError::NotSelfGoverned);
+
+    let queued = t.gov.get_proposal(&proposal_id);
+    assert_eq!(queued.status, ProposalStatus::Queued);
+}
+
+#[test]
+fn test_cancel_proposal_only_when_queued() {
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let new_collector = Address::generate(&t.env);
+    let args = set_fee_config_args(&t.env, &gov_id, &new_collector, 500);
+
+    // Set guardian
+    let guardian = Address::generate(&t.env);
+    let guardian_args: soroban_sdk::Vec<Val> =
+        vec![&t.env, gov_id.into_val(&t.env), guardian.into_val(&t.env)];
+    let guardian_proposal_id = t.gov.propose(
+        &t.voter1,
+        &gov_id,
+        &Symbol::new(&t.env, "set_guardian"),
+        &guardian_args,
+    );
+    t.gov.vote(&t.voter1, &guardian_proposal_id, &true);
+    t.gov.vote(&t.voter2, &guardian_proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &guardian_proposal_id);
+    advance_time(&t.env, TIMELOCK_DELAY + 1);
+    t.gov.execute(&t.voter1, &guardian_proposal_id);
+
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "set_fee_config"),
+        &args,
+    );
+
+    // Cannot cancel while still Voting
+    let err = t
+        .gov
+        .try_cancel_proposal(&guardian, &proposal_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, GovernanceError::NotQueued);
+
+    // Vote and queue
+    t.gov.vote(&t.voter1, &proposal_id, &true);
+    t.gov.vote(&t.voter2, &proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &proposal_id);
+
+    // Now it can be cancelled
+    t.gov.cancel_proposal(&guardian, &proposal_id);
+
+    // Cannot cancel again (now Cancelled, not Queued)
+    let err = t
+        .gov
+        .try_cancel_proposal(&guardian, &proposal_id)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, GovernanceError::ProposalCancelled);
+}
+
 fn advance_time(env: &Env, delta: u64) {
     let current = env.ledger().timestamp();
     env.ledger().set_timestamp(current + delta);
+}
+
+// ---------------------------------------------------------------------------
+// Schema Validation Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_event_schema_proposed() {
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let new_collector = Address::generate(&t.env);
+    let args = set_fee_config_args(&t.env, &gov_id, &new_collector, 500);
+
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "set_fee_config"),
+        &args,
+    );
+
+    // Verify proposal was created successfully to ensure event was emitted
+    let p = t.gov.get_proposal(&proposal_id);
+    assert_eq!(p.id, proposal_id);
+    assert_eq!(p.proposer, t.voter1);
+}
+
+#[test]
+fn test_event_schema_cancelled() {
+    let t = setup();
+    let gov_id = t.gov.address.clone();
+    let new_collector = Address::generate(&t.env);
+    let args = set_fee_config_args(&t.env, &gov_id, &new_collector, 500);
+
+    // Set up guardian
+    let guardian = Address::generate(&t.env);
+    let guardian_args: soroban_sdk::Vec<Val> =
+        vec![&t.env, gov_id.into_val(&t.env), guardian.into_val(&t.env)];
+    let guardian_proposal_id = t.gov.propose(
+        &t.voter1,
+        &gov_id,
+        &Symbol::new(&t.env, "set_guardian"),
+        &guardian_args,
+    );
+    t.gov.vote(&t.voter1, &guardian_proposal_id, &true);
+    t.gov.vote(&t.voter2, &guardian_proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &guardian_proposal_id);
+    advance_time(&t.env, TIMELOCK_DELAY + 1);
+    t.gov.execute(&t.voter1, &guardian_proposal_id);
+
+    // Create and queue a proposal to cancel
+    let proposal_id = t.gov.propose(
+        &t.voter1,
+        &t.escrow.address,
+        &Symbol::new(&t.env, "set_fee_config"),
+        &args,
+    );
+    t.gov.vote(&t.voter1, &proposal_id, &true);
+    t.gov.vote(&t.voter2, &proposal_id, &true);
+    advance_time(&t.env, VOTING_PERIOD + 1);
+    t.gov.queue(&t.voter1, &proposal_id);
+
+    // Cancel the proposal
+    t.gov.cancel_proposal(&guardian, &proposal_id);
+
+    // Verify proposal was cancelled successfully
+    let p = t.gov.get_proposal(&proposal_id);
+    assert_eq!(p.status, ProposalStatus::Cancelled);
 }
