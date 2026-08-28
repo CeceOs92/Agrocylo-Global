@@ -372,11 +372,27 @@ export function CreateOrderForm({
         )}
 
         {(createState.error || txStep === "error") && (
-          <FormError
-            message={
-              createState.error ?? "Transaction failed. Please try again."
-            }
-          />
+          <div role="alert" className="space-y-1">
+            {createState.blockchainError ? (
+              <>
+                <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+                  {createState.blockchainError.title}
+                </p>
+                <p className="text-sm text-red-700 dark:text-red-300">
+                  {createState.blockchainError.message}
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {createState.blockchainError.action}
+                </p>
+              </>
+            ) : (
+              <FormError
+                message={
+                  createState.error ?? "Transaction failed. Please try again."
+                }
+              />
+            )}
+          </div>
         )}
 
         <Button

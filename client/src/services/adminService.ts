@@ -355,33 +355,26 @@ export interface AdminAuditEntry {
   detail?: string;
 }
 
-const AUDIT_KEY = "admin:audit-log";
+/**
+ * Tracks whether the server-side audit endpoint is reachable.
+ * Components can poll this to show a degraded-state banner.
+ */
+let _auditServerReachable = true;
 
-function readLocalAudit(): AdminAuditEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(AUDIT_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalAudit(entries: AdminAuditEntry[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(AUDIT_KEY, JSON.stringify(entries.slice(0, 200)));
+export function isAuditLoggingDegraded(): boolean {
+  return !_auditServerReachable;
 }
 
 export async function fetchAdminAuditLog(): Promise<AdminAuditEntry[]> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/admin/audit`, {
-      credentials: "include",
-    });
-    if (res.ok) return res.json();
-  } catch {
-    // fall through
+  const res = await fetch(`${API_BASE_URL}/admin/audit`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    _auditServerReachable = false;
+    throw new Error(`Audit log unavailable (HTTP ${res.status}). Server-side audit logging is required.`);
   }
-  return readLocalAudit();
+  _auditServerReachable = true;
+  return res.json();
 }
 
 export async function recordAdminAction(
@@ -397,19 +390,21 @@ export async function recordAdminAction(
     target,
     detail,
   };
-  try {
-    const res = await fetch(`${API_BASE_URL}/admin/audit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(entry),
-    });
-    if (res.ok) return res.json();
-  } catch {
-    // fall through
+  const res = await fetch(`${API_BASE_URL}/admin/audit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(entry),
+  });
+  if (!res.ok) {
+    _auditServerReachable = false;
+    throw new Error(
+      `Audit logging degraded: server returned HTTP ${res.status}. ` +
+      `This action was NOT recorded. Retry when the server is available.`
+    );
   }
-  writeLocalAudit([entry, ...readLocalAudit()]);
-  return entry;
+  _auditServerReachable = true;
+  return res.json();
 }
 
 // ─── User Mutations ────────────────────────────────────────────────────────

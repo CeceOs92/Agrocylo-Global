@@ -23,6 +23,50 @@ export interface ContractResult<T> {
   error?: string;
 }
 
+// ── Fee Estimation ───────────────────────────────────────────────────────
+
+/** Maximum fee (stroops) the client will pay. Re-read from env at call time for testability. */
+function getMaxFeeStroops(): number {
+  const raw = process.env.NEXT_PUBLIC_MAX_FEE_STROOPS;
+  if (!raw) return 10_000; // sensible mainnet ceiling
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+}
+
+/**
+ * Derive the inclusion fee for a transaction from the simulation result.
+ *
+ * Soroban transactions carry two fee components:
+ *   - **inclusion fee** — paid to the network for tx processing
+ *   - **resource fee** — paid for contract compute / storage
+ *
+ * `assembleTransaction` already sets the resource fee on the prepared tx.
+ * This helper picks the **higher** of the simulated resource fee and
+ * `BASE_FEE`, then caps it at `MAX_FEE_STROOPS` so ops can tune the
+ * ceiling without a redeploy.
+ */
+export function buildFeeForTransaction(
+  simulated: StellarSdk.rpc.Api.SimulateTransactionSuccessResponse,
+): string {
+  // assembleTransaction reads simulated.minResourceFee and sets it on the tx.
+  // We use that as the base, clamped to [BASE_FEE, MAX_FEE_STROOPS].
+  const resourceFee = Number(simulated.minResourceFee ?? 0);
+  const base = Number(StellarSdk.BASE_FEE);
+  const fee = Math.min(Math.max(resourceFee, base), getMaxFeeStroops());
+  return String(fee);
+}
+
+/** Whether a submission error is caused by an insufficient fee. */
+function isFeeRelatedError(errorMessage: string): boolean {
+  const lower = errorMessage.toLowerCase();
+  return (
+    lower.includes("tx_fee_bump_inner_failed") ||
+    lower.includes("insufficient fee") ||
+    lower.includes("tx_too_cheap") ||
+    lower.includes("fee too low")
+  );
+}
+
 export interface CreateOrderTx {
   txXdr: string;
   orderId: string;
@@ -86,9 +130,12 @@ async function buildTransaction(
     );
   }
 
+  const successSim =
+    simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse;
+
   const prepared = StellarSdk.rpc.assembleTransaction(
     tx,
-    simulated as StellarSdk.rpc.Api.SimulateTransactionSuccessResponse
+    successSim
   ).build();
 
   return prepared;
@@ -96,6 +143,7 @@ async function buildTransaction(
 
 /**
  * Submit a signed transaction and wait for confirmation.
+ * Retries once with a fee-bump transaction if rejected for insufficient fee.
  */
 async function submitTransaction(
   signedXdr: string
@@ -107,7 +155,24 @@ async function submitTransaction(
     networkPassphrase
   );
 
-  const response = await server.sendTransaction(tx);
+  let response = await server.sendTransaction(tx);
+
+  // Fee-bump retry: if rejected for too-low fee, wrap in a fee-bump tx
+  if (response.status === "ERROR") {
+    const errMsg = response.errorResult?.result?.toString?.() ?? "";
+    if (isFeeRelatedError(errMsg) && !("innerTransaction" in tx)) {
+      const feeBumpFee = String(getMaxFeeStroops());
+      const feeBumpTx = StellarSdk.TransactionBuilder.buildFeeBumpTransaction(
+        tx.source,
+        feeBumpFee,
+        tx as StellarSdk.Transaction,
+        networkPassphrase,
+      );
+      response = await server.sendTransaction(feeBumpTx);
+    } else {
+      throw new Error(`Transaction submission failed: ${response.status}`);
+    }
+  }
 
   if (response.status === "ERROR") {
     throw new Error(`Transaction submission failed: ${response.status}`);

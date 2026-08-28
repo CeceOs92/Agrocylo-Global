@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import ConnectWallet from "@/components/shared/connect-wallet";
 import { AdminSidebar } from "./admin-sidebar";
+import { AuditDegradedBanner } from "./audit-degraded-banner";
 
 export function AdminHeader() {
   return (
