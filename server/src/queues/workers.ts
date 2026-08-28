@@ -5,6 +5,8 @@ import { processIndexing } from "./processors/indexing.js";
 import { processAnalytics } from "./processors/analytics.js";
 import { processNotifications } from "./processors/notifications.js";
 import { processReconciliation } from "./processors/reconciliation.js";
+import { queueJobLagSeconds, queueJobFailuresTotal } from "../services/promMetrics.js";
+import { captureAlert } from "../config/sentry.js";
 
 const { Worker, QueueEvents } = require("bullmq") as {
   Worker: any;
