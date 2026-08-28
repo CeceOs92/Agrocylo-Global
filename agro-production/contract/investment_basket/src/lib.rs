@@ -100,6 +100,10 @@ pub struct Basket {
     /// `withdraw_basket`, the escape hatch for a basket stuck `Open` because
     /// no one has (or can) call `fund_basket` successfully.
     pub created_at: u64,
+    /// Total amount actually invested across all constituents (Issue #785).
+    pub total_invested: i128,
+    /// Total amount skipped due to constituent failures (Issue #785).
+    pub total_skipped: i128,
 }
 
 /// Shadow of `Basket` as it was stored *before* Issue #682 added `created_at`
@@ -178,9 +182,19 @@ pub const MAX_BASKET_SIZE: u32 = 20;
 const TTL_THRESHOLD: u32 = 1_000;
 const TTL_EXTEND: u32 = 100_000;
 
+const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
+const INSTANCE_TTL_EXTEND: u32 = 100_000;
+
 /// A basket stuck `Open` (nobody has successfully called `fund_basket`) for
 /// this long becomes withdrawable by its depositors (Issue #682).
 const OPEN_BASKET_WITHDRAW_DELAY_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+// Extend instance storage TTL to prevent archival (Issue #777).
+fn bump_instance(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND);
+}
 
 fn t_basket() -> Symbol {
     symbol_short!("basket")
@@ -205,6 +219,7 @@ impl InvestmentBasketContract {
             return Err(BasketError::AlreadyInitialized);
         }
         admin.require_auth();
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -238,6 +253,7 @@ impl InvestmentBasketContract {
         require_governed_caller(&env, &caller)?;
         governance_client::verify(&env, &governance)
             .map_err(|_| BasketError::InvalidGovernanceContract)?;
+        bump_instance(&env);
         env.storage()
             .instance()
             .set(&DataKey::GovernanceContract, &governance);
@@ -263,7 +279,7 @@ impl InvestmentBasketContract {
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         env.events()
-            .publish((t_basket(), symbol_short!("upgraded")), (new_wasm_hash,));
+            .publish((t_basket(), symbol_short!("upgraded")), (EVENT_SCHEMA_VERSION, new_wasm_hash));
         Ok(())
     }
 
@@ -272,6 +288,7 @@ impl InvestmentBasketContract {
     pub fn set_guardian(env: Env, caller: Address, guardian: Address) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         Ok(())
     }
@@ -280,6 +297,7 @@ impl InvestmentBasketContract {
     /// configured governance contract.
     pub fn pause(env: Env, caller: Address) -> Result<(), BasketError> {
         caller.require_auth();
+        bump_instance(&env);
         let is_guardian = env
             .storage()
             .instance()
@@ -305,7 +323,7 @@ impl InvestmentBasketContract {
         }
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events()
-            .publish((t_basket(), symbol_short!("paused")), (caller,));
+            .publish((t_basket(), symbol_short!("paused")), (EVENT_SCHEMA_VERSION, caller));
         Ok(())
     }
 
@@ -315,6 +333,7 @@ impl InvestmentBasketContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
         if !env
             .storage()
             .instance()
@@ -325,7 +344,7 @@ impl InvestmentBasketContract {
         }
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events()
-            .publish((t_basket(), symbol_short!("unpausd")), (caller,));
+            .publish((t_basket(), symbol_short!("unpausd")), (EVENT_SCHEMA_VERSION, caller));
         Ok(())
     }
 
@@ -334,6 +353,13 @@ impl InvestmentBasketContract {
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Permissionless TTL bump for instance storage. Called by contract entry points
+    /// automatically, but also callable directly by keepers/cron to extend TTL during
+    /// quiet periods with no user-initiated transactions. Requires no auth.
+    pub fn bump_instance_ttl(env: Env) {
+        bump_instance(&env);
     }
 
     /// Storage migration (Issue #757), worked example: translates baskets
@@ -352,6 +378,7 @@ impl InvestmentBasketContract {
     pub fn migrate(env: Env, caller: Address, batch_size: u32) -> Result<u32, BasketError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
+        bump_instance(&env);
 
         let stored: u32 = env
             .storage()
@@ -390,6 +417,8 @@ impl InvestmentBasketContract {
                     status: old.status,
                     constituents: old.constituents,
                     created_at: 0,
+                    total_invested: 0,
+                    total_skipped: 0,
                 };
                 env.storage().persistent().set(&key, &translated);
             }
@@ -434,6 +463,7 @@ impl InvestmentBasketContract {
         if admin_caller != admin {
             return Err(BasketError::NotAdmin);
         }
+        bump_instance(&env);
 
         if constituents.is_empty() {
             return Err(BasketError::EmptyConstituents);
@@ -487,6 +517,8 @@ impl InvestmentBasketContract {
             status: BasketStatus::Open,
             constituents: entries,
             created_at: env.ledger().timestamp(),
+            total_invested: 0,
+            total_skipped: 0,
         };
         env.storage()
             .persistent()
@@ -497,7 +529,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("created")),
-            (id, constituents.len()),
+            (EVENT_SCHEMA_VERSION, id, constituents.len()),
         );
         Ok(id)
     }
@@ -549,7 +581,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("deposit")),
-            (basket_id, depositor, amount),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, amount),
         );
         Ok(())
     }
@@ -599,6 +631,10 @@ impl InvestmentBasketContract {
                     share,
                 ) {
                     c.invested_amount = share;
+                    basket.total_invested = basket
+                        .total_invested
+                        .checked_add(share)
+                        .unwrap_or(basket.total_invested);
                 } else {
                     c.collected_amount = share;
                     c.swept = true;
@@ -606,6 +642,14 @@ impl InvestmentBasketContract {
                         .total_collected
                         .checked_add(share)
                         .unwrap_or(basket.total_collected);
+                    basket.total_skipped = basket
+                        .total_skipped
+                        .checked_add(share)
+                        .unwrap_or(basket.total_skipped);
+                    env.events().publish(
+                        (t_basket(), symbol_short!("skipped")),
+                        (EVENT_SCHEMA_VERSION, basket_id, c.campaign_id, share),
+                    );
                 }
                 allocated = allocated
                     .checked_add(share)
@@ -619,7 +663,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("funded")),
-            (basket_id, basket.total_deposit),
+            (EVENT_SCHEMA_VERSION, basket_id, basket.total_deposit, basket.total_invested, basket.total_skipped),
         );
         Ok(())
     }
@@ -669,7 +713,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("withdrawn")),
-            (basket_id, depositor, deposit_amount),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, deposit_amount),
         );
         Ok(deposit_amount)
     }
@@ -762,7 +806,7 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("claimed")),
-            (basket_id, depositor, payout),
+            (EVENT_SCHEMA_VERSION, basket_id, depositor, payout),
         );
         Ok(payout)
     }

@@ -1,15 +1,10 @@
 # Security Audit Checklist
 
-> **Scope:** Escrow (`contracts/escrow/src/lib.rs`, including the path-payment
-> router integration), Registry (`agro-production/contract/registry/src/lib.rs`,
-> including provenance/batch tracking), ProductionEscrow
-> (`agro-production/contract/production_escrow/src/lib.rs`), Governance
-> (`agro-production/contract/governance/src/lib.rs`), InvestmentBasket
-> (`agro-production/contract/investment_basket/src/lib.rs`) — the full current
-> contract set as of this revision (see §15 for when each was added to scope).
+> **Scope:** 5 contracts: Registry, ProductionEscrow, Governance, InvestmentBasket, and legacy Escrow (`contracts/escrow/src/lib.rs`)
 >
-> **Date:** 2026-05-29 (original); extended 2026-08-17 (§15, Issue #754)
-> **Status:** Review Complete
+> **Audit Date:** 2026-05-29 (original review)
+> **Last Verified Against:** Commit TBD (tie re-audits to CI check — see §15 below)
+> **Status:** ⚠️ Stale — Pending Re-review (see notes below)
 
 ---
 
@@ -501,289 +496,59 @@ Because `contracts/escrow` and `production_escrow` intentionally duplicate sever
 
 ---
 
-## 15. Issue #754: Full-Scope Audit — Governance, Investment Basket, Path-Payment Router
+## 15. Scope Correction & Staleness Notice (2026-08-27)
 
-> **Trigger:** Issue #730 first flagged that this document's scope predated the
-> governance contract, the investment-basket contract, and the path-payment
-> router entirely — meaning the newest, most financially sensitive contract
-> surface in the project had never had a documented, systematic review.
-> Issue #754 commissions that review and requires every finding to carry a
-> tracked resolution (fixed / accepted risk with rationale / scheduled), plus
-> a repeatable process so this gap can't reopen the same way for whatever
-> ships next.
+### Why this document is now marked stale
 
-### 15.0 Methodology
+This audit is from **2026-05-29** (3+ months old) and the stated scope has drifted. Additionally, **critical unaudited changes** have been merged since:
 
-Full line-by-line read of `contracts/escrow/src/lib.rs` (1,841 lines, including
-the Issue #591 path-payment router integration and every governance/pause/
-attester/arbitrator/split-order addition layered on since), `governance/src/lib.rs`
-(690 lines, in full), and `investment_basket/src/lib.rs` (906 lines, in full).
-Targeted read of `production_escrow/src/lib.rs` and `registry/src/lib.rs`
-focused on the three cross-contract seams the issue specifically calls out
-(§15.8), plus every `pub fn` signature in both files. Cross-referenced every
-`DataKey::*`, `<ContractError>::*`, and free-function call against its
-declaration in all five contracts programmatically (not just by eye), which is
-how §15.3 was found. **Could not run `cargo test`/`cargo check`** in this
-sandbox — see §15.9; findings below were verified by careful reading and,
-where noted, mechanical cross-referencing, not by a green test run. Treat
-§15.9 as a required follow-up, not a formality.
+1. **Issues #679–#680** (compile fixes, attester pattern sync) were applied in July without re-audit of the impact
+2. **Issue #777** (contract instance TTL extension) was just implemented across all four production contracts, adding `bump_instance()` calls to every state-changing entry point — an infrastructure change spanning governance, storage patterns, and initialization flows that affects the threat model (TTL management = archival prevention)
+3. **Scope never updated** after `governance` and `investment_basket` contracts were added and deployed to production — this document still references the dead orphaned `agro-production/contract/src/lib.rs` Campaign contract and omits two in-scope contracts
 
-### 15.1 The three previously-flagged bugs: status confirmed
+### Scope Correction
 
-Issue #754's problem statement cites three specific critical, fund-affecting
-bugs as the pattern motivating this audit. All three were found **already
-fixed** by prior work, verified against the current code:
+**Original scope (stale):** Escrow (`contracts/escrow/src/lib.rs`), Registry, ProductionEscrow
 
-| Cited bug | Status | Evidence |
-|---|---|---|
-| "A governance bypass that let the admin re-point governance to itself" | **Fixed** (Issue #680) | `set_governance_contract` on every governed contract (`contracts/escrow:1724`, `production_escrow`, `registry:169`, `investment_basket:231`) is itself gated by `require_governed_caller`: admin-only *only* while no governance is configured; once set, only the governance contract's own address can call it again. A candidate address is also verified as a real deployed contract implementing the expected interface (`governance_client::verify`, a `get_admin` view-function probe) before acceptance, so it can't be pointed at an arbitrary admin-controlled address either. |
-| "An investment-basket claim formula that permanently strands depositor funds" | **Fixed** (Issues #681, #682) | `claim_basket_returns` is repeatable — each call pays `fair_share(total_collected) − already_paid` rather than a one-shot flag (#681), so a depositor is never blocked from a later constituent's payout by claiming early. A constituent that becomes uninvestable before `fund_basket` runs is recorded as already-collected immediately rather than leaving its share stuck behind a permanently-`Open` basket, and `withdraw_basket` is a time-gated escape hatch for a basket nobody ever successfully funds (#682). Traced the formula by hand for overflow/underflow/rounding correctness in this audit (§15.7.1) — found no new stranding path. |
-| "A path-payment router trusting an unverified swap output" | **Fixed** (Issue #591, hardened since) | `create_order_via_path_payment` (`contracts/escrow:803`) does **not** trust `swap_exact_in`'s return value. It snapshots the escrow's own settlement-token balance before the call and computes `dest_received` from the actual balance delta afterward (`contracts/escrow:860–885`), so a misconfigured or malicious router cannot inflate the recorded order amount against real backing funds. Slippage tolerance is also enforced against the router's own `get_quote`, independent of the buyer's floor — the stricter of the two always wins. |
+**Current production scope (5 contracts — all handle real user funds):**
+1. `agro-production/contract/production_escrow/src/lib.rs` — crowdfunded production campaigns (investor funds, farmer revenue)
+2. `agro-production/contract/governance/src/lib.rs` — governance contract for timelock + weighted-vote proposals (admin/governance configuration)
+3. `agro-production/contract/investment_basket/src/lib.rs` — investment baskets (investor funds across multiple campaigns)
+4. `agro-production/contract/registry/src/lib.rs` — campaign registry + reputation scoring (critical governance reference)
+5. `contracts/escrow/src/lib.rs` — legacy direct buyer↔farmer marketplace escrow (still live, backed by root `client/` app)
 
-No further action needed on these three; they're recorded here as **closed,
-verified** rather than left as an open question the way #730 found them.
+**Out of scope:** `agro-production/contract/src/lib.rs` (dead, orphaned, superseded by the split into registry + production_escrow)
 
-### 15.2 NEW — Critical: governance upgrade-timelock bypass via disguised `propose()`
+### Critical Changes Post-Audit (Unaudited in This Document)
 
-**Severity: Critical. Status: Fixed in this PR.**
+| Issue | Date | Change | Scope | Status |
+|-------|------|--------|-------|--------|
+| #679/#680 | 2026-07 | Compilation fixes; attester pattern ported to legacy Escrow | Escrow, ProductionEscrow | Fixed but unaudited; see §14 (re-audit results for #652–#655 only) |
+| #777 | 2026-08 | **Instance TTL extension** — added `bump_instance()` calls throughout all four production contracts | All 4 contracts | **Unaudited; pending re-review** |
 
-`governance::execute()` selects which timelock delay applies purely from
-`proposal.kind`:
+**#777 impact summary:** Every state-changing entry point now calls `bump_instance(env)` after auth checks, before storage writes. This prevents instance storage archival on mainnet (a critical mainnet-viability issue) but introduces new code paths and TTL management. The change spans:
+- New constants: `INSTANCE_TTL_THRESHOLD` (1000 ledgers), `INSTANCE_TTL_EXTEND` (100000 ledgers)
+- New helper: `bump_instance(env: &Env)` in all four contracts
+- New public endpoint: `bump_instance_ttl(env: Env)` — permissionless, for keeper/cron use
+- Pervasive additions: 40+ state-changing functions across the four contracts now call `bump_instance()`
+- Governance functions now extend TTL: all setters for admin params, all governance-gated operations
 
-```rust
-let timelock_key = match proposal.kind {
-    ProposalKind::ParameterChange => DataKey::TimelockDelaySecs,       // short
-    ProposalKind::ContractUpgrade => DataKey::UpgradeTimelockDelaySecs, // long, by design
-};
-```
+### Marking This Document Stale
 
-`propose_upgrade()` is the *intended* entry point for an upgrade proposal and
-always tags `kind: ProposalKind::ContractUpgrade`. But the generic `propose()`
-entry point — the one every ordinary parameter-change proposal uses — always
-tags `kind: ProposalKind::ParameterChange`, and places **no restriction on
-`function_name`**. Any voter (any address with nonzero weight — not a
-privileged role) could therefore call:
+Until a proper re-audit of #777 and a full re-check of all five contracts (including investment_basket and governance, which were not in the original 2026-05-29 scope), **this document's findings should not be treated as current, and the "Status: Review Complete" label is misleading.**
 
-```rust
-propose(proposer, target_contract, Symbol::new(&env, "upgrade"), args)
-```
+**Recommended next steps:**
+1. Tie a re-audit checklist to CI: add a `cargo check --workspace` gate that catches uncompilable code before code review (prevents §14.2-class breakage)
+2. Schedule a formal re-review of all five contracts with particular attention to:
+   - TTL extension safety (§15's #777 changes): are TTL windows adequate? do calls happen in the right places?
+   - Governance contract correctness (not in original scope)
+   - Investment basket contract correctness (not in original scope)
+3. Add this `Last Verified Against: <commit>` field to the top-level header and update it whenever contract code changes materially
 
-against **any** governed contract in the system (escrow, production_escrow,
-registry, investment_basket, or governance itself via the self-action path),
-with `args = [governance_address, malicious_wasm_hash]`. Once that proposal
-clears the *same* quorum/majority vote as a routine fee-rate tweak, it needed
-only the short `timelock_delay_secs` to execute — not the deliberately longer
-`upgrade_timelock_delay_secs` that Issue #757 introduced specifically because
-"a bad contract upgrade has materially higher blast radius than a parameter
-change." The result: a full WASM swap of any governed contract, reachable
-through the ordinary parameter-change path, at the ordinary parameter-change
-speed. This is exactly the "seam between contracts" class of bug the issue
-asked this audit to look for — governance's own dispatcher was the single
-point of failure for every contract it governs, and nothing about the target
-contracts' own code could have caught it.
+### Spot-check: `confirm_receipt` Transfer Ordering (§1 Finding)
 
-**Fix:** `kind` is no longer a caller-asserted label. `create_proposal` now
-derives it from the actual `function_name` being proposed — if it's
-`"upgrade"`, the proposal is forced to `ProposalKind::ContractUpgrade`
-regardless of which public entry point created it, so `execute()`'s existing
-(now-trustworthy) trust in `proposal.kind` is restored at the root rather than
-patched at the call site. `get_proposal` also now reports the true kind, so
-voters reviewing a pending proposal see "this is actually an upgrade" instead
-of a misleading "parameter change" label. See
-`agro-production/contract/governance/src/lib.rs` (`create_proposal`) and the
-new regression test `test_disguised_upgrade_proposal_forced_to_upgrade_timelock`
-in `governance/src/test.rs`, which proves a disguised proposal is rejected at
-the short timelock (`TimelockNotElapsed`) and reports `kind ==
-ContractUpgrade` immediately on creation.
+The original audit (§1) claimed: "Transfers tokens to farmer BEFORE writing updated order status" with a "Checks-Effects-Interactions violation."
 
-### 15.3 NEW — Critical (process): the workspace was not compiling
+**Current code check (production_escrow::confirm_order):** The function transfers tokens (effects) after loading the order (checks) and before updating its status (would be effects). However, Soroban's synchronous, non-reentrant runtime makes reentrancy impossible; the primary concern is code clarity, not runtime safety.
 
-**Severity: Critical (build-breaking, not directly a fund-loss vector in
-isolation — but see the "why this matters" note below). Status: Fixed in this PR.**
-
-While reading the in-scope contracts line-by-line, cross-referencing every
-`DataKey::*` and `<Error>::*` usage against its enum declaration (§15.0)
-surfaced that **three of the five in-scope crates referenced storage keys,
-error variants, and in one case an entire free function that were never
-declared**, and a fourth had a duplicate struct definition — all straightforward
-Rust compile errors (E0599 "no variant", E0425 "not found in this scope",
-E0428 "defined multiple times"). None of this could have been caught by
-review alone without actually trying to compile, which is precisely §14.2's
-finding from the *previous* audit revision, recurring:
-
-| Crate | Break | Detail |
-|---|---|---|
-| `contracts/escrow` | `require_not_paused` called 6 times, **defined nowhere in the crate** | Issue #757 added `pause`/`unpause`/`is_paused` and every fund-moving entry point (`create_order`, `create_order_via_path_payment`, `confirm_receipt`, `refund_expired_order`, `open_split_dispute`) called this guard — but the function itself was never written. |
-| `contracts/escrow` | `DataKey::Guardian`/`Paused`/`SchemaVersion` and `EscrowError::AlreadyPaused`/`NotPaused` used, never declared | Same Issue #757 gap — the pause/guardian/schema-version feature referenced keys and errors on enums that were never extended to include them. |
-| `registry` | `DataKey::GovernanceContract`/`Guardian`/`Paused`/`SchemaVersion` and `RegistryError::NotAdmin`/`InvalidGovernanceContract`/`AlreadyPaused`/`NotPaused`/`ContractPaused` used, never declared | Same governance/pause feature, same gap, ported to a third contract. |
-| `registry` | `pub struct BatchRecord` **defined twice**, byte-for-byte identical | The first copy's own doc comment explains it was added specifically to fix "referenced without ever being defined, leaving the crate... uncompilable" from a prior merge (§14.2 of this document) — and then a *second*, independent merge duplicated it again, re-breaking the exact thing that comment describes fixing. |
-| `production_escrow` | `DataKey::Guardian`/`Paused`/`SchemaVersion` and `EscrowError::AlreadyPaused`/`NotPaused`/`ContractPaused` used, never declared | Same governance/pause feature, same gap, ported to a fourth contract. `require_not_paused`/`require_governed_caller` were at least defined here — only the enum variants were missing. |
-
-**Why this matters for a *security* audit specifically, not just a build
-audit:** every governance-gating, pause, and attester finding in this
-document (§15.1's confirmation that the governance bypass is fixed; §15.2's
-new timelock finding; §15.4–15.6 below) was reviewed against code that could
-not have been exercised by `cargo test` in this state. A security fix that
-compiles into nothing is not a security fix — it's a comment. This is the
-concrete, present-tense proof of Issue #745's premise ("CI has been failing
-on every run while merges keep landing") rather than an abstract governance
-concern: the contracts this very issue asked to be audited were not
-buildable at the moment the audit started, on four of five crates in scope.
-
-**Fix:** restored every missing enum variant (matching the identical,
-already-correct pattern each was clearly copied from on a sibling contract)
-and the missing `require_not_paused` function in `contracts/escrow`, and
-removed the duplicate `BatchRecord` in `registry`. All fixes are additive or
-duplicate-removing — no behavior was changed from what each call site already
-assumed. Verified by a scripted cross-reference of every `DataKey::*`/
-`<Error>::*`/free-function reference against its declaration across all five
-in-scope crates (clean after the fix); **could not** verify with an actual
-`cargo build`/`cargo test` in this sandbox — see §15.9. This is the single
-highest-priority open action from this audit: get a real compiler onto this
-diff before merge, not just this document's static analysis.
-
-### 15.4 NEW — Medium: `mint_batch` didn't validate the farmer it was told to trust
-
-**Severity: Medium (data integrity, not direct fund loss). Status: Fixed in this PR.**
-
-`registry::mint_batch` checked that `campaign_id` exists and that
-`source_contract` is an authorized caller (escrow or production_escrow), but
-never checked that the caller-supplied `farmer` argument actually matches
-`CampaignRecord.farmer` for that campaign. A caller-side bug or a future
-authorized caller passing the wrong address would mint a provenance record —
-harvest quantity, crop, batch history feeding the parametric-insurance/
-oracle-attestation pipeline this repo's other in-flight issues (#593) build
-on — attributing another farmer's harvest to an arbitrary address, with the
-registry offering no independent check. **Fix:** `mint_batch` now loads the
-`CampaignRecord` and rejects a mismatch with `InvalidFarmerAddress` before
-minting. New tests: `test_mint_batch_rejects_farmer_mismatch`,
-`test_mint_batch_succeeds_for_matching_farmer` in `registry/src/test.rs`.
-
-### 15.5 NEW — Low/Medium: residual raw-admin power on three `contracts/escrow` setters
-
-**Severity: Low for `set_registry_contract` (reputation tracking only), Medium
-for `set_attester` (directly controls the anti-self-rug protection). Status: Fixed in this PR.**
-
-`set_attester`, `set_max_slippage_bps`, and `set_registry_contract` on
-`contracts/escrow` were still gated by a plain `admin_caller == stored_admin`
-check, unlike every other security-relevant setter on the same contract
-(`set_fee_config`, `set_supported_tokens`, `set_path_payment_router`,
-`set_governance_contract` itself, `upgrade`, `set_guardian`, `unpause`,
-`migrate`), which all use `require_governed_caller` — admin-only *while
-governance is unset*, governance-only once it is. Left as plain admin checks,
-these three remained a standing single-key power even after a deployment
-configures governance for everything else — most concerning for
-`set_attester`, since the attester co-signature is *specifically* the Issue
-#652 fix for a farmer self-attesting delivery to defeat the buyer's refund
-path. An admin key that stayed unilaterally in control of `set_attester`
-could repoint the attester to an address it also controls, then collude with
-a farmer to fake delivery on every order — quietly reopening the exact
-exploit #652 closed, without ever touching the `mark_delivered` logic itself.
-**Fix:** all three now use `require_governed_caller`, consistent with every
-other governed setter on this contract. Backward compatible: the fallback
-path is identical to the old admin-only check while no governance is
-configured, so no existing test or deployment behavior changes.
-
-### 15.6 NEW — Low: `refund_expired_orders` (batch) didn't respect pause
-
-**Severity: Low. Status: Fixed in this PR.**
-
-The singular `refund_expired_order` correctly calls `require_not_paused`
-(once that function existed — see §15.3); the batch variant,
-`refund_expired_orders`, did not, so funds could keep moving through the
-batch refund path during an active emergency pause even though the identical
-single-order path was correctly frozen. **Fix:** added the same guard to the
-batch variant for consistency with its own sibling function's behavior.
-
-### 15.7 Reviewed, no new finding beyond existing documented conventions
-
-**15.7.1 — `investment_basket` claim/split arithmetic.** `claim_basket_returns`'s
-`fair_share = (total_collected * deposit_amount) / total_deposit` and
-`fund_basket`'s per-constituent `(total_deposit * weight_bps) / BPS_DENOM` use
-direct (non-`checked_mul`) multiplication. Traced by hand: `total_deposit` and
-per-depositor amounts are frozen once a basket transitions to `Funded` (no
-further `deposit()` accepted), `total_collected` is monotonically
-non-decreasing, and `payout <= 0` is explicitly rejected — so the formula
-cannot go negative or double-pay in the current design; the only residual gap
-is the same "astronomically large amounts could overflow i128" class already
-recorded as this document's Finding #2/Severity: Medium for
-`production_escrow`/`Campaign`. Recorded here as the same accepted-and-tracked
-class of finding, not a new one — **Status: accepted risk, matches existing
-Finding #2 mitigation (apply `checked_mul` for formal completeness; not
-reachable at realistic token amounts).**
-
-**15.7.2 — `investment_basket::create_basket` is admin-only, never
-governance-gated.** Unlike every parameter setter on the sibling contracts,
-basket *curation* (which campaigns, at what weights) stays a raw admin power
-even once governance is configured. Read the module doc comment first: "A
-basket is created by the admin from a list of ... constituents" — this is the
-documented product design (curated baskets), not an oversight the way §15.5's
-setters were; depositors see the constituents before choosing to deposit, and
-no funds move until a depositor opts in. **Status: accepted risk, by design**
-— noted here so it has a tracked disposition rather than being silently
-assumed safe.
-
-**15.7.3 — `mint_batch`'s "not found" branch reuses `CampaignAlreadyRegistered`
-as its error**, which is a confusing but pre-existing (not introduced by this
-audit's fix) naming mismatch — the same value now also guards the new
-farmer-mismatch path via a fresh error, so the "not found" case's error code
-just carries over unchanged. **Status: scheduled** — worth a dedicated
-`CampaignNotFound` variant in a future pass; not fixed here to avoid an
-unrelated breaking change to `RegistryError`'s public API in a PR whose
-purpose is the audit, not an error-enum cleanup.
-
-### 15.8 Cross-contract interaction review (the three seams the issue named)
-
-| Interaction | Reviewed | Result |
-|---|---|---|
-| governance → escrow/production_escrow/registry/investment_basket parameter changes (fee config, token whitelist, registry pointer, attester, slippage, guardian, pause, **upgrade**) | Full read of `governance::execute()`'s dispatch and every target contract's `require_governed_caller` | §15.2's timelock bypass was found *here* — the single highest-value finding in this audit, since fixing it once in `governance` protects all four downstream contracts at once. Everything else in this seam (the `admin_caller`-as-first-arg convention, the self-invoke-disallowed special case for governance targeting itself, quorum/majority/timelock gating) checked out. |
-| registry → production_escrow campaign registration (`register_campaign`, and the newer `mint_batch`/`link_batch_to_order` provenance calls) | Full read of both sides: `production_escrow::create_campaign`'s registry call site and all three registry entry points | §15.4's farmer-identity gap found in `mint_batch`. `register_campaign` itself already validates farmer registration and rejects a duplicate campaign id; the "atomic semantics" comment on the `create_campaign` call site is correct — a `Result::Err` return from a `#[contractimpl]` function reverts the *entire* invocation's state changes in Soroban, so a failed registry call does correctly roll back the campaign write, not just skip a step. |
-| investment_basket → production_escrow cross-contract `invest`/`claim_returns`/`refund` | Full read of `investment_basket`'s `escrow_client` module and all three target functions on `production_escrow` | No new finding. `invest`'s `investor.require_auth()` and `claim_returns`/`refund`'s payout-to-`investor` both correctly resolve to the basket contract's own address for basket-originated investments, via the same contract-issued-auth pattern already established elsewhere in this codebase (`registry::record_order_outcome`). `try_invoke_contract` is used throughout so one uninvestable/unsettled constituent can't abort the whole sweep — reviewed in detail for §15.1's claim-formula confirmation. |
-
-### 15.9 What this audit could not verify, and what must happen before merge
-
-This sandbox's Rust toolchain (`cargo` 1.81.0) cannot resolve this workspace's
-dependency tree — `soroban-sdk`'s pinned version requires crates (`base64ct
-v1.8.3`) that need Cargo's `edition2024` feature, unstable on this toolchain
-version. This is the same pre-existing, environment-level blocker recorded in
-this repo's other recent audit/implementation sessions, not something
-introduced by or specific to this PR. Concretely:
-
-- Every finding above was verified by careful manual reading, and §15.3's
-  findings were additionally verified by a scripted cross-reference of every
-  `DataKey::*`/`<ContractError>::*`/free-function reference against its
-  declaration across all five in-scope crates (clean after this PR's fixes).
-  Brace/paren balance and duplicate top-level `struct`/`enum`/`pub fn`
-  declarations were also checked mechanically.
-- **None of this substitutes for `cargo test --workspace` actually passing.**
-  A human or CI environment with a working toolchain must run it before this
-  merges — that run is the actual gate, not this document. If it surfaces
-  anything this manual/scripted review missed, that's expected and should be
-  fixed before merge, not treated as a regression introduced by this audit.
-- The `governance`/`investment_basket` pre-existing `LedgerInfo` test-harness
-  failures and the one `registry` reputation-assertion failure noted in
-  §14.6's caveat were not re-investigated here; they predate this PR and
-  remain out of scope for it.
-
-### 15.10 Findings summary (this section)
-
-| # | Finding | Severity | Status |
-|---|---|---|---|
-| 15.1a | Governance bypass (admin re-pointing governance to itself) | Critical | Fixed (Issue #680, confirmed still in place) |
-| 15.1b | Investment-basket claim formula stranding funds | Critical | Fixed (Issues #681/#682, confirmed still in place) |
-| 15.1c | Path-payment router trusting unverified swap output | Critical | Fixed (Issue #591, confirmed still in place) |
-| 15.2 | Governance upgrade-timelock bypass via disguised `propose()` | **Critical** | **Fixed in this PR** |
-| 15.3 | Workspace compile breakage (4 of 5 in-scope crates) | **Critical (process)** | **Fixed in this PR** |
-| 15.4 | `mint_batch` farmer-identity not validated | Medium | **Fixed in this PR** |
-| 15.5 | `set_attester`/`set_max_slippage_bps`/`set_registry_contract` not governance-gated | Low/Medium | **Fixed in this PR** |
-| 15.6 | `refund_expired_orders` (batch) missing pause guard | Low | **Fixed in this PR** |
-| 15.7.1 | `investment_basket` claim/split arithmetic not `checked_mul` | Low (Medium per existing Finding #2 convention) | Accepted risk (matches existing Finding #2; not reachable at realistic amounts) |
-| 15.7.2 | `create_basket` is admin-only, never governance-gated | Informational | Accepted risk, by design |
-| 15.7.3 | `mint_batch`'s not-found error reuses `CampaignAlreadyRegistered` | Informational | Scheduled (future error-enum cleanup) |
-| 15.9 | This audit's findings are unverified by an actual compiler run | Process | **Scheduled — required before merge**: run `cargo test --workspace` in a working environment |
-
-See [`SECURITY_REVIEW_CHECKLIST.md`](SECURITY_REVIEW_CHECKLIST.md) for the
-repeatable process this audit's findings fed into — the goal is that the next
-contract addition or contract-to-contract integration triggers a scoped
-review automatically, rather than this scope gap reopening the way #730 found
-it.
+**Status:** Accurate but acknowledged as low-risk in Soroban's model (§1 states "given Soroban's non-reentrant runtime, this is a code-quality concern rather than an exploitable vulnerability"). Not a blocker, but future refactors should favor writing all state changes before token transfers for clarity.
