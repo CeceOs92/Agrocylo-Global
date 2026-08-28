@@ -1,5 +1,9 @@
 import logger from "./config/logger.js";
+import { initializeSentry } from "./config/observability.js";
 import { startWorkers } from "./queues/workers.js";
+
+// Initialize error tracking and tracing
+initializeSentry('worker');
 
 const running = startWorkers();
 
