@@ -155,6 +155,30 @@ cd client && npm run test:e2e:ui
 
 E2E tests mock Freighter wallet and use `NEXT_PUBLIC_DEMO_MODE=true` for deterministic responses. See `.github/workflows/e2e.yml` for CI configuration.
 
+### 🐳 Docker Setup
+
+The repository includes Docker Compose orchestration for containerized development and deployment. **Note:** This repo contains multiple app pairings (legacy `server`/`client` and current `agro-production/server`/`agro-production/client`), and the compose setup currently covers only the legacy pair.
+
+**Root docker-compose.yml** (legacy server/client)
+- Orchestrates PostgreSQL, Redis, and the backend service from `./server`
+- Exposes backend on port 5000
+- Recommended for: Contributors working on the legacy server/client apps
+- Usage:
+  ```bash
+  docker-compose up
+  ```
+
+**agro-production/server/docker-compose.redis.yml** (Redis only for agro-production)
+- Standalone Redis service with persistent storage (`appendonly` mode)
+- Exposes Redis on port 6379
+- **Currently not linked to a full app compose file** — this repo's primary dev workflow for agro-production apps uses `npm run dev` (see "Running locally" below)
+- Usage (if needed for production/staging deployments):
+  ```bash
+  cd agro-production/server && docker-compose -f docker-compose.redis.yml up
+  ```
+
+For local development of `agro-production/server` and `agro-production/client`, see "Running locally" below — the recommended approach is npm-based development, not Docker.
+
 ### 🔌 API Documentation
 
 #### Product Endpoints

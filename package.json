@@ -1,0 +1,13 @@
+{
+  "name": "agrocylo-global",
+  "version": "1.0.0",
+  "description": "Agrocylo monorepo - multiple app pairings (server/client, agro-production/server/client)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0"
+  }
+}
