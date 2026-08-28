@@ -1,8 +1,11 @@
 import express from "express";
 import type { Request, Response } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import * as Sentry from "@sentry/node";
 import logger from "./config/logger.js";
 import { config } from "./config/index.js";
+import { initializeSentry, extractTraceContext, withSpan } from "./config/observability.js";
 import { prisma } from "./config/database.js";
 import { getSupabaseAdmin } from "./config/supabase.js";
 import {
@@ -12,6 +15,8 @@ import {
 import { ApiError, sendProblem } from "./http/errors.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { createIdempotencyMiddleware } from "./middleware/idempotency.js";
+import { sharedRedisClient } from "./middleware/rateLimiter.js";
 import productImageRoutes, {
   productImageErrorHandler,
 } from "./routes/productImageRoutes.js";
@@ -43,7 +48,29 @@ import analyticsRoutes from "./routes/analyticsRoutes.js";
 import governanceRoutes from "./routes/governanceRoutes.js";
 import ussdRoutes from "./routes/ussdRoutes.js";
 
+// Initialize error tracking and tracing
+initializeSentry('api');
+
 const app = express();
+
+// Sentry request handler must be the first middleware
+app.use(Sentry.Handlers.requestHandler());
+
+// Trust proxy to correctly extract client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Security headers middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  hsts: config.nodeEnv === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -61,6 +88,11 @@ app.use(cors({
 app.use(express.json());
 app.use(requestContext);
 app.use(requestLogger);
+
+// Idempotency middleware (if Redis is available)
+if (sharedRedisClient) {
+  app.use(createIdempotencyMiddleware(sharedRedisClient));
+}
 
 // Metrics middleware
 app.use((_req, _res, next) => {
@@ -150,6 +182,10 @@ app.use(graphqlErrorHandler);
 app.use(adminErrorHandler);
 app.use(referralErrorHandler);
 app.use(integratorErrorHandler);
+
+// Sentry error handler must be before other error handlers
+app.use(Sentry.Handlers.errorHandler());
+
 app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
   incrementErrorCount();
   if (err instanceof ApiError) {
