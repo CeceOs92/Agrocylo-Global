@@ -138,6 +138,11 @@ async function recordDeadLetter(
       ledger: rawEvent.ledger,
       id: rawEvent.id,
     });
+    captureAlert(
+      "contract_watcher_ingestion_failure",
+      `Event ${rawEvent.id} at ledger ${rawEvent.ledger} moved to dead-letter queue`,
+      { ledger: rawEvent.ledger, eventId: rawEvent.id },
+    );
   } catch (dlErr) {
     logger.error('Failed to record dead-letter entry', {
       error: dlErr instanceof Error ? dlErr.message : String(dlErr),

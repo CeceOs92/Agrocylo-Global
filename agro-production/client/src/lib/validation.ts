@@ -62,6 +62,47 @@ export function parseXlmToStroops(input: string): StroopAmountResult {
   return { valid: true, sanitized: input, stroops };
 }
 
+/**
+ * Format a stroop (i128 base-unit) amount as an exact XLM decimal string.
+ *
+ * BigInt division only — never `Number(stroops) / 1e7`, which is silently wrong
+ * above 2^53 stroops (~900M XLM) and lossy below it. Output is canonical (no
+ * grouping, no leading zeros, trailing fractional zeros trimmed) so that
+ * `parseXlmToStroops(formatStroops(x)).stroops === x` for every valid i128 `x`.
+ */
+export function formatStroops(value: bigint | string): string {
+  const stroops = typeof value === "bigint" ? value : BigInt(value || "0");
+  const negative = stroops < 0n;
+  const abs = negative ? -stroops : stroops;
+  const whole = abs / STROOPS_PER_XLM;
+  const frac = (abs % STROOPS_PER_XLM)
+    .toString()
+    .padStart(7, "0")
+    .replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
+/**
+ * Format a stroop amount for human display: exact BigInt whole part with
+ * thousands separators, fractional part truncated (never rounded up, so a
+ * balance is never overstated) to `fractionDigits`. Display only — not
+ * round-trip safe. Use {@link formatStroops} when exactness matters.
+ */
+export function formatStroopsForDisplay(
+  value: bigint | string,
+  fractionDigits = 2,
+): string {
+  const stroops = typeof value === "bigint" ? value : BigInt(value || "0");
+  const negative = stroops < 0n;
+  const abs = negative ? -stroops : stroops;
+  const whole = (abs / STROOPS_PER_XLM)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const frac = (abs % STROOPS_PER_XLM).toString().padStart(7, "0");
+  const shown = fractionDigits > 0 ? `.${frac.slice(0, fractionDigits)}` : "";
+  return `${negative ? "-" : ""}${whole}${shown}`;
+}
+
 /** Validate an XLM input while preserving the legacy validation result shape. */
 export function validateXlmAmount(input: string): ValidationResult {
   const parsed = parseXlmToStroops(input);

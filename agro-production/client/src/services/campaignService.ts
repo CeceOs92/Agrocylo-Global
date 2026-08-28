@@ -1,5 +1,6 @@
 import type { Campaign, CampaignDetail, CampaignListResponse } from "@/types";
 import api from "../lib/apiClient";
+import { formatStroopsForDisplay } from "@/lib/validation";
 
 export async function fetchCampaigns(params?: {
   status?: string;
@@ -24,14 +25,14 @@ export function fundingProgress(campaign: Pick<Campaign, "totalRaised" | "target
   const raised = BigInt(campaign.totalRaised || "0");
   const target = BigInt(campaign.targetAmount || "1");
   if (target === 0n) return 0;
-  const pct = Number((raised * 100n) / target);
+  // BigInt division first — result is a small integer in [0, ~100].
+  const pct = Number((raised * 100n) / target); // amount-exact-ok
   return Math.min(pct, 100);
 }
 
+/** Display a stroop amount as XLM. Exact BigInt arithmetic — see validation.ts. */
 export function formatAmount(raw: string): string {
-  const n = BigInt(raw || "0");
-  const xlm = Number(n) / 1e7;
-  return xlm.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return formatStroopsForDisplay(raw, 2);
 }
 
 export interface CreateCampaignRequest {

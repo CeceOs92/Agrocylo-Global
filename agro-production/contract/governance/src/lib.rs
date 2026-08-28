@@ -330,6 +330,27 @@ impl GovernanceContract {
         }
         bump_instance(env);
 
+        // Security fix (Issue #754 audit): `kind` must never be trusted as a
+        // caller-asserted label. The generic `propose()` entrypoint lets any
+        // voter set `function_name` to literally "upgrade" while still
+        // passing `ProposalKind::ParameterChange` (the only value `propose()`
+        // ever supplies) — and `execute()` picks the timelock purely from
+        // `proposal.kind`. Without this, that combination silently ran any
+        // target contract's `upgrade(governance, new_wasm_hash)` after only
+        // the short parameter-change timelock instead of the deliberately
+        // longer `upgrade_timelock_delay_secs`, defeating the entire point of
+        // Issue #757's "upgrades must never be faster than a parameter
+        // change" guarantee — on *any* contract in the system, not just
+        // governance itself. The actual function being invoked, not a
+        // separately-settable tag, is the only thing that can safely
+        // determine blast radius, so it's derived here rather than trusted
+        // from the caller.
+        let kind = if function_name == Symbol::new(env, "upgrade") {
+            ProposalKind::ContractUpgrade
+        } else {
+            kind
+        };
+
         let voting_period_secs: u64 = env
             .storage()
             .instance()

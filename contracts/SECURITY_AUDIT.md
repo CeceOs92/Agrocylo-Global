@@ -24,6 +24,7 @@
 12. [Event Monitoring](#12-event-monitoring)
 13. [Findings Summary](#13-findings-summary)
 14. [Issue #652 Follow-up: Legacy/Production Escrow Drift Re-audit](#14-issue-652-follow-up-legacyproduction-escrow-drift-re-audit)
+15. [Issue #754: Full-Scope Audit — Governance, Investment Basket, Path-Payment Router](#15-issue-754-full-scope-audit--governance-investment-basket-path-payment-router)
 
 ---
 
