@@ -1,5 +1,8 @@
 import { API_BASE_URL } from "@/lib/apiConfig";
 import type { Order } from "@/types/order";
+import type { UserRole } from "@/types/user";
+
+export type { UserRole } from "@/types/user";
 
 export interface PlatformStats {
   totalUsers: number;
@@ -21,7 +24,7 @@ export interface RecentActivity {
 export interface AdminUser {
   wallet: string;
   displayName: string;
-  role: "farmer" | "buyer" | "moderator" | "admin";
+  role: UserRole;
   country: string;
   joined: string;
   orders: number;
@@ -411,7 +414,6 @@ export async function recordAdminAction(
 
 // ─── User Mutations ────────────────────────────────────────────────────────
 
-export type UserRole = "farmer" | "buyer" | "moderator" | "admin";
 export type UserStatus = "active" | "suspended" | "banned";
 
 export async function updateUserStatus(
