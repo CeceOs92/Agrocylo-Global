@@ -11,10 +11,12 @@ import {
   type Order,
 } from "@/services/stellar/contractService";
 import { isTestMode } from "@/lib/testMode";
+import { mapBlockchainError, type BlockchainErrorInfo } from "@/lib/blockchainError";
 
 interface ActionState {
   isLoading: boolean;
   error: string | null;
+  blockchainError: BlockchainErrorInfo | null;
 }
 
 export interface TransactionApi {
@@ -22,6 +24,8 @@ export interface TransactionApi {
   isLoading: boolean;
   /** Unified error — the most recent error from any action. */
   error: string | null;
+  /** Structured blockchain error info, or null when idle. */
+  blockchainError: BlockchainErrorInfo | null;
   /** The action type that caused the current state, or null when idle. */
   activeAction: "confirm" | "refund" | "dispute" | null;
   /** Clear the unified error. */
@@ -31,21 +35,30 @@ export interface TransactionApi {
   dispute: (orderId: string, reason: string, evidence: string) => Promise<{ success: boolean }>;
 }
 
+function classifySubmitError(error: unknown): BlockchainErrorInfo {
+  const err = error instanceof Error ? error : new Error(String(error));
+  return mapBlockchainError(err);
+}
+
+function toMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function useEscrowContract() {
   const { address, signAndSubmit } = useWallet();
-  const [createState, setCreateState] = useState<ActionState>({ isLoading: false, error: null });
-  const [confirmState, setConfirmState] = useState<ActionState>({ isLoading: false, error: null });
-  const [refundState, setRefundState] = useState<ActionState>({ isLoading: false, error: null });
-  const [disputeState, setDisputeState] = useState<ActionState>({ isLoading: false, error: null });
-  const [resolveState, setResolveState] = useState<ActionState>({ isLoading: false, error: null });
-  const [splitState, setSplitState] = useState<ActionState>({ isLoading: false, error: null });
-  const [queryState, setQueryState] = useState<ActionState>({ isLoading: false, error: null });
+  const [createState, setCreateState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [confirmState, setConfirmState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [refundState, setRefundState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [disputeState, setDisputeState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [resolveState, setResolveState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [splitState, setSplitState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
+  const [queryState, setQueryState] = useState<ActionState>({ isLoading: false, error: null, blockchainError: null });
   const [activeAction, setActiveAction] = useState<TransactionApi["activeAction"]>(null);
 
   const createOrder = useCallback(
     async (farmerAddress: string, tokenAddress: string, amount: bigint, deliveryDeadline?: string) => {
       if (!address) throw new Error("Wallet not connected");
-      setCreateState({ isLoading: true, error: null });
+      setCreateState({ isLoading: true, error: null, blockchainError: null });
       try {
         const result = await buildCreateOrder(address, farmerAddress, tokenAddress, amount, deliveryDeadline);
         if (!result.success || !result.data) {
@@ -53,13 +66,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setCreateState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setCreateState({ isLoading: false, error: null });
+        setCreateState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setCreateState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setCreateState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       }
     },
@@ -70,7 +85,7 @@ export function useEscrowContract() {
     async (orderId: string) => {
       if (!address) throw new Error("Wallet not connected");
       setActiveAction("confirm");
-      setConfirmState({ isLoading: true, error: null });
+      setConfirmState({ isLoading: true, error: null, blockchainError: null });
       try {
         if (isTestMode()) {
           const mocked = {
@@ -79,7 +94,7 @@ export function useEscrowContract() {
               "0000000000000000000000000000000000000000000000000000000000000001",
             status: "SUCCESS",
           };
-          setConfirmState({ isLoading: false, error: null });
+          setConfirmState({ isLoading: false, error: null, blockchainError: null });
           return mocked;
         }
 
@@ -89,13 +104,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setConfirmState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setConfirmState({ isLoading: false, error: null });
+        setConfirmState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setConfirmState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setConfirmState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       } finally {
         setActiveAction(null);
@@ -108,7 +125,7 @@ export function useEscrowContract() {
     async (orderId: string) => {
       if (!address) throw new Error("Wallet not connected");
       setActiveAction("refund");
-      setRefundState({ isLoading: true, error: null });
+      setRefundState({ isLoading: true, error: null, blockchainError: null });
       try {
         const result = await buildRefundOrder(address, orderId);
         if (!result.success || !result.data) {
@@ -116,13 +133,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setRefundState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setRefundState({ isLoading: false, error: null });
+        setRefundState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setRefundState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setRefundState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       } finally {
         setActiveAction(null);
@@ -135,7 +154,7 @@ export function useEscrowContract() {
     async (orderId: string, reason: string, evidence: string) => {
       if (!address) throw new Error("Wallet not connected");
       setActiveAction("dispute");
-      setDisputeState({ isLoading: true, error: null });
+      setDisputeState({ isLoading: true, error: null, blockchainError: null });
       try {
         const result = await buildOpenDispute(address, orderId, reason, evidence);
         if (!result.success || !result.data) {
@@ -143,13 +162,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setDisputeState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setDisputeState({ isLoading: false, error: null });
+        setDisputeState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setDisputeState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setDisputeState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       } finally {
         setActiveAction(null);
@@ -161,7 +182,7 @@ export function useEscrowContract() {
   const resolveDispute = useCallback(
     async (orderId: string, resolveToBuyer: boolean) => {
       if (!address) throw new Error("Wallet not connected");
-      setResolveState({ isLoading: true, error: null });
+      setResolveState({ isLoading: true, error: null, blockchainError: null });
       try {
         const { resolveDispute: buildResolveDispute } = await import("@/services/stellar/contractService");
         const result = await buildResolveDispute(address, orderId, resolveToBuyer);
@@ -170,13 +191,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setResolveState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setResolveState({ isLoading: false, error: null });
+        setResolveState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setResolveState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setResolveState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       }
     },
@@ -186,7 +209,7 @@ export function useEscrowContract() {
   const splitFunds = useCallback(
     async (orderId: string, buyerShare: bigint, farmerShare: bigint) => {
       if (!address) throw new Error("Wallet not connected");
-      setSplitState({ isLoading: true, error: null });
+      setSplitState({ isLoading: true, error: null, blockchainError: null });
       try {
         const { splitFunds: buildSplitFunds } = await import("@/services/stellar/contractService");
         const result = await buildSplitFunds(address, orderId, buyerShare, farmerShare);
@@ -195,13 +218,15 @@ export function useEscrowContract() {
         }
         const submitResult = await signAndSubmit(result.data);
         if (!submitResult.success) {
-          throw new Error(submitResult.error ?? "Transaction failed");
+          const errInfo = classifySubmitError(submitResult.error ?? "Transaction failed");
+          setSplitState({ isLoading: false, error: errInfo.message, blockchainError: errInfo });
+          throw new Error(errInfo.message);
         }
-        setSplitState({ isLoading: false, error: null });
+        setSplitState({ isLoading: false, error: null, blockchainError: null });
         return submitResult;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setSplitState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setSplitState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         throw err;
       }
     },
@@ -210,17 +235,17 @@ export function useEscrowContract() {
 
   const getOrderDetails = useCallback(
     async (orderId: string): Promise<Order | null> => {
-      setQueryState({ isLoading: true, error: null });
+      setQueryState({ isLoading: true, error: null, blockchainError: null });
       try {
         const result = await getOrder(orderId);
         if (!result.success || !result.data) {
           throw new Error(result.error ?? "Order not found");
         }
-        setQueryState({ isLoading: false, error: null });
+        setQueryState({ isLoading: false, error: null, blockchainError: null });
         return result.data;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setQueryState({ isLoading: false, error: msg });
+        const errInfo = classifySubmitError(err);
+        setQueryState({ isLoading: false, error: toMsg(err), blockchainError: errInfo });
         return null;
       }
     },
@@ -228,17 +253,19 @@ export function useEscrowContract() {
   );
 
   const clearError = useCallback(() => {
-    setConfirmState((s) => ({ ...s, error: null }));
-    setRefundState((s) => ({ ...s, error: null }));
-    setDisputeState((s) => ({ ...s, error: null }));
+    setConfirmState((s) => ({ ...s, error: null, blockchainError: null }));
+    setRefundState((s) => ({ ...s, error: null, blockchainError: null }));
+    setDisputeState((s) => ({ ...s, error: null, blockchainError: null }));
   }, []);
 
   const isLoading = activeAction !== null;
   const unifiedError = confirmState.error ?? refundState.error ?? disputeState.error;
+  const unifiedBlockchainError = confirmState.blockchainError ?? refundState.blockchainError ?? disputeState.blockchainError;
 
   const tx: TransactionApi = {
     isLoading,
     error: unifiedError,
+    blockchainError: unifiedBlockchainError,
     activeAction,
     clearError,
     confirm: confirmReceipt,
