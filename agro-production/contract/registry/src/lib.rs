@@ -9,7 +9,8 @@
 // unbounded per-farmer Vec, reducing worst-case from O(n) to O(limit) = O(50) with pagination.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    String, Vec,
 };
 
 #[contracterror]
@@ -26,6 +27,11 @@ pub enum RegistryError {
     BatchNotFound = 8,
     OrderBatchLinkExists = 9,
     CampaignNotHarvested = 10,
+    NotAdmin = 11,
+    InvalidGovernanceContract = 12,
+    ContractPaused = 13,
+    AlreadyPaused = 14,
+    NotPaused = 15,
 }
 
 #[contracttype]
@@ -75,18 +81,6 @@ pub struct BatchRecord {
 }
 
 #[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BatchRecord {
-    pub batch_id: u64,
-    pub campaign_id: u64,
-    pub farmer: Address,
-    pub crop: String,
-    pub harvest_date: u64,
-    pub quantity: i128,
-    pub linked_order_ids: Vec<u64>,
-}
-
-#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
@@ -109,6 +103,14 @@ pub enum DataKey {
     BatchOrderLink(u64, u64),
     /// Batch ids linked to a given order, for `get_batch_history`.
     OrderBatch(u64),
+    /// On-chain storage layout version (Issue #757).
+    SchemaVersion,
+    /// Governance contract authorized for governance-gated actions (Issue #757).
+    GovernanceContract,
+    /// Guardian allowed to `pause` instantly (Issue #757).
+    Guardian,
+    /// Whether the contract is currently paused (Issue #757).
+    Paused,
 }
 
 /// Current on-chain storage layout version (Issue #757). Bump when a stored
@@ -190,10 +192,15 @@ impl RegistryContract {
     /// use governance's `propose_upgrade`, which applies the longer upgrade
     /// timelock. See `docs/CONTRACT_UPGRADES.md` for the required
     /// pause -> upgrade -> migrate -> unpause sequencing.
-    pub fn upgrade(env: Env, caller: Address, new_wasm_hash: BytesN<32>) -> Result<(), RegistryError> {
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
         env.events().publish(
             (symbol_short!("registry"), symbol_short!("upgraded")),
             (new_wasm_hash,),
@@ -229,7 +236,12 @@ impl RegistryContract {
         if !is_guardian && !is_governance {
             return Err(RegistryError::NotAdmin);
         }
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(RegistryError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -244,7 +256,12 @@ impl RegistryContract {
     pub fn unpause(env: Env, caller: Address) -> Result<(), RegistryError> {
         caller.require_auth();
         require_governed_caller(&env, &caller)?;
-        if !env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if !env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(RegistryError::NotPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -256,7 +273,10 @@ impl RegistryContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Storage migration hook. This contract's schema hasn't changed since
@@ -455,18 +475,14 @@ impl RegistryContract {
             .get(&DataKey::FarmerCampaignCount(farmer.clone()))
             .unwrap_or(0);
         let next_farmer_campaign_index = farmer_campaign_count;
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::FarmerCampaignCount(farmer.clone()),
-                &(farmer_campaign_count + 1),
-            );
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::FarmerCampaignAt(farmer.clone(), next_farmer_campaign_index),
-                &campaign_id,
-            );
+        env.storage().persistent().set(
+            &DataKey::FarmerCampaignCount(farmer.clone()),
+            &(farmer_campaign_count + 1),
+        );
+        env.storage().persistent().set(
+            &DataKey::FarmerCampaignAt(farmer.clone(), next_farmer_campaign_index),
+            &campaign_id,
+        );
 
         // (campaign, registered) → (campaign_id, farmer_address)
         env.events().publish(
@@ -488,7 +504,11 @@ impl RegistryContract {
             .get(&DataKey::Campaign(campaign_id)))
     }
 
-    pub fn get_campaigns(env: Env, start: u64, limit: u32) -> Result<Vec<CampaignRecord>, RegistryError> {
+    pub fn get_campaigns(
+        env: Env,
+        start: u64,
+        limit: u32,
+    ) -> Result<Vec<CampaignRecord>, RegistryError> {
         require_initialized(&env)?;
         const MAX_LIMIT: u32 = 50;
         if limit > MAX_LIMIT {
@@ -544,11 +564,14 @@ impl RegistryContract {
 
         let key = DataKey::Reputation(farmer.clone());
         let mut record: ReputationRecord =
-            env.storage().persistent().get(&key).unwrap_or(ReputationRecord {
-                score: 0,
-                completed_orders: 0,
-                disputed_orders: 0,
-            });
+            env.storage()
+                .persistent()
+                .get(&key)
+                .unwrap_or(ReputationRecord {
+                    score: 0,
+                    completed_orders: 0,
+                    disputed_orders: 0,
+                });
 
         match disputed_buyer_share_bps {
             None => {
@@ -642,11 +665,19 @@ impl RegistryContract {
         if !is_authorized_contract(&source_contract, &refs) {
             return Err(RegistryError::UnauthorizedContract);
         }
-        if !env.storage().persistent().has(&DataKey::Campaign(campaign_id)) {
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Campaign(campaign_id))
+        {
             return Err(RegistryError::CampaignAlreadyRegistered);
         }
 
-        let batch_count: u64 = env.storage().persistent().get(&DataKey::BatchCount).unwrap_or(0);
+        let batch_count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BatchCount)
+            .unwrap_or(0);
         let batch_id = batch_count + 1;
 
         let batch = BatchRecord {
@@ -659,8 +690,12 @@ impl RegistryContract {
             linked_order_ids: Vec::new(&env),
         };
 
-        env.storage().persistent().set(&DataKey::Batch(batch_id), &batch);
-        env.storage().persistent().set(&DataKey::BatchCount, &batch_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Batch(batch_id), &batch);
+        env.storage()
+            .persistent()
+            .set(&DataKey::BatchCount, &batch_id);
 
         env.events().publish(
             (symbol_short!("batch"), symbol_short!("minted")),
@@ -683,7 +718,10 @@ impl RegistryContract {
             return Err(RegistryError::UnauthorizedContract);
         }
 
-        let mut batch: BatchRecord = env.storage().persistent().get(&DataKey::Batch(batch_id))
+        let mut batch: BatchRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Batch(batch_id))
             .ok_or(RegistryError::BatchNotFound)?;
 
         let link_key = DataKey::BatchOrderLink(batch_id, order_id);
@@ -692,13 +730,21 @@ impl RegistryContract {
         }
 
         batch.linked_order_ids.push_back(order_id);
-        env.storage().persistent().set(&DataKey::Batch(batch_id), &batch);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Batch(batch_id), &batch);
         env.storage().persistent().set(&link_key, &true);
 
         let order_batch_key = DataKey::OrderBatch(order_id);
-        let mut order_batches: Vec<u64> = env.storage().persistent().get(&order_batch_key).unwrap_or_else(|| Vec::new(&env));
+        let mut order_batches: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&order_batch_key)
+            .unwrap_or_else(|| Vec::new(&env));
         order_batches.push_back(batch_id);
-        env.storage().persistent().set(&order_batch_key, &order_batches);
+        env.storage()
+            .persistent()
+            .set(&order_batch_key, &order_batches);
 
         env.events().publish(
             (symbol_short!("batch"), symbol_short!("linked")),
@@ -715,13 +761,19 @@ impl RegistryContract {
 
     pub fn get_batch_history(env: Env, order_id: u64) -> Result<Vec<BatchRecord>, RegistryError> {
         require_initialized(&env)?;
-        let batch_ids: Vec<u64> = env.storage().persistent()
+        let batch_ids: Vec<u64> = env
+            .storage()
+            .persistent()
             .get(&DataKey::OrderBatch(order_id))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut result = Vec::new(&env);
         for id in batch_ids.iter() {
-            if let Some(batch) = env.storage().persistent().get::<_, BatchRecord>(&DataKey::Batch(id)) {
+            if let Some(batch) = env
+                .storage()
+                .persistent()
+                .get::<_, BatchRecord>(&DataKey::Batch(id))
+            {
                 result.push_back(batch);
             }
         }
@@ -768,7 +820,12 @@ fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), RegistryEr
 /// pause brick unrelated escrow functionality, which is a bigger blast
 /// radius than the pause is meant to have — see `docs/CONTRACT_UPGRADES.md`.
 fn require_not_paused(env: &Env) -> Result<(), RegistryError> {
-    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+    if env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+    {
         return Err(RegistryError::ContractPaused);
     }
     Ok(())
@@ -777,7 +834,7 @@ fn require_not_paused(env: &Env) -> Result<(), RegistryError> {
 /// Verifies a candidate governance address is a real deployed governance
 /// contract (mirrors the check added to the escrow contracts in #680).
 mod governance_client {
-    use super::{Address, Env, HostError, Symbol, Val, Vec};
+    use soroban_sdk::{Address, Env, Error as HostError, Symbol, Val, Vec};
 
     pub fn verify(env: &Env, governance: &Address) -> Result<(), ()> {
         let func = Symbol::new(env, "get_admin");
@@ -827,6 +884,5 @@ fn is_authorized_contract(source_contract: &Address, refs: &ContractRefs) -> boo
     source_contract.clone() == refs.escrow_contract
         || source_contract.clone() == refs.production_contract
 }
-
 
 mod test;

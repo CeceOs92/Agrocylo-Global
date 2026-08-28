@@ -5,6 +5,7 @@ import logger from './config/logger.js';
 import { config } from './config/index.js';
 import { connectDB } from './db/client.js';
 import { startProductionWatcher } from './events/watcher.js';
+import { runProductionReconciliation } from './services/reconciliationService.js';
 import { attachWebSocketServer } from './services/wsServer.js';
 import { registerHttpServer, registerWatcher, shutdown } from './services/lifecycle.js';
 import { startReconciliationSweep, stopReconciliationSweep } from './services/reconciliationSweep.js';
@@ -20,12 +21,15 @@ async function bootstrap() {
       registerWatcher(watcherInterval);
     }
 
-    if (config.runReconciliationSweep) {
-      startReconciliationSweep(config.reconciliationSweepIntervalMs);
-      logger.info(
-        `[bootstrap]: Reconciliation drift sweep started (interval: ${config.reconciliationSweepIntervalMs}ms)`,
-      );
-    }
+    // Start reconciliation scheduler (every 15 minutes)
+    const RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
+    const reconciliationInterval = setInterval(() => {
+      runProductionReconciliation().catch((err) => {
+        logger.error('[Reconciliation] Scheduled run failed', { error: err instanceof Error ? err.message : String(err) });
+      });
+    }, RECONCILIATION_INTERVAL_MS);
+    registerWatcher(reconciliationInterval);
+    logger.info('[Reconciliation] Scheduled to run every 15 minutes');
 
     const server = http.createServer(app);
     registerHttpServer(server);

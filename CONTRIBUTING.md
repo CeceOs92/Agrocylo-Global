@@ -125,6 +125,20 @@ Once approved, a maintainer will merge your PR.
 
 ---
 
+## Continuous Integration & Merge Gate
+
+**CI must be green before merge.** Every workflow under `.github/workflows/` (`ci.yml`, `Server CI`, `Server E2E`, `E2E · Playwright`) is a required status check on `main` — a PR cannot merge while a check relevant to the paths it touches is red. This is enforced by branch protection on `main`, not just by convention; if you believe a required check isn't actually blocking merge for your PR, treat that as a bug and file an issue (see #745 for the tracking issue on this gap).
+
+**Scoping:** Each workflow only runs for the paths it covers (see the `paths:` filters in each `.github/workflows/*.yml` file) — e.g. a contracts-only PR isn't blocked by the Playwright suite, but a PR touching `client/` or `agro-production/client/` is. Only the checks relevant to your PR's changed paths need to pass.
+
+**If a required check is flaky (not a real failure caused by your change):**
+1. Re-run the job first (`Re-run failed jobs` in the Actions UI, or `gh run rerun <run-id> --failed`). Most transient failures (network blips, timing-sensitive E2E steps) resolve on retry.
+2. If it fails a second time with the same non-deterministic symptom, comment on your PR linking the failed run and tag a maintainer — don't just keep retrying silently.
+3. Only a repo admin/maintainer can bypass a required check (via an admin merge). This is logged in the PR's merge event and timeline and should be rare — treat it as "the check itself needs fixing," and file an issue for the flaky check if one doesn't already exist.
+4. Never disable or remove a required check to unblock a merge. If a check is fundamentally broken (not flaky — consistently red for reasons unrelated to your change), that's a separate bug to fix, not a reason to merge around it.
+
+---
+
 ## Important Guidelines
 
 ### ✅ Do
