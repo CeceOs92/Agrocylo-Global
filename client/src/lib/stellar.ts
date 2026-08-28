@@ -15,7 +15,9 @@ const RPC_URLS: Record<string, string> = {
   "Test SDF Network ; September 2015": "https://soroban-testnet.stellar.org",
 };
 
-// Defaults to testnet
+// Deprecated: these used to default to testnet. Now we require env vars to be set.
+// Left for backwards compatibility in certain contexts where explicit overrides are available.
+// Prefer getting RPC URL from NEXT_PUBLIC_SOROBAN_RPC_URL environment variable.
 export const DEFAULT_HORIZON_URL = "https://horizon-testnet.stellar.org";
 export const DEFAULT_RPC_URL = "https://soroban-testnet.stellar.org";
 
