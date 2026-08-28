@@ -1,7 +1,9 @@
 import http from "http";
+import { initSentry, Sentry } from "./config/sentry.js";
 import app from "./app.js";
 import logger from "./config/logger.js";
 import { config } from "./config/index.js";
+import { initializeSentry } from "./config/observability.js";
 import { connectDb } from "./config/database.js";
 import { startContractWatcher } from "./services/contractWatcher.js";
 import { startWorkers } from "./queues/workers.js";
@@ -10,7 +12,11 @@ import { startWeatherPolling } from "./services/weatherService.js";
 import { wsManager } from "./services/wsManager.js";
 
 async function bootstrap() {
+  // Initialize error tracking and tracing first
+  initializeSentry('api');
+
   try {
+    initSentry();
     logger.info("[bootstrap]: Starting Agrocylo Backend");
     logger.info(`[bootstrap]: Environment: ${config.nodeEnv}`);
     logger.info(`[bootstrap]: Port: ${config.port}`);
@@ -78,11 +84,16 @@ process.on("unhandledRejection", (reason: unknown) => {
     reason: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
+  Sentry.captureException(reason);
 });
 
 process.on("uncaughtException", (error: Error) => {
   logger.error("Uncaught exception — shutting down", { error: error.message, stack: error.stack });
-  process.exit(1);
+  Sentry.captureException(error);
+  // Sentry's transport delivers over the network asynchronously — exiting
+  // immediately after capture can drop the event before it's sent. Give it
+  // a bounded window to flush before the process actually dies.
+  Sentry.close(2000).finally(() => process.exit(1));
 });
 
 bootstrap();

@@ -1,3 +1,7 @@
+# Docker Compose for legacy server/client apps
+# This orchestrates PostgreSQL, Redis, and the backend from ./server (port 5000)
+# For agro-production/server and agro-production/client, use npm run dev locally
+# See README.md "Docker Setup" section for details
 version: '3.9'
 
 services:

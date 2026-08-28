@@ -1,5 +1,6 @@
 import type { Product, ProductDetail, ProductListResponse } from "@/types";
 import api from "../lib/apiClient";
+import { formatStroopsForDisplay } from "@/lib/validation";
 
 export interface ProductFilters {
   category?: string;
@@ -30,8 +31,7 @@ export async function fetchProduct(id: string): Promise<ProductDetail> {
   return api.get<ProductDetail>(`/products/${id}`);
 }
 
+/** Display a stroop price as XLM. Exact BigInt arithmetic — see validation.ts. */
 export function formatPrice(raw: string): string {
-  const n = BigInt(raw || "0");
-  const xlm = Number(n) / 1e7;
-  return xlm.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  return formatStroopsForDisplay(raw, 4);
 }

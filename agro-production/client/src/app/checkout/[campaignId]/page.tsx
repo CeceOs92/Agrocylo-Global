@@ -95,7 +95,25 @@ export default function CheckoutPage() {
     current = advanceMachine(current, "signing");
     setTx(current);
 
-    const result = await signAndSubmitTransaction(builtResult.data);
+    const result = await signAndSubmitTransaction(builtResult.data, undefined, {
+      intent: `create_order:${campaign.onChainId}:${addrResult.sanitized}:${amountStroops}`,
+    });
+
+    if (result.outcome === "pending") {
+      // Submitted but not confirmed within the poll window — NOT failed. Show it
+      // as pending so the buyer does not re-order and pay twice; the background
+      // resolver reconciles it once the ledger catches up.
+      setTx(
+        advanceMachine(current, "pending", {
+          txHash: result.txHash,
+          error:
+            result.error ??
+            "Your order was submitted and is awaiting confirmation. Do not submit again.",
+        }),
+      );
+      return;
+    }
+
     if (!result.success) {
       const classified = classifyError(result.error, "submitOrderTransaction");
       logErrorWithContext(result.error ?? "transaction failed", {
@@ -251,6 +269,21 @@ export default function CheckoutPage() {
               <Link href="/orders" className="inline-block mt-2 text-sm text-primary-600 underline hover:text-primary-800">
                 View in Order Dashboard →
               </Link>
+            </div>
+          )}
+
+          {/* Pending banner — submitted, not confirmed. Not an error. */}
+          {tx.phase === "pending" && (
+            <div className="border border-amber-200 bg-amber-50 rounded-xl p-4 text-amber-800 text-sm" role="status">
+              <p className="font-semibold mb-1">Order submitted — awaiting confirmation</p>
+              <p>{tx.error}</p>
+              {tx.txHash && (
+                <p className="mt-1 text-xs break-all">On-chain TX: <span className="font-mono">{tx.txHash}</span></p>
+              )}
+              <p className="mt-2 text-xs">
+                This can take a little longer during network congestion. Do not submit
+                again — check the <Link href="/orders" className="underline">Order Dashboard</Link> for status.
+              </p>
             </div>
           )}
 

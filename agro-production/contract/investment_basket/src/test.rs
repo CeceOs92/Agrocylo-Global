@@ -394,6 +394,188 @@ fn test_withdraw_basket_after_deadline_recovers_principal() {
     assert_eq!(err, BasketError::NothingToWithdraw);
 }
 
+#[test]
+fn test_fund_basket_emits_skip_event_with_invested_skipped_summary() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    // c1 stays investable. c2's deadline will have passed, so invest fails.
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    // Advance past c2's deadline only.
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.status, BasketStatus::Funded);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 600_000);
+    assert_eq!(basket.total_skipped, 400_000);
+    assert_eq!(basket.total_collected, 400_000);
+
+    // Verify constituent details.
+    let cc1 = basket.constituents.get(0).unwrap();
+    let cc2 = basket.constituents.get(1).unwrap();
+    assert_eq!(cc1.invested_amount, 600_000);
+    assert!(!cc1.swept);
+    assert_eq!(cc2.invested_amount, 0);
+    assert_eq!(cc2.collected_amount, 400_000);
+    assert!(cc2.swept);
+}
+
+#[test]
+fn test_fund_basket_all_constituents_fail_clearly_distinguished() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    // All deadlines passed, so all invest calls will fail.
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c3 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 3_333u32), (c2, 3_333u32), (c3, 3_334u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    // Advance past all deadlines.
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.status, BasketStatus::Funded);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 0);
+    assert_eq!(basket.total_skipped, 1_000_000);
+    assert_eq!(basket.total_collected, 1_000_000);
+
+    // All constituents failed to invest.
+    for i in 0..3 {
+        let c = basket.constituents.get(i).unwrap();
+        assert_eq!(c.invested_amount, 0);
+        assert!(c.swept);
+    }
+
+    // Depositor can immediately claim the full principal.
+    let payout = t.basket.claim_basket_returns(&t.depositor, &basket_id);
+    assert_eq!(payout, 1_000_000);
+}
+
+// ---------------------------------------------------------------------------
+// Schema Validation Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_event_schema_funded_with_summary() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 600_000);
+    assert_eq!(basket.total_skipped, 400_000);
+}
+
+#[test]
+fn test_event_schema_skipped() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    let cc2 = basket.constituents.get(1).unwrap();
+
+    // Verify that skipped constituent has no invested_amount
+    assert_eq!(cc2.invested_amount, 0);
+    assert_eq!(cc2.collected_amount, 400_000);
+    assert!(cc2.swept);
+}
+
 // ---------------------------------------------------------------------------
 // Governance, upgrade, guardian, pause, storage migration (Issue #757)
 // ---------------------------------------------------------------------------

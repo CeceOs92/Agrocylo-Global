@@ -52,14 +52,26 @@ npm run dev
 # Server runs on http://localhost:3001
 ```
 
-#### For Smart Contracts
+#### For Smart Contracts (Rust/Soroban)
 ```bash
-cd agro-production/contract/production_escrow  # or other contract dir
-cargo build
+# Install toolchain (one-time) — see docs/TOOLCHAIN.md for pinned versions
+rustup target add wasm32v1-none
+cargo install stellar-cli --version "22.8.1" --locked
+
+# Build & test all contracts
+cd agro-production/contract
+cargo fmt --all                      # Format code
+cargo clippy --workspace --all-targets -- -D warnings  # Lint (fail on warnings)
+cargo test --workspace              # Run all tests
+cargo check --workspace             # Pre-commit check
+cargo build --workspace --target wasm32v1-none --release  # Release build
+
+# For individual contract (e.g., production_escrow)
+cd agro-production/contract/production_escrow
 cargo test
 ```
 
-See respective `README.md` files in each directory for more details.
+See `docs/TOOLCHAIN.md` for complete version info and `respective README.md` files in each directory for more details.
 
 ### 4. Make Your Changes
 
@@ -70,9 +82,22 @@ See respective `README.md` files in each directory for more details.
 - Keep commits atomic and descriptive
 
 **Before committing:**
-- Run tests: `npm test` (frontend/backend) or `cargo test` (contracts)
-- Type-check: `npm run type-check` or `cargo check`
-- Lint: `npm run lint` or `cargo clippy`
+- Run tests: `npm test` (frontend/backend) or `cargo test --workspace` (contracts)
+- Type-check: `npm run type-check` (Node.js/React) or `cargo check --workspace` (contracts)
+- Lint: `npm run lint` (Node.js) or `cargo clippy --workspace --all-targets -- -D warnings` (contracts)
+
+**⚠️ Critical for Rust Contracts (Issue #777, #679):**
+Smart contracts hold real user funds and are deployed to mainnet. Before opening a PR touching any contract code:
+1. **Run `cargo check --workspace`** — catches uncompilable references, missing enum variants, and other compile errors *before* code review. This is the single highest-leverage check (see §"Why This Matters" below).
+2. **Run `cargo test --workspace`** — ensure all tests pass, including regression tests
+3. **`cargo fmt --all` + `cargo clippy --workspace -- -D warnings`** — ensure code style and no warnings
+4. If you changed patterns in one contract, verify the change is applied consistently to other contracts that share the same pattern (e.g., `production_escrow` and `contracts/escrow` both have attester roles, governance gating, etc. — changes to one should be checked against the other per `docs/SECURITY_AUDIT.md` §14.6)
+
+**Why This Matters (The #679 Incident):**
+In a prior merge, two parallel PRs silently dropped each other's identifiers when merged — one added a new enum variant, the other also added one, and one was lost in merge resolution. No test caught it because they tested in isolation. This is why:
+- **`cargo check --workspace` must pass** — CI doesn't catch this class of compile error if it's only checked per-crate
+- **Full diff review is required** — visual inspection catches silent enum variant loss
+- **Cross-contract consistency must be verified** — when patterns are duplicated (by design, not via shared code), both must be updated together
 
 ### 5. Write a Descriptive Commit Message
 
@@ -99,6 +124,19 @@ docs: add contribution guide (#722)
 Maintainers will review your PR and may request changes. Address feedback promptly.
 
 Once approved, a maintainer will merge your PR.
+
+#### Merge & Review Practices for Rust Contracts
+
+Because smart contracts hold real funds and are deployed to mainnet, merge gates are strict:
+
+1. **Rebase before merge** — don't squash-merge PRs touching `production_escrow`, `governance`, `investment_basket`, or `registry`. Rebasing preserves a clear history if we need to bisect regressions later.
+2. **Full diff review before merge** — not just CI green. Verify that:
+   - All references to enums actually have the variants defined
+   - All cross-contract patterns (attester role, governance gating, TTL management) are applied consistently
+   - No storage keys are shadowed or reused
+   - All auth checks are in place
+3. **Verify test coverage** — new entry points need tests. Reuse of existing patterns can reuse existing tests, but refactoring should not reduce coverage.
+4. **If you changed a pattern in one contract, check the other** — `production_escrow` and `contracts/escrow` intentionally share patterns (attester, governance-gated params, dispute resolution); see `docs/SECURITY_AUDIT.md` §14.6 for the cross-contract checklist.
 
 ---
 
@@ -136,6 +174,16 @@ Once approved, a maintainer will merge your PR.
 2. If it fails a second time with the same non-deterministic symptom, comment on your PR linking the failed run and tag a maintainer — don't just keep retrying silently.
 3. Only a repo admin/maintainer can bypass a required check (via an admin merge). This is logged in the PR's merge event and timeline and should be rare — treat it as "the check itself needs fixing," and file an issue for the flaky check if one doesn't already exist.
 4. Never disable or remove a required check to unblock a merge. If a check is fundamentally broken (not flaky — consistently red for reasons unrelated to your change), that's a separate bug to fix, not a reason to merge around it.
+
+---
+
+## Security Review Requirement (Smart Contracts)
+
+**A new contract crate, or a new cross-contract call between existing contracts, requires a scoped security review before merge** — not an occasional retrospective one. This is what closed Issue #754 (governance, investment-basket, and the path-payment router had shipped without ever being added to `contracts/SECURITY_AUDIT.md`'s scope) and it's meant to stop the same gap from reopening for whatever ships next.
+
+- Run through [`contracts/SECURITY_REVIEW_CHECKLIST.md`](contracts/SECURITY_REVIEW_CHECKLIST.md) — covers when it applies, what to check (authorization, cross-contract trust boundaries, arithmetic, pause/emergency response), and how to record the result.
+- Record the outcome as a new dated section in [`contracts/SECURITY_AUDIT.md`](contracts/SECURITY_AUDIT.md), even if the result is "reviewed, no new findings."
+- Every finding needs one of three tracked dispositions: **Fixed**, **Accepted risk** (with a written rationale), or **Scheduled** (linked to an issue). A finding with no disposition is not a completed review.
 
 ---
 
@@ -194,13 +242,32 @@ For full documentation: See [ARCHITECTURE.md](ARCHITECTURE.md) and individual `R
 
 ---
 
+## Stellar Wave Bounty Program
+
+Agrocylo Global participates in the **Stellar Wave issue-claim bounty program** at [drips.network](https://drips.network). External contributors can claim bounty-labeled issues and earn Stellar rewards.
+
+### How to Participate
+
+1. **Find a bounty** on [drips.network/Agrocylo-Global](https://drips.network) or GitHub issues with the `Stellar Wave` label
+2. **Request to claim** — comment on the issue: `"I'd like to claim this bounty"` and wait for maintainer approval
+3. **Work locally** — follow the setup and pre-PR expectations above (especially the Rust contract checklist if it's a contract issue)
+4. **Open a PR** — reference the issue (e.g., `Closes #123`)
+5. **Iterate on review** — address feedback promptly
+6. **Earn your reward** — once merged, the bounty is released to your Stellar address via Stellar Wave
+
+**Bounty amounts are set per-issue.** Check the Stellar Wave listing or GitHub issue for your issue's reward. All contributions are valued, from one-line docs fixes to multi-contract changes.
+
+---
+
 ## Questions?
 
 - **Repo structure:** See [ARCHITECTURE.md](ARCHITECTURE.md)
 - **API endpoints:** See `server/API.md` or `agro-production/server/API.md`
 - **Smart contracts:** See `contract/` or `agro-production/contract/` README files
+- **Toolchain & versions:** See [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)
+- **Security & audit notes:** See [contracts/SECURITY_AUDIT.md](contracts/SECURITY_AUDIT.md)
 - **Issues:** Browse [GitHub Issues](https://github.com/Cylo-Traders/Agrocylo-Global/issues)
-- **Stellar Wave bounties:** Check issue labels for `Stellar Wave`
+- **Stellar Wave bounties:** Check issue labels for `Stellar Wave` or visit [drips.network/Agrocylo-Global](https://drips.network)
 
 ---
 

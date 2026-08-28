@@ -1,4 +1,5 @@
 import http from 'http';
+import { initSentry, Sentry } from './config/sentry.js';
 import app from './app.js';
 import logger from './config/logger.js';
 import { config } from './config/index.js';
@@ -7,9 +8,11 @@ import { startProductionWatcher } from './events/watcher.js';
 import { runProductionReconciliation } from './services/reconciliationService.js';
 import { attachWebSocketServer } from './services/wsServer.js';
 import { registerHttpServer, registerWatcher, shutdown } from './services/lifecycle.js';
+import { startReconciliationSweep, stopReconciliationSweep } from './services/reconciliationSweep.js';
 
 async function bootstrap() {
   try {
+    initSentry();
     await connectDB();
 
     let watcherInterval: ReturnType<typeof setInterval> | null = null;
@@ -44,20 +47,24 @@ async function bootstrap() {
 }
 
 process.on('SIGTERM', () => {
+  stopReconciliationSweep();
   shutdown('SIGTERM').then(() => process.exit(0));
 });
 
 process.on('SIGINT', () => {
+  stopReconciliationSweep();
   shutdown('SIGINT').then(() => process.exit(0));
 });
 
 process.on('unhandledRejection', (reason: unknown) => {
   logger.error('Unhandled promise rejection', { reason: reason instanceof Error ? reason.message : String(reason), stack: reason instanceof Error ? reason.stack : undefined });
+  Sentry.captureException(reason);
 });
 
 process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught exception — shutting down', { error: error.message, stack: error.stack });
-  process.exit(1);
+  Sentry.captureException(error);
+  Sentry.close(2000).finally(() => process.exit(1));
 });
 
 bootstrap();

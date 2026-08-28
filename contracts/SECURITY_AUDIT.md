@@ -1,9 +1,10 @@
 # Security Audit Checklist
 
-> **Scope:** Escrow (`contracts/escrow/src/lib.rs`), Registry (`agro-production/contract/registry/src/lib.rs`), ProductionEscrow (`agro-production/contract/production_escrow/src/lib.rs`)
+> **Scope:** 5 contracts: Registry, ProductionEscrow, Governance, InvestmentBasket, and legacy Escrow (`contracts/escrow/src/lib.rs`)
 >
-> **Date:** 2026-05-29
-> **Status:** Review Complete
+> **Audit Date:** 2026-05-29 (original review)
+> **Last Verified Against:** Commit TBD (tie re-audits to CI check — see §15 below)
+> **Status:** ⚠️ Stale — Pending Re-review (see notes below)
 
 ---
 
@@ -23,6 +24,7 @@
 12. [Event Monitoring](#12-event-monitoring)
 13. [Findings Summary](#13-findings-summary)
 14. [Issue #652 Follow-up: Legacy/Production Escrow Drift Re-audit](#14-issue-652-follow-up-legacyproduction-escrow-drift-re-audit)
+15. [Issue #754: Full-Scope Audit — Governance, Investment Basket, Path-Payment Router](#15-issue-754-full-scope-audit--governance-investment-basket-path-payment-router)
 
 ---
 
@@ -491,3 +493,62 @@ Because `contracts/escrow` and `production_escrow` intentionally duplicate sever
 - [ ] Run the full workspace test suite (`cargo test` from the workspace root, or per-crate — see caveat below) before merging any change to either contract
 
 **Caveat on `cargo test` at the workspace root:** as of this audit, the `registry` crate has one pre-existing, unrelated failing test (`test_reputation_is_tracked_independently_per_farmer`, a reputation-scoring assertion mismatch), and the `governance` and `investment_basket` crates each have several pre-existing failures (`HostError: ... "ledger protocol version too old for host"` — looks like a test-harness `LedgerInfo` setup gap, the same class of issue as §14.4, not a contract bug). None of these are touched by this PR and all are out of scope for issues #652–#655 — noted here rather than fixed silently so they aren't lost. Similarly, `server/src/services/reputationService.ts` has 3 pre-existing TypeScript errors and several server test files (`contractWatcher`, `groupOrderService`, `orderService`, `reputationService`, `wsManager`) have pre-existing failing tests unrelated to this PR's changes — also flagged here rather than silently worked around, since fixing them was outside the scope of issues #652–#655.
+
+---
+
+## 15. Scope Correction & Staleness Notice (2026-08-27)
+
+### Why this document is now marked stale
+
+This audit is from **2026-05-29** (3+ months old) and the stated scope has drifted. Additionally, **critical unaudited changes** have been merged since:
+
+1. **Issues #679–#680** (compile fixes, attester pattern sync) were applied in July without re-audit of the impact
+2. **Issue #777** (contract instance TTL extension) was just implemented across all four production contracts, adding `bump_instance()` calls to every state-changing entry point — an infrastructure change spanning governance, storage patterns, and initialization flows that affects the threat model (TTL management = archival prevention)
+3. **Scope never updated** after `governance` and `investment_basket` contracts were added and deployed to production — this document still references the dead orphaned `agro-production/contract/src/lib.rs` Campaign contract and omits two in-scope contracts
+
+### Scope Correction
+
+**Original scope (stale):** Escrow (`contracts/escrow/src/lib.rs`), Registry, ProductionEscrow
+
+**Current production scope (5 contracts — all handle real user funds):**
+1. `agro-production/contract/production_escrow/src/lib.rs` — crowdfunded production campaigns (investor funds, farmer revenue)
+2. `agro-production/contract/governance/src/lib.rs` — governance contract for timelock + weighted-vote proposals (admin/governance configuration)
+3. `agro-production/contract/investment_basket/src/lib.rs` — investment baskets (investor funds across multiple campaigns)
+4. `agro-production/contract/registry/src/lib.rs` — campaign registry + reputation scoring (critical governance reference)
+5. `contracts/escrow/src/lib.rs` — legacy direct buyer↔farmer marketplace escrow (still live, backed by root `client/` app)
+
+**Out of scope:** `agro-production/contract/src/lib.rs` (dead, orphaned, superseded by the split into registry + production_escrow)
+
+### Critical Changes Post-Audit (Unaudited in This Document)
+
+| Issue | Date | Change | Scope | Status |
+|-------|------|--------|-------|--------|
+| #679/#680 | 2026-07 | Compilation fixes; attester pattern ported to legacy Escrow | Escrow, ProductionEscrow | Fixed but unaudited; see §14 (re-audit results for #652–#655 only) |
+| #777 | 2026-08 | **Instance TTL extension** — added `bump_instance()` calls throughout all four production contracts | All 4 contracts | **Unaudited; pending re-review** |
+
+**#777 impact summary:** Every state-changing entry point now calls `bump_instance(env)` after auth checks, before storage writes. This prevents instance storage archival on mainnet (a critical mainnet-viability issue) but introduces new code paths and TTL management. The change spans:
+- New constants: `INSTANCE_TTL_THRESHOLD` (1000 ledgers), `INSTANCE_TTL_EXTEND` (100000 ledgers)
+- New helper: `bump_instance(env: &Env)` in all four contracts
+- New public endpoint: `bump_instance_ttl(env: Env)` — permissionless, for keeper/cron use
+- Pervasive additions: 40+ state-changing functions across the four contracts now call `bump_instance()`
+- Governance functions now extend TTL: all setters for admin params, all governance-gated operations
+
+### Marking This Document Stale
+
+Until a proper re-audit of #777 and a full re-check of all five contracts (including investment_basket and governance, which were not in the original 2026-05-29 scope), **this document's findings should not be treated as current, and the "Status: Review Complete" label is misleading.**
+
+**Recommended next steps:**
+1. Tie a re-audit checklist to CI: add a `cargo check --workspace` gate that catches uncompilable code before code review (prevents §14.2-class breakage)
+2. Schedule a formal re-review of all five contracts with particular attention to:
+   - TTL extension safety (§15's #777 changes): are TTL windows adequate? do calls happen in the right places?
+   - Governance contract correctness (not in original scope)
+   - Investment basket contract correctness (not in original scope)
+3. Add this `Last Verified Against: <commit>` field to the top-level header and update it whenever contract code changes materially
+
+### Spot-check: `confirm_receipt` Transfer Ordering (§1 Finding)
+
+The original audit (§1) claimed: "Transfers tokens to farmer BEFORE writing updated order status" with a "Checks-Effects-Interactions violation."
+
+**Current code check (production_escrow::confirm_order):** The function transfers tokens (effects) after loading the order (checks) and before updating its status (would be effects). However, Soroban's synchronous, non-reentrant runtime makes reentrancy impossible; the primary concern is code clarity, not runtime safety.
+
+**Status:** Accurate but acknowledged as low-risk in Soroban's model (§1 states "given Soroban's non-reentrant runtime, this is a code-quality concern rather than an exploitable vulnerability"). Not a blocker, but future refactors should favor writing all state changes before token transfers for clarity.

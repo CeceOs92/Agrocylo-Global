@@ -5,6 +5,8 @@ import { processIndexing } from "./processors/indexing.js";
 import { processAnalytics } from "./processors/analytics.js";
 import { processNotifications } from "./processors/notifications.js";
 import { processReconciliation } from "./processors/reconciliation.js";
+import { queueJobLagSeconds, queueJobFailuresTotal } from "../services/promMetrics.js";
+import { captureAlert } from "../config/sentry.js";
 
 const { Worker, QueueEvents } = require("bullmq") as {
   Worker: any;
@@ -46,21 +48,41 @@ export function startWorkers(): RunningWorkers {
 
   for (const w of workers) {
     w.on("active", (job: any) =>
-      withJobContext(w.name, String(job.id), job.name, () =>
-        logger.info("Job active", { attempt: job.attemptsMade }),
-      ),
+      withJobContext(w.name, String(job.id), job.name, () => {
+        // Queue lag (Issue #756): time between enqueue and a worker actually
+        // picking the job up — the backlog/starvation indicator.
+        if (typeof job.timestamp === "number") {
+          queueJobLagSeconds.observe({ queue: w.name }, (Date.now() - job.timestamp) / 1000);
+        }
+        logger.info("Job active", { attempt: job.attemptsMade });
+      }),
     );
     w.on("completed", (job: any) =>
       withJobContext(w.name, String(job.id), job.name, () => logger.info("Job completed")),
     );
-    w.on("failed", (job: any, err: Error) =>
-      withJobContext(w.name, String(job?.id ?? "unknown"), job?.name, () =>
+    w.on("failed", (job: any, err: Error) => {
+      withJobContext(w.name, String(job?.id ?? "unknown"), job?.name, () => {
         logger.error("Job failed", {
           error: err.message,
           attemptsMade: job?.attemptsMade,
-        }),
-      ),
-    );
+        });
+        queueJobFailuresTotal.inc({ queue: w.name, job: job?.name ?? "unknown" });
+
+        // Only alert once a job has exhausted its retries — a single
+        // transient failure that BullMQ will retry isn't yet an incident.
+        // This is the "failed scheduled jobs (weather polling, price-index
+        // aggregation)" alert from Issue #756: `aggregate-price-index` runs
+        // as a job on this ("analytics") queue.
+        const maxAttempts = job?.opts?.attempts ?? 1;
+        if ((job?.attemptsMade ?? 0) >= maxAttempts) {
+          captureAlert(
+            "scheduled_job_failed",
+            `Job "${job?.name ?? "unknown"}" on queue "${w.name}" failed permanently after ${job?.attemptsMade ?? "?"} attempt(s)`,
+            { queue: w.name, jobName: job?.name, jobId: job?.id, error: err.message },
+          );
+        }
+      });
+    });
     w.on("error", (err: Error) => logger.error("Worker error", err));
   }
 

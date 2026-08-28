@@ -12,12 +12,13 @@
     "test:a11y": "vitest run src/a11y.test.tsx"
   },
   "dependencies": {
+    "@sentry/nextjs": "^8.47.0",
     "@stellar/freighter-api": "^1.4.0",
     "@stellar/stellar-sdk": "^14.5.0",
     "lucide-react": "^1.21.0",
-    "next": "15.3.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "16.2.4",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "sonner": "^2.0.7"
   },
   "devDependencies": {
@@ -28,7 +29,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^8.57.1",
-    "eslint-config-next": "15.3.1",
+    "eslint-config-next": "16.2.4",
     "jsdom": "^29.1.1",
     "msw": "^1.2.1",
     "tailwindcss": "^4",

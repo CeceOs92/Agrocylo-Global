@@ -25,6 +25,8 @@ import { getEventMetrics } from './events/metrics.js';
 import { prisma } from './db/client.js';
 import { server as sorobanRpcServer } from './services/sorobanRpc.js';
 import { getWsClientCount } from './services/wsServer.js';
+import { registry as promRegistry, recordHttpRequest } from './services/promMetrics.js';
+import { recordResponseStatus } from './services/errorRateMonitor.js';
 
 const app = express();
 
@@ -47,6 +49,21 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(defaultLimiter);
 app.use((_req: Request, _res: Response, next: express.NextFunction) => { _requestTotal++; next(); });
+
+// Per-route latency/error-rate metrics (Issue #756). Uses the matched route
+// pattern (e.g. "/api/v1/orders/:id"), not the raw URL, to keep Prometheus
+// label cardinality bounded; falls back to the raw path when nothing matched
+// (404s).
+app.use((req: Request, res: Response, next: express.NextFunction) => {
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : req.path;
+    recordHttpRequest(req.method, route, res.statusCode, durationMs);
+    recordResponseStatus(res.statusCode);
+  });
+  next();
+});
 
 app.use((req: Request, _res: Response, next: express.NextFunction) => {
   if (isGracefullyShuttingDown()) {
@@ -147,7 +164,7 @@ app.get('/readyz', async (_req: Request, res: Response) => {
 
 app.get('/api/docs/openapi.json', serveOpenApiDocument);
 
-app.get('/metrics', requireMetricsAuth, (_req: Request, res: Response) => {
+app.get('/metrics', requireMetricsAuth, async (_req: Request, res: Response) => {
   const em = getEventMetrics();
   const lines = [
     '# HELP events_processed_total Total events indexed from Soroban contracts',
@@ -163,7 +180,14 @@ app.get('/metrics', requireMetricsAuth, (_req: Request, res: Response) => {
     '# TYPE api_requests_total counter',
     `api_requests_total ${_requestTotal}`,
   ];
-  res.set('Content-Type', 'text/plain; version=0.0.4').send(lines.join('\n') + '\n');
+  // Per-route latency/error-rate histograms and the reconciliation-drift
+  // gauge (Issue #756) are registered on a separate prom-client registry;
+  // its text output is appended, which the Prometheus exposition format
+  // tolerates as multiple sections in one response body.
+  const promSection = await promRegistry.metrics();
+  res
+    .set('Content-Type', 'text/plain; version=0.0.4')
+    .send(`${lines.join('\n')}\n${promSection}`);
 });
 
 app.get('/metrics/rate-limits', requireMetricsAuth, (_req: Request, res: Response) => {
