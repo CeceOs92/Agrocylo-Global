@@ -189,7 +189,7 @@ export default function OrdersPage() {
       <div className="border border-border rounded-xl p-10 text-center space-y-4">
         <p className="text-lg font-semibold text-foreground">Connect Your Wallet</p>
         <p className="text-sm text-muted">Connect to view your orders and campaign activity.</p>
-        <button onClick={connect} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to view orders"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2">{walletLoading && <ButtonSpinner />}{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
+        <button onClick={() => connect()} disabled={walletLoading} aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to view orders"} className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2">{walletLoading && <ButtonSpinner />}{walletLoading ? "Connecting…" : "Connect Wallet"}</button>
       </div>
     );
   }

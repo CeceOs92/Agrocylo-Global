@@ -188,7 +188,7 @@ model Order {
   amount         String
   token          String
   status         String
-  productId      String?
+  productId      String?  @db.Uuid
   txHash         String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -283,7 +283,7 @@ model EscrowTransaction {
 
 model PriceHistory {
   id        String   @id @default(uuid())
-  productId String
+  productId String   @db.Uuid
   price     String
   currency  String
   timestamp DateTime
@@ -515,8 +515,8 @@ model IntegratorApiKeyUsage {
 model ContractWatcherCheckpoint {
   service    String   @id
   lastLedger Int      @map("last_ledger")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("contract_watcher_checkpoints")
 }
@@ -666,4 +666,24 @@ model UssdSession {
   @@index([phoneNumber])
   @@index([sessionId, expiresAt])
   @@map("ussd_sessions")
+}
+
+model ReconciliationAlert {
+  id          String    @id @default(uuid())
+  entityType  String    @map("entity_type")  // "order" | "campaign" | "dispute"
+  entityId    String    @map("entity_id")    // orderIdOnChain / campaignIdOnChain
+  contractSet String    @map("contract_set") // "escrow" | "production_escrow"
+  driftType   String    @map("drift_type")   // "status_mismatch" | "amount_mismatch" | "missing_on_chain" | "missing_in_db"
+  dbValue     Json      @map("db_value")
+  chainValue  Json      @map("chain_value")
+  detectedAt  DateTime  @default(now()) @map("detected_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  notes       String?
+
+  @@index([entityType, entityId])
+  @@index([detectedAt(sort: Desc)])
+  @@index([resolvedAt])
+  @@index([driftType])
+  @@map("reconciliation_alerts")
 }

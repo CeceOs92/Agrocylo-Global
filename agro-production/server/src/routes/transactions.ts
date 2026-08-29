@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../db/client.js';
 import {
   jsonValidated,
@@ -21,7 +22,10 @@ import { reconcileTransaction } from '../services/transactionReconciler.js';
 
 const router = Router();
 
-const VALID_TRANSITIONS: Record<TransactionStatus, readonly TransactionStatus[]> = {
+const VALID_TRANSITIONS: Record<
+  TransactionStatus,
+  readonly TransactionStatus[]
+> = {
   awaiting_signature: ['submitted', 'failed'],
   submitted: ['confirmed', 'failed'],
   confirmed: ['indexed', 'failed'],
@@ -29,16 +33,19 @@ const VALID_TRANSITIONS: Record<TransactionStatus, readonly TransactionStatus[]>
   failed: [],
 };
 
-function txToResponse(tx: {
-  id: string;
-  txHash: string | null;
-  walletAddress: string | null;
-  status: string;
-  eventType: string;
-  campaignId: string | null;
-  ledger: number;
-  processedAt: Date;
-}, fallbackWallet?: string) {
+function txToResponse(
+  tx: {
+    id: string;
+    txHash: string | null;
+    walletAddress: string | null;
+    status: string;
+    eventType: string;
+    campaignId: string | null;
+    ledger: number;
+    processedAt: Date;
+  },
+  fallbackWallet?: string,
+) {
   return {
     requestId: tx.id,
     txHash: tx.txHash ?? '',
@@ -58,7 +65,8 @@ router.post(
   writeLimiter,
   validateBody(TransactionIntentCreateSchema),
   async (req: WalletRequest, res: Response) => {
-    const { requestId, txHash, walletAddress, eventType, campaignId } = req.body;
+    const { requestId, txHash, walletAddress, eventType, campaignId } =
+      req.body;
 
     if (req.walletAddress !== walletAddress) {
       problemDetail(res, req, 403, 'Forbidden', 'Wallet address mismatch');
@@ -70,7 +78,12 @@ router.post(
     });
 
     if (existing) {
-      jsonValidated(res, TransactionStatusResponseSchema, 200, txToResponse(existing, walletAddress));
+      jsonValidated(
+        res,
+        TransactionStatusResponseSchema,
+        200,
+        txToResponse(existing, walletAddress),
+      );
       return;
     }
 
@@ -109,7 +122,13 @@ router.get(
     });
 
     if (!tx) {
-      problemDetail(res, req, 404, 'Transaction Not Found', `No transaction with id ${req.params.requestId}`);
+      problemDetail(
+        res,
+        req,
+        404,
+        'Transaction Not Found',
+        `No transaction with id ${req.params.requestId}`,
+      );
       return;
     }
 
@@ -148,16 +167,28 @@ router.patch(
     });
 
     if (!tx) {
-      problemDetail(res, req, 404, 'Transaction Not Found', `No transaction with id ${req.params.requestId}`);
+      problemDetail(
+        res,
+        req,
+        404,
+        'Transaction Not Found',
+        `No transaction with id ${req.params.requestId}`,
+      );
       return;
     }
 
     if (tx.walletAddress !== req.walletAddress) {
-      problemDetail(res, req, 403, 'Forbidden', 'This transaction belongs to a different wallet');
+      problemDetail(
+        res,
+        req,
+        403,
+        'Forbidden',
+        'This transaction belongs to a different wallet',
+      );
       return;
     }
 
-    const currentStatus = tx.status as TransactionStatus;
+    const currentStatus = tx.status;
     const allowed = VALID_TRANSITIONS[currentStatus];
     if (!allowed?.includes(newStatus)) {
       problemDetail(
@@ -177,7 +208,8 @@ router.patch(
         payload: {
           ...((tx.payload as Record<string, unknown>) ?? {}),
           statusHistory: [
-            ...(((tx.payload as Record<string, unknown>)?.statusHistory as unknown[]) ?? []),
+            ...(((tx.payload as Record<string, unknown>)
+              ?.statusHistory as unknown[]) ?? []),
             {
               from: currentStatus,
               to: newStatus,
@@ -185,7 +217,7 @@ router.patch(
               message: message ?? null,
             },
           ],
-        },
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -211,14 +243,17 @@ router.get(
     });
 
     if (!tx) {
-      problemDetail(res, req, 404, 'Transaction Not Found', `No transaction with id ${req.params.requestId}`);
+      problemDetail(
+        res,
+        req,
+        404,
+        'Transaction Not Found',
+        `No transaction with id ${req.params.requestId}`,
+      );
       return;
     }
 
-    const result = await reconcileTransaction(
-      tx.txHash ?? '',
-      tx.status as TransactionStatus,
-    );
+    const result = await reconcileTransaction(tx.txHash ?? '', tx.status);
 
     jsonValidated(res, TransactionReconciliationResponseSchema, 200, {
       requestId: tx.id,

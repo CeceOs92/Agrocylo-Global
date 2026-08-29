@@ -5,6 +5,7 @@ import { ShieldCheck, Lock, BadgeCheck } from "lucide-react";
 import Wrapper from "@/components/shared/wrapper";
 import { PageHeader } from "@/components/shared/page-header";
 import EnhancedEscrowTransaction from "@/components/EnhancedEscrowTransaction";
+import { ContractGuard } from "@/components/ContractGuard";
 import { requireNativeTokenContractId } from "@/services/stellar/networkConfig";
 
 function getDemoProduct() {
@@ -52,6 +53,7 @@ export default function EscrowDemoPage() {
   }
 
   return (
+    <ContractGuard>
     <Wrapper className="pt-32 pb-20 md:pt-40">
       <PageHeader
         title="Escrow Sandbox"
@@ -88,5 +90,6 @@ export default function EscrowDemoPage() {
         )}
       </div>
     </Wrapper>
+    </ContractGuard>
   );
 }

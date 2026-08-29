@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { getFreighterPublicKey } from "@/lib/walletFreighter";
+import { DEFAULT_WALLET_ID, WALLET_ADAPTERS, getWalletAdapter } from "@/lib/wallets/registry";
 import {
   clearWalletSession,
   loadWalletSession,
@@ -10,6 +10,13 @@ import {
 
 export type WalletState = "unavailable" | "disconnected" | "wrong_network" | "connected";
 
+export interface WalletOption {
+  id: string;
+  name: string;
+  installed: boolean;
+  installUrl: string;
+}
+
 interface WalletContextType {
   address: string | null;
   connected: boolean;
@@ -17,8 +24,11 @@ interface WalletContextType {
   reconnecting: boolean;
   error: string | null;
   walletState: WalletState;
-  connect: () => Promise<string | null>;
+  walletId: string;
+  wallets: WalletOption[];
+  connect: (walletId?: string) => Promise<string | null>;
   disconnect: () => void;
+  selectWallet: (walletId: string) => void;
 }
 
 const defaultCtx: WalletContextType = {
@@ -28,11 +38,23 @@ const defaultCtx: WalletContextType = {
   reconnecting: false,
   error: null,
   walletState: "disconnected",
+  walletId: DEFAULT_WALLET_ID,
+  wallets: [],
   connect: async () => null,
   disconnect: () => {},
+  selectWallet: () => {},
 };
 
 export const WalletContext = createContext<WalletContextType>(defaultCtx);
+
+function listWallets(): WalletOption[] {
+  return WALLET_ADAPTERS.map((adapter) => ({
+    id: adapter.id,
+    name: adapter.name,
+    installed: adapter.isAvailable(),
+    installUrl: adapter.installUrl,
+  }));
+}
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [address, setAddress] = useState<string | null>(null);
@@ -40,12 +62,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walletId, setWalletId] = useState<string>(DEFAULT_WALLET_ID);
+  const [wallets, setWallets] = useState<WalletOption[]>([]);
 
-  const applyConnection = useCallback((pub: string) => {
+  useEffect(() => {
+    setWallets(listWallets());
+  }, []);
+
+  const applyConnection = useCallback((pub: string, id: string) => {
     setAddress(pub);
     setConnected(true);
     setError(null);
-    saveWalletSession({ address: pub, connectedAt: Date.now() });
+    setWalletId(id);
+    saveWalletSession({ address: pub, connectedAt: Date.now(), walletId: id });
   }, []);
 
   const clearConnection = useCallback(() => {
@@ -62,9 +91,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const session = loadWalletSession();
       if (!session) return;
 
+      const id = session.walletId ?? DEFAULT_WALLET_ID;
+      setWalletId(id);
       setReconnecting(true);
       try {
-        const pub = await getFreighterPublicKey();
+        const pub = await getWalletAdapter(id).getPublicKey();
         if (cancelled) return;
 
         if (!pub) {
@@ -72,12 +103,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (pub !== session.address) {
-          applyConnection(pub);
-          return;
-        }
-
-        applyConnection(pub);
+        applyConnection(pub, id);
       } catch {
         if (!cancelled) clearWalletSession();
       } finally {
@@ -91,28 +117,36 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applyConnection]);
 
-  const connect = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const pub = await getFreighterPublicKey();
-      if (!pub) throw new Error("Could not get public key from Freighter");
-      applyConnection(pub);
-      return pub;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setError(errMsg);
-      setConnected(false);
-      setAddress(null);
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [applyConnection]);
+  const connect = useCallback(
+    async (requestedWalletId?: string) => {
+      const id = requestedWalletId ?? walletId;
+      setLoading(true);
+      setError(null);
+      try {
+        const pub = await getWalletAdapter(id).getPublicKey();
+        if (!pub) throw new Error(`Could not get public key from ${getWalletAdapter(id).name}`);
+        applyConnection(pub, id);
+        return pub;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        setError(errMsg);
+        setConnected(false);
+        setAddress(null);
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [applyConnection, walletId],
+  );
 
   const disconnect = useCallback(() => {
     clearConnection();
   }, [clearConnection]);
+
+  const selectWallet = useCallback((id: string) => {
+    setWalletId(id);
+  }, []);
 
   const walletState: WalletState = !connected
     ? address
@@ -122,7 +156,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider
-      value={{ address, connected, loading, reconnecting, error, walletState, connect, disconnect }}
+      value={{
+        address,
+        connected,
+        loading,
+        reconnecting,
+        error,
+        walletState,
+        walletId,
+        wallets,
+        connect,
+        disconnect,
+        selectWallet,
+      }}
     >
       {children}
     </WalletContext.Provider>

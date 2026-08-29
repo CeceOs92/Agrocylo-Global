@@ -37,7 +37,11 @@ import {
   createOrderWithOrderId,
   approveToken,
 } from "@/services/stellar/contractService";
-import { getNetworkConfig, requireTokenContractId } from "@/services/stellar/networkConfig";
+import {
+  getNetworkConfig,
+  isContractConfigured,
+  requireTokenContractId,
+} from "@/services/stellar/networkConfig";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -103,6 +107,10 @@ export default function CartDrawer() {
   };
 
   async function createOrdersForCart(groups: CartGroup[]) {
+    if (!isContractConfigured()) {
+      toast.error("Platform not yet configured for this network. Checkout is unavailable.");
+      return;
+    }
     if (!address || !connected) {
       toast.error("Connect your wallet to checkout.");
       return;

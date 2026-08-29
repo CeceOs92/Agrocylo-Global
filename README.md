@@ -101,34 +101,40 @@ Network: Stellar Testnet
 
 Smart Contracts: Rust (Soroban)
 
-Frontend: Astro (React)
+Frontend: Next.js (React)
 
 Wallets: Freighter 
 
 Indexing: Custom event indexer / Subgraph-style service
 
-Notifications: Webhooks, Firebase, or Push APIs
+Notifications: In-app (DB-persisted, delivered via REST API)
 
 ### 📦 Project Goals
 
 Enable swift, fair, and transparent trade
 
+### 🔒 Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md)
+for scope, response SLAs, and how to reach us. Do not open a public issue for
+security findings.
+
 ### 🤝 Contributing
 
-### Contributions are welcome!
-#### To Contribute:
+Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.
 
-   * Fork the repository
-   * Clone your Forked version
-   * cd contracts
-   * Please keep a clean working tree (create a branch and be sure its free from conlicts)
-   * Please Do not push uncompiled code
-#### You can assist by:
-    * Improving smart contract logic
-    * Enhancing UI/UX
-    * Adding indexing or notification services
-    * Writing documentation or tests
-    * Please open an issue or submit a pull request.
+**See [CONTRIBUTING.md](CONTRIBUTING.md) for:**
+- Local setup instructions per app (Rust contracts, Node.js backend, Next.js frontend)
+- Pre-PR expectations (test requirements, Rust-specific checks like `cargo check`, etc.)
+- Merge & review practices (especially important for Rust contracts holding real funds)
+- Stellar Wave bounty workflow for external contributors
+
+**Quick start:**
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Agrocylo-Global.git`
+3. Create a feature branch: `git checkout -b fix/issue-number`
+4. Follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md)
+5. Open a PR referencing the issue(s) it closes
 
 ### 🧪 Running Tests
 
@@ -141,7 +147,14 @@ cd client && npm test
 cd server && npm run test:coverage
 
 # Contract tests (Rust soroban-sdk)
-cd contracts && cargo test
+cargo test --workspace 
+# Or test individual crates:
+cargo test -p escrow
+cargo test -p weather-insurance
+cargo test -p registry
+cargo test -p production-escrow-v2
+cargo test -p investment-basket
+cargo test -p governance
 ```
 
 #### E2E Tests
@@ -154,6 +167,30 @@ cd client && npm run test:e2e:ui
 ```
 
 E2E tests mock Freighter wallet and use `NEXT_PUBLIC_DEMO_MODE=true` for deterministic responses. See `.github/workflows/e2e.yml` for CI configuration.
+
+### 🐳 Docker Setup
+
+The repository includes Docker Compose orchestration for containerized development and deployment. **Note:** This repo contains multiple app pairings (legacy `server`/`client` and current `agro-production/server`/`agro-production/client`), and the compose setup currently covers only the legacy pair.
+
+**Root docker-compose.yml** (legacy server/client)
+- Orchestrates PostgreSQL, Redis, and the backend service from `./server`
+- Exposes backend on port 5000
+- Recommended for: Contributors working on the legacy server/client apps
+- Usage:
+  ```bash
+  docker-compose up
+  ```
+
+**agro-production/server/docker-compose.redis.yml** (Redis only for agro-production)
+- Standalone Redis service with persistent storage (`appendonly` mode)
+- Exposes Redis on port 6379
+- **Currently not linked to a full app compose file** — this repo's primary dev workflow for agro-production apps uses `npm run dev` (see "Running locally" below)
+- Usage (if needed for production/staging deployments):
+  ```bash
+  cd agro-production/server && docker-compose -f docker-compose.redis.yml up
+  ```
+
+For local development of `agro-production/server` and `agro-production/client`, see "Running locally" below — the recommended approach is npm-based development, not Docker.
 
 ### 🔌 API Documentation
 

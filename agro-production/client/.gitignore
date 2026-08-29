@@ -1,0 +1,7 @@
+# Generated build artifacts that sometimes get emitted alongside source
+# (e.g. from a stray `tsc` run). Next.js builds to .next/, never to src/,
+# so anything matching these under src/ is always accidental output.
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map

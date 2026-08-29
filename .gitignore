@@ -55,7 +55,13 @@ Thumbs.db
 *.db-journal
 *.db-shm
 *.db-wal
+*.dump
+/backups/
 
 # Rust / Soroban
 target/
 *.rs.bk
+
+# Scratch / working notes
+scratch/
+*.local.md

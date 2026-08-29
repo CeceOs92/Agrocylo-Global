@@ -23,6 +23,7 @@ import { createOrderFormSchema } from "@/lib/validation";
 import { FormError } from "@/components/FormError";
 import { getInitials } from "@/lib/utils";
 import { formatTruncatedAddress } from "@/lib/helpers/format-address";
+import { ContractGuard } from "@/components/ContractGuard";
 
 import { requireNativeTokenContractId } from "@/services/stellar/networkConfig";
 import {
@@ -238,6 +239,7 @@ export function CreateOrderForm({
   }
 
   return (
+    <ContractGuard>
     <Card className="mx-auto max-w-lg">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
@@ -370,11 +372,27 @@ export function CreateOrderForm({
         )}
 
         {(createState.error || txStep === "error") && (
-          <FormError
-            message={
-              createState.error ?? "Transaction failed. Please try again."
-            }
-          />
+          <div role="alert" className="space-y-1">
+            {createState.blockchainError ? (
+              <>
+                <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+                  {createState.blockchainError.title}
+                </p>
+                <p className="text-sm text-red-700 dark:text-red-300">
+                  {createState.blockchainError.message}
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {createState.blockchainError.action}
+                </p>
+              </>
+            ) : (
+              <FormError
+                message={
+                  createState.error ?? "Transaction failed. Please try again."
+                }
+              />
+            )}
+          </div>
         )}
 
         <Button
@@ -390,6 +408,7 @@ export function CreateOrderForm({
         </Button>
       </CardContent>
     </Card>
+    </ContractGuard>
   );
 }
 

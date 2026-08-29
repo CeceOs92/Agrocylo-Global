@@ -1,20 +1,29 @@
-import { rpc } from "@stellar/stellar-sdk";
-import { config } from "../config/index.js";
-import logger from "../config/logger.js";
-import { prisma } from "../db/client.js";
-import { ProductionEventParser } from "./parser.js";
-import { EventPersister } from "./persister.js";
-import { recordPersistError } from "./metrics.js";
-import type { RawSorobanEvent } from "./types.js";
+import { rpc } from '@stellar/stellar-sdk';
+import type { Prisma } from '@prisma/client';
+import { config } from '../config/index.js';
+import logger from '../config/logger.js';
+import { prisma } from '../db/client.js';
+import { ProductionEventParser } from './parser.js';
+import { EventPersister } from './persister.js';
+import { recordPersistError } from './metrics.js';
+import type { RawSorobanEvent } from './types.js';
+import { captureAlert } from '../config/sentry.js';
 
-const POLL_INTERVAL_MS = parseInt(process.env["EVENT_POLL_INTERVAL_MS"] ?? "5000", 10);
+const POLL_INTERVAL_MS = parseInt(
+  process.env['EVENT_POLL_INTERVAL_MS'] ?? '5000',
+  10,
+);
+const CONFIRMATION_DEPTH = parseInt(
+  process.env['CONFIRMATION_DEPTH'] ?? '10',
+  10,
+);
 const MAX_BACKFILL_BATCH = 100;
 // base64 encoding of "campaign" and "order" short symbols
-const CAMPAIGN_TOPIC = "AAAADwAAAAhjYW1wYWlnbg==";
-const ORDER_TOPIC = "AAAADwAAAAVvcmRlcg==";
-const DISPUTE_TOPIC = "AAAADwAAAAdkaXNwdXRl";
+const CAMPAIGN_TOPIC = 'AAAADwAAAAhjYW1wYWlnbg==';
+const ORDER_TOPIC = 'AAAADwAAAAVvcmRlcg==';
+const DISPUTE_TOPIC = 'AAAADwAAAAdkaXNwdXRl';
 // base64 encoding of the "basket" short symbol
-const BASKET_TOPIC = "AAAADwAAAAZiYXNrZXQAAA==";
+const BASKET_TOPIC = 'AAAADwAAAAZiYXNrZXQAAA==';
 
 const CONTRACT_ID = config.contractId;
 const BASKET_CONTRACT_ID = config.basketContractId;
@@ -23,21 +32,26 @@ const BASKET_CONTRACT_ID = config.basketContractId;
  * Loads the last persisted event cursor from the EventCursor table.
  * Falls back to the current on-chain tip when no cursor exists.
  */
-async function loadCursor(server: rpc.Server): Promise<{ ledger: number; eventIndex: number }> {
+async function loadCursor(
+  server: rpc.Server,
+): Promise<{ ledger: number; eventIndex: number }> {
   const cursor = await prisma.eventCursor.findUnique({
     where: { contractId: CONTRACT_ID },
   });
   if (cursor) {
-    logger.info("Production watcher: resuming from persisted cursor", {
+    logger.info('Production watcher: resuming from persisted cursor', {
       ledger: cursor.ledger,
       eventIndex: cursor.eventIndex,
     });
     return { ledger: cursor.ledger, eventIndex: cursor.eventIndex };
   }
   const latest = await server.getLatestLedger();
-  logger.info("Production watcher: no cursor found, starting from current ledger", {
-    ledger: latest.sequence,
-  });
+  logger.info(
+    'Production watcher: no cursor found, starting from current ledger',
+    {
+      ledger: latest.sequence,
+    },
+  );
   return { ledger: latest.sequence, eventIndex: 0 };
 }
 
@@ -49,6 +63,7 @@ async function loadCursor(server: rpc.Server): Promise<{ ledger: number; eventIn
 async function advanceCursor(
   ledger: number,
   eventIndex: number,
+  ledgerHash?: string,
 ): Promise<void> {
   await prisma.eventCursor.upsert({
     where: { contractId: CONTRACT_ID },
@@ -56,10 +71,12 @@ async function advanceCursor(
       contractId: CONTRACT_ID,
       ledger,
       eventIndex,
+      ledgerHash,
     },
     update: {
       ledger,
       eventIndex,
+      ...(ledgerHash && { ledgerHash }),
     },
   });
 }
@@ -81,11 +98,14 @@ async function withRetryJitter<T>(
       if (attempt >= maxRetries) break;
       const baseDelay = 200 * Math.pow(2, attempt);
       const jitter = Math.random() * baseDelay;
-      logger.warn(`${label} failed, retrying in ${Math.round(baseDelay + jitter)}ms`, {
-        attempt: attempt + 1,
-        maxRetries,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.warn(
+        `${label} failed, retrying in ${Math.round(baseDelay + jitter)}ms`,
+        {
+          attempt: attempt + 1,
+          maxRetries,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
       await new Promise((r) => setTimeout(r, baseDelay + jitter));
     }
   }
@@ -103,32 +123,116 @@ async function recordDeadLetter(
   try {
     await prisma.transaction.create({
       data: {
-        eventType: "dead_letter",
-        status: "failed",
+        eventType: 'dead_letter',
+        status: 'failed',
         payload: {
           rawEvent,
           error: error instanceof Error ? error.message : String(error),
           failedAt: new Date().toISOString(),
-        },
+        } as unknown as Prisma.InputJsonValue,
         ledger: rawEvent.ledger,
         eventIndex: parseEventIndex(rawEvent.id),
         txHash: rawEvent.txHash,
       },
     });
-    logger.error("Event moved to dead-letter queue", {
+    logger.error('Event moved to dead-letter queue', {
       ledger: rawEvent.ledger,
       id: rawEvent.id,
     });
+    captureAlert(
+      "contract_watcher_ingestion_failure",
+      `Event ${rawEvent.id} at ledger ${rawEvent.ledger} moved to dead-letter queue`,
+      { ledger: rawEvent.ledger, eventId: rawEvent.id },
+    );
   } catch (dlErr) {
-    logger.error("Failed to record dead-letter entry", {
+    logger.error('Failed to record dead-letter entry', {
       error: dlErr instanceof Error ? dlErr.message : String(dlErr),
     });
   }
 }
 
 function parseEventIndex(id: string): number {
-  const parts = id.split("-");
+  const parts = id.split('-');
   return parts.length >= 2 ? parseInt(parts[1], 10) || 0 : 0;
+}
+
+/**
+ * Detect if a reorg occurred by comparing the tracked ledger hash against
+ * the RPC's reported hash for that sequence. Returns null if no divergence,
+ * or the fork point ledger if a reorg is detected.
+ */
+async function detectReorg(
+  server: rpc.Server,
+  trackedLedger: number,
+  trackedHash: string | null,
+): Promise<number | null> {
+  if (!trackedHash) {
+    return null; // No prior hash to compare against
+  }
+
+  try {
+    const ledger = await server.getLedger(trackedLedger);
+    if (ledger.hash !== trackedHash) {
+      logger.warn('Reorg detected: ledger hash mismatch', {
+        trackedLedger,
+        expectedHash: trackedHash,
+        observedHash: ledger.hash,
+      });
+      return trackedLedger; // Fork point is at this ledger
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch ledger for reorg detection', {
+      ledger: trackedLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return null;
+}
+
+/**
+ * On detected reorg, roll back the cursor to the fork point and remove
+ * stale Transaction records that were projected from the reorg'd chain.
+ */
+async function handleReorg(forkPointLedger: number): Promise<void> {
+  logger.info('Handling reorg: rolling back transactions', {
+    forkPointLedger,
+  });
+
+  try {
+    // Remove all transaction records with ledger >= forkPointLedger
+    // These were projected from the reorg'd chain and are no longer valid
+    const deleted = await prisma.transaction.deleteMany({
+      where: {
+        ledger: {
+          gte: forkPointLedger,
+        },
+      },
+    });
+
+    logger.info('Reorg rollback complete', {
+      forkPointLedger,
+      transactionsDeleted: deleted.count,
+    });
+
+    // Emit metric for reorg detection
+    recordReorgRollback(deleted.count);
+  } catch (err) {
+    logger.error('Failed to handle reorg', {
+      forkPointLedger,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
+
+/**
+ * Record a rollback metric when a reorg is detected.
+ */
+function recordReorgRollback(transactionsReverted: number): void {
+  // Metrics would be recorded here — for now, this is a placeholder
+  // that allows the event persister to track reorgs
+  logger.info('Reorg rollback metric recorded', { transactionsReverted });
 }
 
 /**
@@ -145,21 +249,18 @@ async function pollEvents(
   // Bounded backfill: never try to fetch more than MAX_BACKFILL_BATCH ledgers
   // at once. If the gap is larger, the operator is alerted and must
   // explicitly decide how to recover (manual cursor reset).
-  const endLedger = Math.min(
-    startLedger + MAX_BACKFILL_BATCH,
-    latestLedger,
-  );
+  const endLedger = Math.min(startLedger + MAX_BACKFILL_BATCH, latestLedger);
 
-  const filters: Parameters<typeof server.getEvents>[0]["filters"] = [
+  const filters: Parameters<typeof server.getEvents>[0]['filters'] = [
     {
-      type: "contract",
+      type: 'contract',
       contractIds: [CONTRACT_ID],
-      topics: [[CAMPAIGN_TOPIC, "*"]],
+      topics: [[CAMPAIGN_TOPIC, '*']],
     },
     {
-      type: "contract",
+      type: 'contract',
       contractIds: [CONTRACT_ID],
-      topics: [[ORDER_TOPIC, "*"]],
+      topics: [[ORDER_TOPIC, '*']],
     },
   ];
 
@@ -168,9 +269,9 @@ async function pollEvents(
   // operator configures BASKET_CONTRACT_ID.
   if (BASKET_CONTRACT_ID) {
     filters.push({
-      type: "contract",
+      type: 'contract',
       contractIds: [BASKET_CONTRACT_ID],
-      topics: [[BASKET_TOPIC, "*"]],
+      topics: [[BASKET_TOPIC, '*']],
     });
   }
 
@@ -179,29 +280,65 @@ async function pollEvents(
   return { events: response.events, latestLedger };
 }
 
-export async function startProductionWatcher(): Promise<ReturnType<typeof setInterval>> {
+export async function startProductionWatcher(): Promise<
+  ReturnType<typeof setInterval>
+> {
   // Read at call time so integration tests can override via process.env before calling.
-  const rpcUrl = process.env["RPC_URL"] ?? config.rpcUrl;
-  const server = new rpc.Server(rpcUrl);
-  logger.info("Production contract watcher started", { contractId: CONTRACT_ID });
+  const rpcUrl = process.env['RPC_URL'] ?? config.rpcUrl;
+  // allowHttp is required for plain-http RPC endpoints (e.g. the local mock
+  // RPC server E2E tests point RPC_URL at); real deployments use https and
+  // are unaffected.
+  const server = new rpc.Server(rpcUrl, {
+    allowHttp: rpcUrl.startsWith('http://'),
+  });
+  logger.info('Production contract watcher started', {
+    contractId: CONTRACT_ID,
+  });
 
   const cursor = await loadCursor(server);
   let currentLedger = cursor.ledger;
   let currentEventIndex = cursor.eventIndex;
 
+  let trackedLedgerHash: string | null = cursor.ledger > 0 ? null : null;
+
   const interval = setInterval(async () => {
     try {
       const { events, latestLedger } = await pollEvents(server, currentLedger);
+      const confirmedTipLedger = Math.max(0, latestLedger - CONFIRMATION_DEPTH);
+
+      // Check for reorg before processing new events
+      const reorgForkPoint = await detectReorg(
+        server,
+        currentLedger,
+        trackedLedgerHash,
+      );
+      if (reorgForkPoint !== null) {
+        await handleReorg(reorgForkPoint);
+        // Reset cursor to before the fork point
+        if (reorgForkPoint > 0) {
+          currentLedger = reorgForkPoint - 1;
+          currentEventIndex = 0;
+          trackedLedgerHash = null;
+        }
+      }
 
       // If the gap is so large that even MAX_BACKFILL_BATCH doesn't cover it,
       // alert the operator via a dead_letter record and pause advancement.
       if (latestLedger - currentLedger > MAX_BACKFILL_BATCH) {
-        logger.error("Production watcher: large ledger gap detected, backfill may not cover all events", {
-          currentLedger,
-          latestLedger,
-          maxBatch: MAX_BACKFILL_BATCH,
-          gap: latestLedger - currentLedger,
-        });
+        logger.error(
+          'Production watcher: large ledger gap detected, backfill may not cover all events',
+          {
+            currentLedger,
+            latestLedger,
+            maxBatch: MAX_BACKFILL_BATCH,
+            gap: latestLedger - currentLedger,
+          },
+        );
+        captureAlert(
+          'contract_watcher_ingestion_failure',
+          `Production watcher ledger gap (${latestLedger - currentLedger}) exceeds backfill batch size — events may be missed`,
+          { currentLedger, latestLedger, maxBatch: MAX_BACKFILL_BATCH },
+        );
       }
 
       let maxEventLedger = currentLedger;
@@ -218,7 +355,18 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
           continue;
         }
 
-        const event = ProductionEventParser.tryParse(rawEvent as unknown as RawSorobanEvent);
+        // Do not project events that are not yet confirmed (within CONFIRMATION_DEPTH of tip)
+        if (rawEvent.ledger > confirmedTipLedger) {
+          logger.debug('Skipping unconfirmed event', {
+            ledger: rawEvent.ledger,
+            confirmedTip: confirmedTipLedger,
+          });
+          continue;
+        }
+
+        const event = ProductionEventParser.tryParse(
+          rawEvent as unknown as RawSorobanEvent,
+        );
         if (event) {
           try {
             await withRetryJitter(
@@ -228,7 +376,10 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
             );
           } catch (persistErr) {
             recordPersistError();
-            await recordDeadLetter(rawEvent as unknown as RawSorobanEvent, persistErr);
+            await recordDeadLetter(
+              rawEvent as unknown as RawSorobanEvent,
+              persistErr,
+            );
             // Do not advance cursor past a failed event — this ensures
             // no events are skipped and operators can replay after fixing
             // the issue.
@@ -248,16 +399,37 @@ export async function startProductionWatcher(): Promise<ReturnType<typeof setInt
       // Advance cursor only after all events up to maxEventLedger/maxEventIndex
       // have been durably handled. This cursor is persisted atomically.
       if (maxEventLedger > currentLedger || maxEventIndex > currentEventIndex) {
+        // Fetch the hash of the new cursor ledger for future reorg detection
+        try {
+          const ledger = await server.getLedger(maxEventLedger);
+          trackedLedgerHash = ledger.hash;
+        } catch (err) {
+          logger.warn('Failed to fetch ledger hash for cursor tracking', {
+            ledger: maxEventLedger,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          trackedLedgerHash = null;
+        }
+
         currentLedger = maxEventLedger;
         currentEventIndex = maxEventIndex;
-        await advanceCursor(currentLedger, currentEventIndex);
-        logger.debug("Production watcher: cursor advanced", {
+        await advanceCursor(currentLedger, currentEventIndex, trackedLedgerHash ?? undefined);
+        logger.debug('Production watcher: cursor advanced', {
           ledger: currentLedger,
           eventIndex: currentEventIndex,
+          confirmedTip: confirmedTipLedger,
+          ledgerHash: trackedLedgerHash,
         });
       }
     } catch (err) {
-      logger.error("Soroban watcher poll error", { error: err });
+      logger.error('Soroban watcher poll error', { error: err });
+      // Sentry groups identical errors into one issue, so a sustained RPC
+      // outage polling every few seconds doesn't need its own cooldown here.
+      captureAlert(
+        'contract_watcher_poll_error',
+        'Production watcher poll iteration failed',
+        { error: err instanceof Error ? err.message : String(err) },
+      );
     }
   }, POLL_INTERVAL_MS);
 
@@ -268,47 +440,45 @@ function buildContractFilters() {
   const filters: any[] = [];
 
   if (config.escrowContractId) {
-    filters.push(
-      {
-        type: "contract" as const,
-        contractIds: [config.escrowContractId],
-        topics: [[ORDER_TOPIC, "*"]],
-      }
-    );
+    filters.push({
+      type: 'contract' as const,
+      contractIds: [config.escrowContractId],
+      topics: [[ORDER_TOPIC, '*']],
+    });
   }
 
   if (config.productionEscrowContractId) {
     filters.push(
       {
-        type: "contract" as const,
+        type: 'contract' as const,
         contractIds: [config.productionEscrowContractId],
-        topics: [[CAMPAIGN_TOPIC, "*"]],
+        topics: [[CAMPAIGN_TOPIC, '*']],
       },
       {
-        type: "contract" as const,
+        type: 'contract' as const,
         contractIds: [config.productionEscrowContractId],
-        topics: [[ORDER_TOPIC, "*"]],
+        topics: [[ORDER_TOPIC, '*']],
       },
       {
-        type: "contract" as const,
+        type: 'contract' as const,
         contractIds: [config.productionEscrowContractId],
-        topics: [[DISPUTE_TOPIC, "*"]],
-      }
+        topics: [[DISPUTE_TOPIC, '*']],
+      },
     );
   }
 
-  if (config.contractId && config.contractId !== "C...") {
+  if (config.contractId && config.contractId !== 'C...') {
     filters.push(
       {
-        type: "contract" as const,
+        type: 'contract' as const,
         contractIds: [config.contractId],
-        topics: [[CAMPAIGN_TOPIC, "*"]],
+        topics: [[CAMPAIGN_TOPIC, '*']],
       },
       {
-        type: "contract" as const,
+        type: 'contract' as const,
         contractIds: [config.contractId],
-        topics: [[ORDER_TOPIC, "*"]],
-      }
+        topics: [[ORDER_TOPIC, '*']],
+      },
     );
   }
 

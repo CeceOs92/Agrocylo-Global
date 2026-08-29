@@ -1,0 +1,79 @@
+name: Load Test (k6)
+
+# Trigger on staging deployments and optionally on a schedule.
+# Adjust the `workflow_dispatch` inputs or `schedule` cron as needed.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Load profile: smoke | load | soak"
+        required: false
+        default: "smoke"
+      server_url:
+        description: "server/ base URL"
+        required: false
+        default: "http://localhost:5000"
+      agro_url:
+        description: "agro-production/server/ base URL"
+        required: false
+        default: "http://localhost:5001"
+
+jobs:
+  load-test:
+    name: k6 Load Tests (${{ github.event.inputs.profile || 'smoke' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # soak profile can take > 15 minutes
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+                   --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+                   --keyserver hkp://keyserver.ubuntu.com:80 \
+                   --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq
+          sudo apt-get install -y k6
+
+      # ── Optional: start servers locally for smoke tests on push ─────────
+      # If you have a staging environment, skip this block and set the
+      # server_url / agro_url inputs to point to your staging hosts.
+      - name: Start server/ (for CI smoke only)
+        if: ${{ github.event.inputs.profile == '' || github.event.inputs.profile == 'smoke' }}
+        run: |
+          echo "Skipping local server start – override with workflow_dispatch inputs."
+        # In a real CI pipeline with local servers, you would:
+        # cd server && cp .env.example .env && npm install && npm run dev &
+        # cd agro-production/server && cp .env.example .env && npm install && npm run dev &
+        # Wait for both to be healthy before proceeding.
+
+      - name: Run Load Tests
+        env:
+          LOAD_PROFILE:      ${{ github.event.inputs.profile || 'smoke' }}
+          SERVER_BASE_URL:   ${{ github.event.inputs.server_url || 'http://localhost:5000' }}
+          AGRO_BASE_URL:     ${{ github.event.inputs.agro_url  || 'http://localhost:5001' }}
+          JWT_SECRET:        ${{ secrets.LOAD_TEST_JWT_SECRET || 'dev-secret-key-minimum32chars!!' }}
+          TEST_WALLET_ADDRESS: ${{ secrets.LOAD_TEST_WALLET_ADDRESS || 'GBTEST000000000000000000000000000000000000000000000000000' }}
+          TEST_SELLER_ADDRESS: ${{ secrets.LOAD_TEST_SELLER_ADDRESS || 'GBSELLER0000000000000000000000000000000000000000000000000' }}
+          TEST_CAMPAIGN_ID:  ${{ secrets.LOAD_TEST_CAMPAIGN_ID || '' }}
+          # Skip WebSocket on plain smoke – no server running
+          SKIP_WEBSOCKET:    ${{ github.event.inputs.profile == 'smoke' && '1' || '0' }}
+          # Skip soak unless explicitly requested
+          SKIP_SOAK:         ${{ github.event.inputs.profile == 'soak' && '0' || '1' }}
+        run: |
+          chmod +x load-test/ci/run-load-tests.sh
+          load-test/ci/run-load-tests.sh
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results-${{ github.event.inputs.profile || 'smoke' }}-${{ github.run_number }}
+          path: load-test/results/
+          retention-days: 30

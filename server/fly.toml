@@ -1,0 +1,24 @@
+# fly.toml — Root marketplace backend (server/)
+# Fly.io app: agrocylo-marketplace (prod) / agrocylo-marketplace-staging (staging)
+# The deploy workflow overrides the app name via `flyctl deploy --app`.
+
+app = "agrocylo-marketplace"
+primary = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import logger from "../config/logger.js";
+import { recordHttpRequest } from "../services/promMetrics.js";
+import { recordResponseStatus } from "../services/errorRateMonitor.js";
 
 interface AuthenticatedRequest extends Request {
   user?: { id: string };
@@ -27,6 +29,15 @@ export function requestLogger(req: AuthenticatedRequest, res: Response, next: Ne
       userId: req.user?.id,
       contentLength: res.getHeader("content-length"),
     });
+
+    // Use the matched route pattern (e.g. "/orders/:id"), not the raw URL,
+    // to keep Prometheus label cardinality bounded. Falls back to the raw
+    // path for requests that never matched a route (404s).
+    const route = req.route?.path
+      ? `${req.baseUrl}${req.route.path}`
+      : req.path;
+    recordHttpRequest(req.method, route, res.statusCode, durationMs);
+    recordResponseStatus(res.statusCode);
 
     return _originalEnd.apply(this, args as Parameters<Response["end"]>);
   };

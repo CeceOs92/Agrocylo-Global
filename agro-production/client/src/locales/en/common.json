@@ -1,11 +1,20 @@
 {
   "welcome": "Welcome to Agrocylo Production Portal",
   "navigation": {
+    "home": "AgroProduction home",
+    "backToMain": "Back to Agrocylo",
+    "marketplace": "Marketplace",
     "campaigns": "Campaigns",
+    "orders": "Orders",
+    "farmerDashboard": "Farmer",
+    "dashboard": "Dashboard",
     "milestones": "Milestones",
     "escrow": "Escrow",
     "registry": "Registry",
-    "mainClient": "Return to Main Marketplace"
+    "mainClient": "Return to Main Marketplace",
+    "switchToLight": "Switch to light mode",
+    "switchToDark": "Switch to dark mode",
+    "language": "Language"
   },
   "campaigns": {
     "title": "Production Campaigns",

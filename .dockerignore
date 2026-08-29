@@ -1,0 +1,17 @@
+node_modules
+.next
+dist
+build
+.git
+.github
+coverage
+test-results
+playwright-report
+*.md
+!package*.json
+.env*
+!.env.example
+.vscode
+.idea
+.DS_Store
+target

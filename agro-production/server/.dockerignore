@@ -1,0 +1,12 @@
+node_modules
+dist
+.env*
+!.env.example
+coverage
+test-results
+.vscode
+.idea
+.DS_Store
+*.md
+fly.toml
+docker-compose.redis.yml

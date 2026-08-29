@@ -8,6 +8,7 @@ import type { FC, ReactNode } from "react";
 import NextJsToploader from "nextjs-toploader";
 
 import AnalyticsInit from "@/components/AnalyticsInit";
+import ConsentBanner from "@/components/analytics/ConsentBanner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import QueryProvider from "@/components/QueryProvider";
@@ -27,6 +28,7 @@ interface GlobalProviderProps {
  *   ReactLenis                  smooth scroll, RAF driven by GSAP ticker
  *   QueryProvider               TanStack Query cache
  *   AnalyticsProvider           local event capture + dashboard state
+ *                               (+ ConsentBanner gating that capture)
  *   TransactionFeedbackProvider transaction-state machine
  *   WalletProviderWrapper       Freighter wallet + Profile + Cart + global Navbar
  *
@@ -61,6 +63,7 @@ const GlobalProvider: FC<GlobalProviderProps> = ({ children }) => {
                   color="var(--primary)"
                 />
                 {children}
+                <ConsentBanner />
                 <Toaster richColors />
               </WalletProviderWrapper>
             </TransactionFeedbackProvider>
