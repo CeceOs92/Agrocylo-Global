@@ -78,7 +78,24 @@ export function useInvest() {
         throw new Error(built.error ?? "Could not build the investment transaction");
       }
 
-      const submitted = await signAndSubmitTransaction(built.data, setPhase);
+      // Stable intent: blocks a duplicate submission for the same investment
+      // while one is in flight, and survives a page refresh.
+      const intent = `invest:${request.campaignId}:${request.investorAddress}`;
+      const submitted = await signAndSubmitTransaction(built.data, setPhase, { intent });
+
+      if (submitted.outcome === "pending") {
+        // Submitted but not yet confirmed — NOT failed. Keep the user in
+        // recovery mode so they don't re-submit and double-invest.
+        if (submitted.txHash) setTxHash(submitted.txHash);
+        setPhase("awaiting_index");
+        setError(
+          submitted.duplicate
+            ? "An investment for this campaign is already being processed. Wait for it to confirm before trying again."
+            : "Your investment was submitted and is still pending confirmation. It has not failed — its status will resolve automatically.",
+        );
+        return null;
+      }
+
       if (!submitted.success || !submitted.txHash) {
         throw new Error(submitted.error ?? "Investment transaction was not confirmed on-chain");
       }

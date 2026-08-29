@@ -12,9 +12,11 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "check:versions": "node scripts/check-shared-versions.js"
+    "check:versions": "node scripts/check-shared-versions.js",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "turbo": "^2.3.3"
+    "turbo": "^2.3.3",
+    "husky": "^9.0.0"
   }
 }

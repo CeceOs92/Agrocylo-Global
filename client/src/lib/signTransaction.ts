@@ -42,8 +42,12 @@ async function resolveNetworkPassphrase(
   try {
     const details = await FreighterApi.getNetworkDetails();
     return details.networkPassphrase;
-  } catch {
-    return "Test SDF Network ; September 2015";
+  } catch (err) {
+    throw new Error(
+      "Unable to detect network from Freighter wallet. " +
+        "Make sure Freighter is installed, unlocked, and configured. " +
+        `Details: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 

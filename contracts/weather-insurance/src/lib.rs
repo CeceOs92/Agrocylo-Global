@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env, String, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, Env,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -67,7 +69,12 @@ pub struct WeatherInsuranceContract;
 
 #[contractimpl]
 impl WeatherInsuranceContract {
-    pub fn initialize(env: Env, admin: Address, oracle: Address, premium_rate_bps: u32) -> Result<(), InsuranceError> {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        oracle: Address,
+        premium_rate_bps: u32,
+    ) -> Result<(), InsuranceError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(InsuranceError::AlreadyInitialized);
         }
@@ -76,13 +83,19 @@ impl WeatherInsuranceContract {
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Oracle, &oracle);
-        env.storage().instance().set(&DataKey::PremiumRateBps, &premium_rate_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::PremiumRateBps, &premium_rate_bps);
         Ok(())
     }
 
     pub fn set_oracle(env: Env, admin: Address, oracle: Address) -> Result<(), InsuranceError> {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(InsuranceError::ContractNotInitialized)?;
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(InsuranceError::ContractNotInitialized)?;
         if admin != stored_admin {
             return Err(InsuranceError::NotAdmin);
         }
@@ -91,19 +104,31 @@ impl WeatherInsuranceContract {
     }
 
     pub fn get_oracle(env: Env) -> Result<Address, InsuranceError> {
-        env.storage().instance().get(&DataKey::Oracle).ok_or(InsuranceError::ContractNotInitialized)
+        env.storage()
+            .instance()
+            .get(&DataKey::Oracle)
+            .ok_or(InsuranceError::ContractNotInitialized)
     }
 
     pub fn get_admin(env: Env) -> Result<Address, InsuranceError> {
-        env.storage().instance().get(&DataKey::Admin).ok_or(InsuranceError::ContractNotInitialized)
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(InsuranceError::ContractNotInitialized)
     }
 
     pub fn get_policy(env: Env, campaign_id: u64) -> Result<Option<Policy>, InsuranceError> {
-        Ok(env.storage().persistent().get(&DataKey::Policy(campaign_id)))
+        Ok(env
+            .storage()
+            .persistent()
+            .get(&DataKey::Policy(campaign_id)))
     }
 
     pub fn get_premium_rate(env: Env) -> Result<u32, InsuranceError> {
-        env.storage().instance().get(&DataKey::PremiumRateBps).ok_or(InsuranceError::ContractNotInitialized)
+        env.storage()
+            .instance()
+            .get(&DataKey::PremiumRateBps)
+            .ok_or(InsuranceError::ContractNotInitialized)
     }
 
     pub fn take_premium(
@@ -116,9 +141,17 @@ impl WeatherInsuranceContract {
         threshold: ThresholdConfig,
     ) -> Result<i128, InsuranceError> {
         caller.require_auth();
-        let premium_rate_bps: u32 = env.storage().instance().get(&DataKey::PremiumRateBps).ok_or(InsuranceError::ContractNotInitialized)?;
+        let premium_rate_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PremiumRateBps)
+            .ok_or(InsuranceError::ContractNotInitialized)?;
 
-        if env.storage().persistent().has(&DataKey::Policy(campaign_id)) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Policy(campaign_id))
+        {
             return Err(InsuranceError::PolicyAlreadyActive);
         }
 
@@ -129,7 +162,11 @@ impl WeatherInsuranceContract {
 
         let payout_amount = funding_amount;
 
-        token::Client::new(&env, &token).transfer(&caller, &env.current_contract_address(), &premium);
+        token::Client::new(&env, &token).transfer(
+            &caller,
+            &env.current_contract_address(),
+            &premium,
+        );
 
         let policy = Policy {
             campaign_id,
@@ -143,11 +180,23 @@ impl WeatherInsuranceContract {
             created_at: env.ledger().timestamp(),
         };
 
-        env.storage().persistent().set(&DataKey::Policy(campaign_id), &policy);
-        env.storage().persistent().extend_ttl(&DataKey::Policy(campaign_id), TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Policy(campaign_id), &policy);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Policy(campaign_id),
+            TTL_THRESHOLD,
+            TTL_EXTEND_TO,
+        );
 
-        let policy_count: u64 = env.storage().instance().get(&DataKey::PolicyCount).unwrap_or(0);
-        env.storage().instance().set(&DataKey::PolicyCount, &(policy_count + 1));
+        let policy_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PolicyCount)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::PolicyCount, &(policy_count + 1));
 
         env.events().publish(
             (symbol_short!("insurance"), symbol_short!("premium")),
@@ -164,12 +213,20 @@ impl WeatherInsuranceContract {
         reported_value: i128,
     ) -> Result<(), InsuranceError> {
         oracle.require_auth();
-        let stored_oracle: Address = env.storage().instance().get(&DataKey::Oracle).ok_or(InsuranceError::ContractNotInitialized)?;
+        let stored_oracle: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Oracle)
+            .ok_or(InsuranceError::ContractNotInitialized)?;
         if oracle != stored_oracle {
             return Err(InsuranceError::NotOracle);
         }
 
-        let mut policy: Policy = env.storage().persistent().get(&DataKey::Policy(campaign_id)).ok_or(InsuranceError::PolicyNotActive)?;
+        let mut policy: Policy = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Policy(campaign_id))
+            .ok_or(InsuranceError::PolicyNotActive)?;
         if !policy.active {
             return Err(InsuranceError::PolicyNotActive);
         }
@@ -179,7 +236,8 @@ impl WeatherInsuranceContract {
 
         let breached = match &policy.threshold.param {
             WeatherParam::Rainfall | WeatherParam::Temperature => {
-                reported_value < policy.threshold.min_value || reported_value > policy.threshold.max_value
+                reported_value < policy.threshold.min_value
+                    || reported_value > policy.threshold.max_value
             }
         };
 
@@ -196,11 +254,18 @@ impl WeatherInsuranceContract {
             &policy.payout_amount,
         );
 
-        env.storage().persistent().set(&DataKey::Policy(campaign_id), &policy);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Policy(campaign_id), &policy);
 
         env.events().publish(
             (symbol_short!("insurance"), symbol_short!("payout")),
-            (campaign_id, policy.farmer, policy.payout_amount, reported_value),
+            (
+                campaign_id,
+                policy.farmer,
+                policy.payout_amount,
+                reported_value,
+            ),
         );
 
         Ok(())
@@ -212,11 +277,19 @@ impl WeatherInsuranceContract {
         campaign_id: u64,
     ) -> Result<(), InsuranceError> {
         caller.require_auth();
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(InsuranceError::ContractNotInitialized)?;
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(InsuranceError::ContractNotInitialized)?;
         if caller != admin {
             return Err(InsuranceError::NotAdmin);
         }
-        let mut policy: Policy = env.storage().persistent().get(&DataKey::Policy(campaign_id)).ok_or(InsuranceError::PolicyNotActive)?;
+        let mut policy: Policy = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Policy(campaign_id))
+            .ok_or(InsuranceError::PolicyNotActive)?;
         if !policy.active {
             return Err(InsuranceError::PolicyNotActive);
         }
@@ -224,12 +297,17 @@ impl WeatherInsuranceContract {
             return Err(InsuranceError::AlreadyPaidOut);
         }
         policy.active = false;
-        env.storage().persistent().set(&DataKey::Policy(campaign_id), &policy);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Policy(campaign_id), &policy);
         Ok(())
     }
 
     pub fn get_policy_count(env: Env) -> u64 {
-        env.storage().instance().get(&DataKey::PolicyCount).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::PolicyCount)
+            .unwrap_or(0)
     }
 }
 

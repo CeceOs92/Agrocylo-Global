@@ -27,7 +27,11 @@ vi.mock("./notificationService.js", () => ({
   NotificationService: { notify: vi.fn(), notifyFromEscrowEvent: vi.fn(), notifyOrderEvent: vi.fn() },
 }));
 vi.mock("./wsManager.js", () => ({
-  wsManager: { broadcast: vi.fn(), broadcastTo: vi.fn(), clientCount: 0 },
+  // Issue #756 fix: this mock predated `dispatchEvent`'s use of
+  // `broadcastAuthenticated` (added separately from this PR) and was never
+  // updated, so every `dispatchEvent` test calling it failed with
+  // "not a function" regardless of anything this PR touches.
+  wsManager: { broadcast: vi.fn(), broadcastTo: vi.fn(), broadcastAuthenticated: vi.fn(), clientCount: 0 },
 }));
 vi.mock("./events/blockchainEventIngestionService.js", () => ({
   BlockchainEventIngestionService: { ingestEvent: vi.fn() },
@@ -43,7 +47,11 @@ import { NotificationService } from "./notificationService.js";
 import { wsManager } from "./wsManager.js";
 
 const notifyFromEscrowEvent = vi.mocked(NotificationService.notifyFromEscrowEvent);
-const broadcast = vi.mocked(wsManager.broadcast);
+// Issue #756 fix: `dispatchEvent` broadcasts via `broadcastAuthenticated`
+// (added in an unrelated, prior change), but this was still pointed at the
+// old `broadcast` method, failing every test below with "not a function"
+// before this PR touched the file for its own, unrelated reasons.
+const broadcast = vi.mocked(wsManager.broadcastAuthenticated);
 
 describe("contractWatcher", () => {
   beforeEach(() => {

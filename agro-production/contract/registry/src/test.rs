@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 fn setup_test() -> (
     Env,
@@ -66,7 +66,7 @@ fn test_registry_cannot_initialize_twice() {
 
 #[test]
 fn test_register_new_farmer() {
-    let (env, client, _, _, _, _, farmer_one, _) = setup_test();
+    let (_env, client, _, _, _, _, farmer_one, _) = setup_test();
 
     client.register_farmer(&farmer_one);
 
@@ -81,7 +81,7 @@ fn test_register_new_farmer() {
 
 #[test]
 fn test_duplicate_farmer_registration_fails() {
-    let (env, client, _, _, _, _, farmer_one, _) = setup_test();
+    let (_env, client, _, _, _, _, farmer_one, _) = setup_test();
 
     client.register_farmer(&farmer_one);
 
@@ -116,7 +116,7 @@ fn test_register_campaign_from_authorized_production_contract() {
 
 #[test]
 fn test_register_campaign_from_authorized_escrow_contract() {
-    let (env, client, _, escrow_contract, _, _, farmer_one, _) = setup_test();
+    let (_env, client, _, escrow_contract, _, _, farmer_one, _) = setup_test();
     client.register_farmer(&farmer_one);
 
     client.register_campaign(&escrow_contract, &101, &farmer_one, &Some(88));
@@ -128,7 +128,7 @@ fn test_register_campaign_from_authorized_escrow_contract() {
 
 #[test]
 fn test_unauthorized_campaign_registration_is_rejected() {
-    let (env, client, _, _, _, unauthorized_contract, farmer_one, _) = setup_test();
+    let (_env, client, _, _, _, unauthorized_contract, farmer_one, _) = setup_test();
     client.register_farmer(&farmer_one);
 
     let result = client.try_register_campaign(&unauthorized_contract, &200, &farmer_one, &None);
@@ -143,7 +143,7 @@ fn test_unauthorized_campaign_registration_is_rejected() {
 
 #[test]
 fn test_multiple_campaigns_are_indexed_per_farmer() {
-    let (env, client, _, escrow_contract, production_contract, _, farmer_one, farmer_two) =
+    let (_env, client, _, escrow_contract, production_contract, _, farmer_one, farmer_two) =
         setup_test();
     client.register_farmer(&farmer_one);
     client.register_farmer(&farmer_two);
@@ -164,7 +164,7 @@ fn test_multiple_campaigns_are_indexed_per_farmer() {
 
 #[test]
 fn test_get_all_campaigns_returns_complete_results() {
-    let (env, client, _, _, production_contract, _, farmer_one, farmer_two) = setup_test();
+    let (_env, client, _, _, production_contract, _, farmer_one, farmer_two) = setup_test();
     client.register_farmer(&farmer_one);
     client.register_farmer(&farmer_two);
 
@@ -191,7 +191,7 @@ fn test_empty_campaign_lists_are_handled_safely() {
 
 #[test]
 fn test_campaign_registration_requires_registered_farmer() {
-    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    let (_env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
 
     let result = client.try_register_campaign(&production_contract, &500, &farmer_one, &None);
     assert_eq!(
@@ -216,7 +216,7 @@ fn test_invalid_farmer_addresses_are_rejected() {
 
 #[test]
 fn test_repeated_campaign_entries_do_not_corrupt_state() {
-    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    let (_env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
     client.register_farmer(&farmer_one);
 
     client.register_campaign(&production_contract, &700, &farmer_one, &Some(99));
@@ -307,8 +307,7 @@ fn test_reputation_split_dispute_is_proportional() {
 fn test_reputation_update_from_production_contract_is_authorized() {
     let (_env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
 
-    let rep =
-        client.record_order_outcome(&production_contract, &farmer_one, &None);
+    let rep = client.record_order_outcome(&production_contract, &farmer_one, &None);
     assert_eq!(rep.score, 10);
 }
 
@@ -316,8 +315,7 @@ fn test_reputation_update_from_production_contract_is_authorized() {
 fn test_reputation_update_from_unauthorized_caller_fails() {
     let (_env, client, _, _, _, unauthorized_contract, farmer_one, _) = setup_test();
 
-    let result =
-        client.try_record_order_outcome(&unauthorized_contract, &farmer_one, &None);
+    let result = client.try_record_order_outcome(&unauthorized_contract, &farmer_one, &None);
     assert_eq!(
         result.unwrap_err().unwrap(),
         RegistryError::UnauthorizedContract
@@ -335,7 +333,10 @@ fn test_reputation_is_tracked_independently_per_farmer() {
     client.record_order_outcome(&escrow_contract, &farmer_two, &Some(10_000u32));
 
     assert_eq!(client.get_reputation(&farmer_one).score, 10);
-    assert_eq!(client.get_reputation(&farmer_two).score, -5);
+    // buyer_share_bps=10_000 (fully refunded): reward = 0, penalty = full
+    // DISPUTE_PENALTY_POINTS (15), same formula as
+    // test_reputation_split_dispute_is_proportional.
+    assert_eq!(client.get_reputation(&farmer_two).score, -15);
 }
 
 // ---------------------------------------------------------------------------
@@ -371,4 +372,49 @@ fn test_guardian_pause_blocks_register_farmer_governance_only_unpauses() {
     assert!(!client.is_paused());
     client.register_farmer(&farmer_one);
     assert!(client.is_farmer_registered(&farmer_one));
+}
+
+// ── Provenance registry: mint_batch farmer-identity validation (Issue #754 audit) ──
+
+#[test]
+fn test_mint_batch_rejects_farmer_mismatch() {
+    let (env, client, _, _, production_contract, _, farmer_one, farmer_two) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_farmer(&farmer_two);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    // Campaign 1 belongs to farmer_one; a caller-supplied farmer_two must be
+    // rejected rather than minting a batch that misattributes provenance.
+    let result = client.try_mint_batch(
+        &production_contract,
+        &1,
+        &farmer_two,
+        &String::from_str(&env, "Maize"),
+        &0,
+        &100,
+    );
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        RegistryError::InvalidFarmerAddress
+    );
+}
+
+#[test]
+fn test_mint_batch_succeeds_for_matching_farmer() {
+    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    let batch_id = client.mint_batch(
+        &production_contract,
+        &1,
+        &farmer_one,
+        &String::from_str(&env, "Maize"),
+        &0,
+        &100,
+    );
+
+    let batch = client.get_batch(&batch_id).unwrap().unwrap();
+    assert_eq!(batch.farmer, farmer_one);
+    assert_eq!(batch.campaign_id, 1);
 }

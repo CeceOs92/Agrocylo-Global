@@ -1,0 +1,80 @@
+name: Backup / Restore Drill
+
+# Proves, on a recurring cadence and without needing production secrets,
+# that scripts/db-backup.sh and scripts/db-restore.sh actually work against
+# each app's current schema: applies the full migration history to a fresh
+# database, backs it up, restores the backup into a second scratch
+# database, and verifies the restore. This is what "restore procedure
+# tested on a regular cadence" (see DISASTER_RECOVERY.md) means in
+# practice, rather than a one-off manual check.
+on:
+  schedule:
+    - cron: "0 3 1 * *" # monthly, 1st at 03:00 UTC
+  workflow_dispatch: {}
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  drill:
+    name: Restore Drill · ${{ matrix.app.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - label: marketplace
+            working_directory: server
+          - label: production
+            working_directory: agro-production/server
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: agrocylo
+          POSTGRES_PASSWORD: agrocylo123
+          POSTGRES_DB: drill_source
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app.working_directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app.working_directory }}
+        run: npm ci
+
+      - name: Apply full migration history
+        working-directory: ${{ matrix.app.working_directory }}
+        env:
+          DATABASE_URL: postgresql://agrocylo:agrocylo123@localhost:5432/drill_source
+        run: npx prisma migrate deploy
+
+      - name: Create scratch restore target
+        run: PGPASSWORD=agrocylo123 psql -h localhost -U agrocylo -d drill_source -c "CREATE DATABASE drill_restore;"
+
+      - name: Back up the migrated database
+        env:
+          DATABASE_URL: postgresql://agrocylo:agrocylo123@localhost:5432/drill_source
+        run: ./scripts/db-backup.sh "${{ matrix.app.label }}" "backups/${{ matrix.app.label }}" 30
+
+      - name: Restore into the scratch target and verify
+        env:
+          RESTORE_DATABASE_URL: postgresql://agrocylo:agrocylo123@localhost:5432/drill_restore
+        run: |
+          dump_file=$(ls -t backups/${{ matrix.app.label }}/${{ matrix.app.label }}_*.dump | head -1)
+          ./scripts/db-restore.sh "$dump_file"

@@ -1,5 +1,6 @@
 import { prisma } from "../config/database.js";
 import logger from "../config/logger.js";
+import { captureAlert } from "../config/sentry.js";
 import { NotificationEventType } from "../enums/notificationEventType.js";
 import { NotificationService } from "./notificationService.js";
 import { getNotificationPreferences } from "./notificationPreferenceService.js";
@@ -173,9 +174,18 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 export function startWeatherPolling(intervalMs = 60 * 60 * 1000): void {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    pollAllFarmerLocations().catch((error) =>
-      logger.error("[weatherService] Polling cycle failed", error),
-    );
+    pollAllFarmerLocations().catch((error) => {
+      logger.error("[weatherService] Polling cycle failed", error);
+      // Issue #756: this whole-cycle failure (as opposed to one farmer's
+      // skipped reading, above) means the scheduled job produced zero
+      // readings this run — exactly the "silently-never-started" class of
+      // failure this issue calls out weather polling for specifically.
+      captureAlert(
+        "scheduled_job_failed",
+        "Weather polling cycle failed — no readings collected this run",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    });
   }, intervalMs);
 }
 

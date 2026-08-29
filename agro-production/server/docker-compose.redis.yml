@@ -1,3 +1,7 @@
+# Standalone Redis service for agro-production/server
+# Used for persistent Redis storage with appendonly mode (durability)
+# Note: This repo's primary dev workflow uses npm run dev, not full Docker orchestration
+# See ../../README.md "Docker Setup" section for details
 services:
   redis:
     image: redis:7-alpine

@@ -73,6 +73,7 @@ fn setup_test() -> (
     )
 }
 
+#[allow(dead_code)]
 fn create_test_with_tokens() -> (
     Env,
     EscrowContractClient<'static>,
@@ -104,7 +105,9 @@ fn create_test_with_tokens() -> (
     xlm_admin_client.mint(&buyer, &1000);
 
     // Register the second required token; only its address is needed for the whitelist.
-    let usdc_address = env.register_stellar_asset_contract_v2(token_admin).address();
+    let usdc_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let contract_id = env.register(EscrowContract, ());
     let client = EscrowContractClient::new(&env, &contract_id);
@@ -151,7 +154,9 @@ fn test_mark_delivered_then_confirm() {
         .create_order(&buyer, &farmer, &token.address, &500);
 
     env.ledger().set_timestamp(1000);
-    client.mock_all_auths().mark_delivered(&farmer, &admin, &order_id);
+    client
+        .mock_all_auths()
+        .mark_delivered(&farmer, &admin, &order_id);
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Pending);
@@ -186,7 +191,9 @@ fn test_mark_delivered_twice_succeeds() {
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
-    client.mock_all_auths().mark_delivered(&farmer, &admin, &order_id);
+    client
+        .mock_all_auths()
+        .mark_delivered(&farmer, &admin, &order_id);
     env.ledger().set_timestamp(1000);
     let result = client
         .mock_all_auths()
@@ -219,7 +226,9 @@ fn test_mark_delivered_falls_back_to_admin_before_attester_configured() {
         .create_order(&buyer, &farmer, &token.address, &500);
 
     // No set_attester call: admin is the fallback attester.
-    client.mock_all_auths().mark_delivered(&farmer, &admin, &order_id);
+    client
+        .mock_all_auths()
+        .mark_delivered(&farmer, &admin, &order_id);
     let order = client.get_order_details(&order_id);
     assert!(order.delivery_timestamp > 0);
 }
@@ -296,7 +305,9 @@ fn test_refund_expired_order() {
     env.ledger()
         .set_timestamp(env.ledger().timestamp() + 345_601);
 
-    client.mock_all_auths().refund_expired_order(&buyer, &order_id);
+    client
+        .mock_all_auths()
+        .refund_expired_order(&buyer, &order_id);
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Refunded);
@@ -316,7 +327,9 @@ fn test_refund_unexpired_order_fails() {
 
     env.ledger().set_timestamp(env.ledger().timestamp() + 3600);
 
-    let result = client.mock_all_auths().try_refund_expired_order(&buyer, &order_id);
+    let result = client
+        .mock_all_auths()
+        .try_refund_expired_order(&buyer, &order_id);
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotExpired);
 }
 
@@ -353,7 +366,10 @@ fn test_cancel_order_fails_after_window_closes() {
         .set_timestamp(env.ledger().timestamp() + CANCEL_WINDOW_SECONDS + 1);
 
     let result = client.mock_all_auths().try_cancel_order(&buyer, &order_id);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::CancelWindowClosed);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::CancelWindowClosed
+    );
 }
 
 #[test]
@@ -379,7 +395,9 @@ fn test_cancel_order_wrong_buyer_fails() {
         .mock_all_auths()
         .create_order(&buyer, &farmer, &token.address, &500);
 
-    let result = client.mock_all_auths().try_cancel_order(&stranger, &order_id);
+    let result = client
+        .mock_all_auths()
+        .try_cancel_order(&stranger, &order_id);
     assert_eq!(result.unwrap_err().unwrap(), EscrowError::NotBuyer);
 }
 
@@ -397,16 +415,28 @@ fn test_cancel_order_emits_distinct_event() {
     // invocation's events, so filtering to the escrow contract after
     // `cancel_order` isolates exactly the event it emitted. Confirms it's
     // the distinct `order:cancelled` topic, not a reused `order:refunded`.
-    let escrow_events = env.events().all().filter_by_contract(&contract_id);
-    let expected: soroban_sdk::Vec<(Address, soroban_sdk::Vec<soroban_sdk::Val>, soroban_sdk::Val)> =
-        soroban_sdk::vec![
-            &env,
-            (
-                contract_id,
-                (symbol_short!("order"), symbol_short!("cancelled")).into_val(&env),
-                (order_id, buyer).into_val(&env),
-            ),
-        ];
+    let mut escrow_events: soroban_sdk::Vec<(
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    )> = soroban_sdk::Vec::new(&env);
+    for evt in env.events().all().iter() {
+        if evt.0 == contract_id {
+            escrow_events.push_back(evt.clone());
+        }
+    }
+    let expected: soroban_sdk::Vec<(
+        Address,
+        soroban_sdk::Vec<soroban_sdk::Val>,
+        soroban_sdk::Val,
+    )> = soroban_sdk::vec![
+        &env,
+        (
+            contract_id,
+            (symbol_short!("order"), symbol_short!("cancelled")).into_val(&env),
+            (order_id, buyer).into_val(&env),
+        ),
+    ];
     assert_eq!(escrow_events, expected);
 }
 
@@ -433,7 +463,10 @@ fn test_create_order_zero_amount_fails() {
     let result = client
         .mock_all_auths()
         .try_create_order(&buyer, &farmer, &token.address, &0);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AmountMustBePositive);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::AmountMustBePositive
+    );
 }
 
 #[test]
@@ -443,7 +476,10 @@ fn test_create_order_negative_amount_fails() {
     let result = client
         .mock_all_auths()
         .try_create_order(&buyer, &farmer, &token.address, &-1);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AmountMustBePositive);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::AmountMustBePositive
+    );
 }
 
 #[test]
@@ -451,12 +487,17 @@ fn test_create_order_buyer_auth_fails() {
     let (env, client, buyer, farmer, _, token, _, _, _, _) = setup_test();
 
     // Use mock_all_auths to successfully create an order while recording auths.
-    client.mock_all_auths().create_order(&buyer, &farmer, &token.address, &500);
+    client
+        .mock_all_auths()
+        .create_order(&buyer, &farmer, &token.address, &500);
 
     // Verify that the buyer's authorization was required by the contract.
     let auths = env.auths();
     assert!(!auths.is_empty(), "expected at least one auth entry");
-    assert_eq!(auths[0].0, buyer, "expected buyer to be the authorized address");
+    assert_eq!(
+        auths[0].0, buyer,
+        "expected buyer to be the authorized address"
+    );
 }
 
 #[test]
@@ -497,7 +538,7 @@ fn test_open_dispute_by_buyer() {
 
     let dispute = client.get_dispute(&order_id);
     assert_eq!(dispute.opened_by, buyer);
-    assert_eq!(dispute.resolved, false);
+    assert!(!dispute.resolved);
 }
 
 #[test]
@@ -520,7 +561,7 @@ fn test_open_dispute_by_farmer() {
 
     let dispute = client.get_dispute(&order_id);
     assert_eq!(dispute.opened_by, farmer);
-    assert_eq!(dispute.resolved, false);
+    assert!(!dispute.resolved);
 }
 
 #[test]
@@ -592,10 +633,7 @@ fn test_open_dispute_duplicate_fails() {
             .mock_all_auths()
             .try_open_dispute(&buyer, &order_id, &reason2, &evidence_hash2);
 
-    assert_eq!(
-        result.unwrap_err().unwrap(),
-        EscrowError::OrderNotPending
-    );
+    assert_eq!(result.unwrap_err().unwrap(), EscrowError::OrderNotPending);
 }
 
 #[test]
@@ -698,9 +736,11 @@ fn test_resolve_dispute_split_50_50() {
         .mock_all_auths()
         .open_dispute(&buyer, &order_id, &reason, &evidence_hash);
 
-    client
-        .mock_all_auths()
-        .resolve_dispute(&admin, &order_id, &DisputeResolution::Split(buyer_share_bps));
+    client.mock_all_auths().resolve_dispute(
+        &admin,
+        &order_id,
+        &DisputeResolution::Split(buyer_share_bps),
+    );
 
     let order = client.get_order_details(&order_id);
     assert_eq!(order.status, OrderStatus::Completed);
@@ -826,7 +866,10 @@ fn test_initialize_with_only_one_token_fails() {
     one_token.push_back(xlm_address);
 
     let result = client.try_initialize(&admin, &fee_collector, &one_token);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::MustSupportTwoTokens);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::MustSupportTwoTokens
+    );
 }
 
 #[test]
@@ -841,7 +884,9 @@ fn test_initialize_duplicate_fails() {
     let token_admin = Address::generate(&env);
 
     let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let usdc_address = env.register_stellar_asset_contract_v2(token_admin).address();
+    let usdc_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let contract_id = env.register(EscrowContract, ());
     let client = EscrowContractClient::new(&env, &contract_id);
@@ -853,7 +898,10 @@ fn test_initialize_duplicate_fails() {
     client.initialize(&admin, &fee_collector, &tokens);
 
     let result = client.try_initialize(&admin, &fee_collector, &tokens);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AlreadyInitialized);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::AlreadyInitialized
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -951,8 +999,7 @@ fn test_upgrade_bypassing_governance_rejected() {
 
 #[test]
 fn test_guardian_can_pause_instantly_governance_only_can_unpause() {
-    let (env, client, buyer, farmer, _collector, token, _, admin, _investor1, _id) =
-        setup_test();
+    let (env, client, buyer, farmer, _collector, token, _, admin, _investor1, _id) = setup_test();
 
     let governance = env.register(MockGovernance, ());
     client.set_governance_contract(&admin, &governance);
@@ -1036,7 +1083,9 @@ struct MockRouter;
 #[contractimpl]
 impl MockRouter {
     pub fn configure(env: Env, quote: i128, actual_out: i128) {
-        env.storage().instance().set(&symbol_short!("quote"), &quote);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("quote"), &quote);
         env.storage()
             .instance()
             .set(&symbol_short!("actual"), &actual_out);
@@ -1046,11 +1095,21 @@ impl MockRouter {
     /// `actual_out` it really pays out, simulating a compromised or
     /// malicious router that misreports its own fill.
     pub fn set_misreport(env: Env, reported: i128) {
-        env.storage().instance().set(&symbol_short!("report"), &reported);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("report"), &reported);
     }
 
-    pub fn get_quote(env: Env, _send_token: Address, _dest_token: Address, _send_amount: i128) -> i128 {
-        env.storage().instance().get(&symbol_short!("quote")).unwrap()
+    pub fn get_quote(
+        env: Env,
+        _send_token: Address,
+        _dest_token: Address,
+        _send_amount: i128,
+    ) -> i128 {
+        env.storage()
+            .instance()
+            .get(&symbol_short!("quote"))
+            .unwrap()
     }
 
     pub fn swap_exact_in(
@@ -1062,9 +1121,21 @@ impl MockRouter {
         send_amount: i128,
         _dest_min: i128,
     ) -> i128 {
-        let actual_out: i128 = env.storage().instance().get(&symbol_short!("actual")).unwrap();
-        token::Client::new(&env, &send_token).transfer(&from, &env.current_contract_address(), &send_amount);
-        token::Client::new(&env, &dest_token).transfer(&env.current_contract_address(), &to, &actual_out);
+        let actual_out: i128 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("actual"))
+            .unwrap();
+        token::Client::new(&env, &send_token).transfer(
+            &from,
+            &env.current_contract_address(),
+            &send_amount,
+        );
+        token::Client::new(&env, &dest_token).transfer(
+            &env.current_contract_address(),
+            &to,
+            &actual_out,
+        );
         env.storage()
             .instance()
             .get(&symbol_short!("report"))
@@ -1078,12 +1149,12 @@ fn setup_path_payment_test(
 ) -> (
     Env,
     EscrowContractClient<'static>,
-    Address, // buyer
-    Address, // farmer
-    Address, // fee_collector
+    Address,                // buyer
+    Address,                // farmer
+    Address,                // fee_collector
     token::Client<'static>, // source (non-whitelisted) token
     token::Client<'static>, // settlement token (whitelisted)
-    Address, // admin
+    Address,                // admin
 ) {
     let env = Env::default();
     env.mock_all_auths();
@@ -1103,13 +1174,16 @@ fn setup_path_payment_test(
     let settlement_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
     let settlement_client = token::Client::new(&env, &settlement_contract.address());
 
-    let xlm_address = env.register_stellar_asset_contract_v2(token_admin).address();
+    let xlm_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let router_id = env.register(MockRouter, ());
     let router_client_setup = MockRouterClient::new(&env, &router_id);
     router_client_setup.configure(&quote, &actual_out);
     // Fund the router with the settlement-token liquidity it pays out on swap.
-    token::StellarAssetClient::new(&env, &settlement_contract.address()).mint(&router_id, &actual_out);
+    token::StellarAssetClient::new(&env, &settlement_contract.address())
+        .mint(&router_id, &actual_out);
 
     let contract_id = env.register(EscrowContract, ());
     let client = EscrowContractClient::new(&env, &contract_id);
@@ -1218,7 +1292,9 @@ fn test_create_order_via_path_payment_no_router_configured_fails() {
         .register_stellar_asset_contract_v2(token_admin.clone())
         .address();
     let settlement_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let xlm_address = env.register_stellar_asset_contract_v2(token_admin).address();
+    let xlm_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let contract_id = env.register(EscrowContract, ());
     let client = EscrowContractClient::new(&env, &contract_id);
@@ -1236,7 +1312,10 @@ fn test_create_order_via_path_payment_no_router_configured_fails() {
         &settlement_contract.address(),
         &900,
     );
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::RouterNotConfigured);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::RouterNotConfigured
+    );
 }
 
 #[test]
@@ -1260,7 +1339,9 @@ fn test_create_order_via_path_payment_rejects_router_misreporting_dest_received(
     token::StellarAssetClient::new(&env, &source_contract.address()).mint(&buyer, &10_000);
 
     let settlement_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
-    let xlm_address = env.register_stellar_asset_contract_v2(token_admin).address();
+    let xlm_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
 
     let router_id = env.register(MockRouter, ());
     let router_client_setup = MockRouterClient::new(&env, &router_id);
@@ -1321,7 +1402,9 @@ impl MockRegistry {
             .get(&symbol_short!("calls"))
             .unwrap_or_else(|| Vec::new(&env));
         calls.push_back((source_contract, farmer, disputed_buyer_share_bps));
-        env.storage().instance().set(&symbol_short!("calls"), &calls);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("calls"), &calls);
     }
 
     pub fn calls(env: Env) -> Vec<(Address, Address, Option<u32>)> {
@@ -1523,7 +1606,10 @@ fn test_split_order_fund_twice_fails() {
     let result = client
         .mock_all_auths()
         .try_fund_split_order(&co_buyers.get(0).unwrap(), &order_id);
-    assert_eq!(result.unwrap_err().unwrap(), EscrowError::AlreadyContributed);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        EscrowError::AlreadyContributed
+    );
 }
 
 #[test]
@@ -1545,7 +1631,9 @@ fn test_split_order_majority_by_value_releases_despite_non_confirming_contributo
         &shares,
     );
     for co_buyer in co_buyers.iter() {
-        client.mock_all_auths().fund_split_order(&co_buyer, &order_id);
+        client
+            .mock_all_auths()
+            .fund_split_order(&co_buyer, &order_id);
     }
     client
         .mock_all_auths()
@@ -1579,7 +1667,9 @@ fn test_split_order_even_split_requires_unanimous_confirmation() {
         &shares,
     );
     for co_buyer in co_buyers.iter() {
-        client.mock_all_auths().fund_split_order(&co_buyer, &order_id);
+        client
+            .mock_all_auths()
+            .fund_split_order(&co_buyer, &order_id);
     }
     client
         .mock_all_auths()
@@ -1616,7 +1706,9 @@ fn test_split_order_dispute_refund_is_pro_rata_across_all_contributors() {
         &shares,
     );
     for co_buyer in co_buyers.iter() {
-        client.mock_all_auths().fund_split_order(&co_buyer, &order_id);
+        client
+            .mock_all_auths()
+            .fund_split_order(&co_buyer, &order_id);
     }
 
     let reason = String::from_str(&env, "produce never arrived");

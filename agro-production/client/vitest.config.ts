@@ -12,4 +12,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
   },
+  // Components author JSX without importing React (Next.js supplies it). vitest's
+  // bare esbuild transform does not, so inject it for the classic runtime.
+  esbuild: {
+    jsxInject: `import React from 'react'`,
+  },
 });

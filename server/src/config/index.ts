@@ -30,6 +30,11 @@ const envSchema = z.object({
   GOVERNANCE_CONTRACT_ID: z.string().default(""),
   RPC_URL: z.url().default("https://soroban-testnet.stellar.org"),
   WS_PATH: z.string().min(1).default("/ws"),
+  // Observability (Issue #756). Empty string disables Sentry entirely — the
+  // SDK is designed to safely no-op without a DSN, so this is optional in
+  // every environment except wherever alerts actually need to fire.
+  SENTRY_DSN: z.string().default(""),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -68,4 +73,6 @@ export const config = {
   governanceContractId: env.GOVERNANCE_CONTRACT_ID,
   rpcUrl: env.RPC_URL,
   wsPath: env.WS_PATH,
+  sentryDsn: env.SENTRY_DSN,
+  sentryTracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
 };

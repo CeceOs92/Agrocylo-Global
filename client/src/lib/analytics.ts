@@ -88,7 +88,7 @@ const analyticsEndpoint =
   process.env.NEXT_PUBLIC_ANALYTICS_ENDPOINT ?? "/api/analytics";
 
 let initialized = false;
-let consentState: AnalyticsConsentState = "granted";
+let consentState: AnalyticsConsentState = "unknown";
 let sessionId = "session";
 let anonymousId = "anonymous";
 let currentPath = "/";
@@ -110,12 +110,12 @@ function generateId() {
 }
 
 function loadConsent(): AnalyticsConsentState {
-  if (!isBrowser) return "granted";
+  if (!isBrowser) return "unknown";
   const stored = window.localStorage.getItem(STORAGE_KEYS.consent);
   if (stored === "granted" || stored === "denied" || stored === "unknown") {
     return stored;
   }
-  return "granted";
+  return "unknown";
 }
 
 function persistConsent(next: AnalyticsConsentState) {

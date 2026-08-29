@@ -6,12 +6,11 @@ import { Loader2 } from "lucide-react";
 
 import { useWallet } from "@/hooks/useWallet";
 import { useProfile } from "@/context/ProfileContext";
-
-type Role = "farmer" | "buyer";
+import type { UserRole } from "@/types/user";
 
 interface AuthGuardProps {
   children: ReactNode;
-  requiredRole?: Role;
+  requiredRole?: UserRole;
 }
 
 export default function AuthGuard({ children, requiredRole }: AuthGuardProps) {

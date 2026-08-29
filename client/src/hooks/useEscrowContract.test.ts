@@ -75,6 +75,7 @@ describe("useEscrowContract", () => {
     expect(result.current.tx.dispute).toBeInstanceOf(Function);
     expect(result.current.tx.isLoading).toBe(false);
     expect(result.current.tx.error).toBeNull();
+    expect(result.current.tx.blockchainError).toBeNull();
     expect(result.current.tx.activeAction).toBeNull();
   });
 
@@ -97,8 +98,8 @@ describe("useEscrowContract", () => {
     expect(result.current.tx.activeAction).toBeNull();
   });
 
-  it("sets error on confirm failure and propagates it through tx.error", async () => {
-    mockSignAndSubmit.mockRejectedValue(new Error("Transaction rejected by user"));
+  it("classifies insufficient_balance error with structured info", async () => {
+    mockSignAndSubmit.mockRejectedValue(new Error("insufficient funds"));
 
     const { result } = renderHook(() => useEscrowContract(), { wrapper });
 
@@ -110,7 +111,45 @@ describe("useEscrowContract", () => {
       }
     });
 
-    expect(result.current.tx.error).toBe("Transaction rejected by user");
+    expect(result.current.tx.error).toBe("insufficient funds");
+    expect(result.current.tx.blockchainError).not.toBeNull();
+    expect(result.current.tx.blockchainError!.kind).toBe("insufficient_balance");
+    expect(result.current.tx.blockchainError!.title).toBe("Insufficient Balance");
+    expect(result.current.tx.blockchainError!.action).toContain("Check wallet balance");
+  });
+
+  it("classifies user_rejected error with structured info", async () => {
+    mockSignAndSubmit.mockRejectedValue(new Error("User rejected the transaction"));
+
+    const { result } = renderHook(() => useEscrowContract(), { wrapper });
+
+    await act(async () => {
+      try {
+        await result.current.tx.confirm("order-1");
+      } catch {
+        // expected
+      }
+    });
+
+    expect(result.current.tx.blockchainError!.kind).toBe("user_rejected");
+    expect(result.current.tx.blockchainError!.title).toBe("Transaction Rejected");
+  });
+
+  it("classifies network timeout with structured info", async () => {
+    mockSignAndSubmit.mockRejectedValue(new Error("network timeout"));
+
+    const { result } = renderHook(() => useEscrowContract(), { wrapper });
+
+    await act(async () => {
+      try {
+        await result.current.tx.refund("order-1");
+      } catch {
+        // expected
+      }
+    });
+
+    expect(result.current.tx.blockchainError!.kind).toBe("network_unavailable");
+    expect(result.current.tx.blockchainError!.title).toBe("Network Unavailable");
   });
 
   it("sets isLoading during refund and clears it afterward", async () => {
@@ -171,5 +210,6 @@ describe("useEscrowContract", () => {
     });
 
     expect(result.current.tx.error).toBeNull();
+    expect(result.current.tx.blockchainError).toBeNull();
   });
 });
