@@ -52,6 +52,46 @@ jobs:
             echo "environment=staging" >> "$GITHUB_OUTPUT"
           fi
 
+  # ── Deploy & cross-wire Soroban contracts (testnet / staging) ──────────────
+  deploy-contracts:
+    name: Deploy contracts · testnet
+    needs: resolve-env
+    if: needs.resolve-env.outputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.89.0 + wasm target
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup target add wasm32v1-none --toolchain 1.89.0
+          rustup override set 1.89.0
+
+      - name: Install stellar CLI
+        run: cargo install --locked stellar-cli --version '^22'
+
+      - name: Configure deployer identity
+        run: stellar keys add ci-deployer --secret-key <<< "${{ secrets.TESTNET_DEPLOYER_SECRET }}"
+
+      - name: Deploy + wire + verify
+        env:
+          DEPLOYER: ci-deployer
+          ADMIN: ${{ vars.TESTNET_CONTRACT_ADMIN }}
+          FEE_COLLECTOR: ${{ vars.TESTNET_FEE_COLLECTOR }}
+          SUPPORTED_TOKENS: ${{ vars.TESTNET_SUPPORTED_TOKENS }}
+          FEE_RATE_BPS: ${{ vars.TESTNET_FEE_RATE_BPS }}
+          PATH_PAYMENT_ROUTER: ${{ vars.TESTNET_PATH_PAYMENT_ROUTER }}
+        run: scripts/deploy-contracts.sh --network testnet
+
+      - name: Upload address manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-addresses-testnet
+          path: deployments/deployed-addresses.testnet.json
+
   # ── Build & push Docker images ──────────────────────────────────────────────
   build-images:
     name: Build · ${{ matrix.app }}
