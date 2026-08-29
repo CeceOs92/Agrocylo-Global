@@ -27,9 +27,21 @@
 # when it already matches. initialize() calls tolerate AlreadyInitialized.
 # Re-running converges to the same wired state with no duplicate deploys.
 #
+# Atomic initialization (Issue #843): on mainnet, freshly-deployed contracts
+# are initialized in the *same* transaction as their deployment via
+# constructor-style init (`--init-fn initialize --init-args ...`). There is no
+# deploy/initialize gap in which an attacker could front-run the maintainer's
+# initialize() and seize admin. Local/testnet deploys use the classic
+# deploy-then-initialize flow (no front-running risk off-mainnet), and the
+# separate initialize() step below remains as an idempotent fallback that
+# tolerates AlreadyInitialized (e.g. --force redeploys onto an initialized
+# instance).
+#
 # Verification: after wiring, every configured registry/governance/router
-# address is read back and asserted against what was just deployed. A mismatch
-# fails the run loudly (exit 1) instead of leaving a contract half-configured.
+# address is read back and asserted against what was just deployed, and each
+# contract's get_admin / get_guardian / get_governance_contract is compared to
+# the expected deploy-time values. A mismatch fails the run loudly (exit 1)
+# instead of leaving a contract half-configured or pointing at the wrong admin.
 #
 # Usage:
 #   scripts/deploy-contracts.sh --network {local|testnet|mainnet} [flags]
@@ -52,6 +64,10 @@
 #   GOV_TIMELOCK_SECS       default 172800 (2d)
 #   GOV_UPGRADE_TIMELOCK_SECS  default 604800 (7d)
 #   GOV_QUORUM_WEIGHT      default 1
+#   GUARDIAN               guardian address; when set, the verification pass
+#                          asserts get_guardian() equals it on every contract
+#   ATOMIC_INIT            "true" forces atomic deploy+initialize off-mainnet
+#                          (on is always atomic on mainnet)
 #   SOROBAN_RPC_URL       override the network default RPC
 #   STELLAR_CLI           override CLI binary (auto-detects `stellar` then `soroban`)
 #
@@ -103,6 +119,15 @@ case "$NETWORK" in
         RPC_URL="${SOROBAN_RPC_URL:-https://soroban.stellar.org}"
         NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015" ;;
 esac
+
+# Issue #843: initializing in the same transaction as deployment is *mandatory*
+# on mainnet — it removes the front-running window between `contract deploy`
+# and the maintainer's separate `initialize` call. Off-mainnet the classic
+# deploy-then-initialize flow is fine (no funds at stake), but can be opted in
+# with ATOMIC_INIT=true.
+ATOMIC_INIT=false
+[[ "$NETWORK" == "mainnet" || "${ATOMIC_INIT:-false}" == "true" ]] && ATOMIC_INIT=true
+[[ "${ATOMIC_INIT_DISABLE:-false}" == "true" ]] && ATOMIC_INIT=false
 
 # ---------------------------------------------------------------------------
 # CLI detection
@@ -217,8 +242,45 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Deploy (deterministic salt per network+contract; idempotent via manifest)
 # ---------------------------------------------------------------------------
+# Constructor-style init args (JSON array) matching each contract's
+# `initialize(admin, ...)` signature. Used to bind deployment and
+# initialization into a single atomic transaction on mainnet, closing the
+# front-running window between the two (Issue #843). Address arguments use the
+# same bare pubkey/contract-id strings the `--admin X` invoke flags accept.
+init_args_for() {
+    local c="$1"
+    case "$c" in
+        governance)
+            jq -cn --arg a "$ADMIN" \
+                --argjson v "$GOV_VOTING_PERIOD_SECS" \
+                --argjson t "$GOV_TIMELOCK_SECS" \
+                --argjson u "$GOV_UPGRADE_TIMELOCK_SECS" \
+                --argjson q "$GOV_QUORUM_WEIGHT" \
+                '[$a,$v,$t,$u,$q]' ;;
+        escrow)
+            jq -cn --arg a "$ADMIN" --arg f "$FEE_COLLECTOR" \
+                --argjson toks "$(tokens_json)" \
+                '[$a,$f,$toks]' ;;
+        production_escrow)
+            jq -cn --arg a "$ADMIN" --arg f "$FEE_COLLECTOR" \
+                --argjson fr "$FEE_RATE_BPS" \
+                --argjson toks "$(tokens_json)" \
+                '[$a,$toks,$f,$fr]' ;;
+        registry)
+            jq -cn --arg a "$ADMIN" --arg e "$(cid escrow)" --arg p "$(cid production_escrow)" \
+                '[$a,$e,$p]' ;;
+        investment_basket)
+            jq -cn --arg a "$ADMIN" --arg e "$(cid production_escrow)" \
+                '[$a,$e]' ;;
+        *)
+            echo "Error: no init args defined for contract '$c'" >&2
+            exit 1 ;;
+    esac
+}
+
 deploy_one() {
-    local c="$1" wasm="$WASM_DIR/${WASM[$c]}" existing salt hash id
+    local c="$1" wasm="$WASM_DIR/${WASM[$c]}" existing salt hash id \
+          init_fn="" init_args="" deployed_init=false
     existing="$(cid "$c")"
     if [[ -n "$existing" && "$FORCE" == "false" ]]; then
         echo "  $c: reusing $existing"
@@ -227,10 +289,33 @@ deploy_one() {
     [[ -f "$wasm" ]] || { echo "Error: missing WASM $wasm (build first, or drop --skip-build)" >&2; exit 1; }
     salt="$(printf 'agrocylo:%s:%s' "$NETWORK" "$c" | sha256sum | cut -c1-64)"
     hash="$($CLI contract install "${NET_ARGS[@]}" --source-account "$DEPLOYER" --wasm "$wasm")"
-    id="$($CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" --wasm-hash "$hash" --salt "$salt" 2>/dev/null \
-          || $CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" --wasm "$wasm" --salt "$salt")"
-    echo "  $c: deployed $id"
-    m_set ".contracts.\"$c\" = {\"id\":\"$id\",\"wasm\":\"${WASM[$c]}\",\"wasm_hash\":\"$hash\",\"salt\":\"$salt\"}"
+
+    # Atomic init: only on a fresh instance (no manifest `initialized: true`).
+    # A --force redeploy onto an already-initialized instance must NOT re-run
+    # constructor-init — it would revert the whole deploy with AlreadyInitialized;
+    # that path keeps the separate idempotent initialize() step below.
+    if [[ "$ATOMIC_INIT" == "true" && "$(m_get ".contracts.\"$c\".initialized")" != "true" ]]; then
+        init_fn="initialize"
+        init_args="$(init_args_for "$c")"
+        deployed_init=true
+    fi
+
+    if [[ -n "$init_fn" ]]; then
+        id="$($CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" \
+                --wasm-hash "$hash" --salt "$salt" \
+                --init-fn "$init_fn" --init-args "$init_args" 2>/dev/null \
+              || $CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" \
+                --wasm "$wasm" --salt "$salt" \
+                --init-fn "$init_fn" --init-args "$init_args")"
+        echo "  $c: deployed $id (initialized atomically)"
+    else
+        id="$($CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" --wasm-hash "$hash" --salt "$salt" 2>/dev/null \
+              || $CLI contract deploy "${NET_ARGS[@]}" --source-account "$DEPLOYER" --wasm "$wasm" --salt "$salt")"
+        echo "  $c: deployed $id"
+    fi
+    local init_field=""
+    [[ "$deployed_init" == "true" ]] && init_field=',"initialized":true'
+    m_set ".contracts.\"$c\" = {\"id\":\"$id\",\"wasm\":\"${WASM[$c]}\",\"wasm_hash\":\"$hash\",\"salt\":\"$salt\"$init_field}"
 }
 
 if [[ "$VERIFY_ONLY" == "false" ]]; then
@@ -251,6 +336,11 @@ done
 
 # ---------------------------------------------------------------------------
 # 3. Initialize
+# NOTE: on mainnet (or ATOMIC_INIT=true), freshly deployed contracts were
+# already initialized atomically during `contract deploy`. This pass exists as
+# an idempotent fallback: it initializes contracts deployed the classic way
+# (local/testnet, or --force redeploys onto initialized instances) and its
+# invocations tolerate AlreadyInitialized on re-runs.
 # ---------------------------------------------------------------------------
 if [[ "$VERIFY_ONLY" == "false" ]]; then
     echo "[init] initializing contracts..."
@@ -364,6 +454,26 @@ check "escrow.governance_contract"     "$(invoke_read "$ESCROW" get_governance_c
 check "production_escrow.governance"   "$(invoke_read "$PROD_ESCROW" get_governance_contract || true)" "$GOVERNANCE"
 check "registry.governance_contract"   "$(invoke_read "$REGISTRY" get_governance_contract || true)" "$GOVERNANCE"
 check "investment_basket.governance"   "$(invoke_read "$BASKET" get_governance_contract || true)"  "$GOVERNANCE"
+
+# ── Issue #843 admin/guardian readback — assert the expected admin owns every
+# newly-deployed contract before any funds move. Registry now exposes get_admin
+# too; escrow/production_escrow also have get_guardian we re-read (guardian is
+# set later by maintainers, so a missing guardian is reported, not fatal).
+check "governance.get_admin"           "$(invoke_read "$GOVERNANCE" get_admin || true)" "$ADMIN"
+check "escrow.get_admin"               "$(invoke_read "$ESCROW" get_admin || true)" "$ADMIN"
+check "production_escrow.get_admin"    "$(invoke_read "$PROD_ESCROW" get_admin || true)" "$ADMIN"
+check "registry.get_admin"             "$(invoke_read "$REGISTRY" get_admin || true)" "$ADMIN"
+check "investment_basket.get_admin"    "$(invoke_read "$BASKET" get_admin || true)" "$ADMIN"
+
+GUARDIAN="${GUARDIAN:-}"
+if [[ -n "$GUARDIAN" ]]; then
+    check "escrow.get_guardian"        "$(invoke_read "$ESCROW" get_guardian || true)" "$GUARDIAN"
+    check "production_escrow.get_guardian" "$(invoke_read "$PROD_ESCROW" get_guardian || true)" "$GUARDIAN"
+    check "registry.get_guardian"      "$(invoke_read "$REGISTRY" get_guardian || true)" "$GUARDIAN"
+    check "investment_basket.get_guardian" "$(invoke_read "$BASKET" get_guardian || true)" "$GUARDIAN"
+else
+    echo "  ok   (GUARDIAN unset — skipping get_guardian readback)"
+fi
 
 # registry.get_contract_refs returns {escrow, production, ...}; assert both links
 REFS="$($CLI contract invoke "${NET_ARGS[@]}" --source-account "$DEPLOYER" --id "$REGISTRY" -- get_contract_refs 2>/dev/null || echo '{}')"

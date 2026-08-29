@@ -2,15 +2,18 @@
 
 This document describes how to deploy the four production Soroban contracts to Stellar testnet or mainnet, verify WASM integrity, and manage the multisig admin/guardian roles.
 
-**Issue References:** #778, #779
+**Issue References:** #778, #779, #843
 
 ## Overview
 
-The four contracts form an interdependent system:
+The contracts form an interdependent system (all six contracts' `initialize`
+gates on the admin's authorization as of #843):
 - **governance** — Manages proposals, voting, and timelocked execution of parameter changes and upgrades
 - **production_escrow** — Holds investor funds in escrow, manages campaign lifecycle
 - **registry** — Tracks orders and cross-links escrow/production contracts
 - **investment_basket** — Manages batched fund investments
+- **escrow** — Marketplace escrow (`contracts/escrow`)
+- **weather-insurance** — Parametric weather policies (`contracts/weather-insurance`, deployed outside `deploy-contracts.sh`)
 
 They must be deployed and cross-wired in a specific dependency order to ensure all references are valid.
 
@@ -131,6 +134,18 @@ soroban contract deploy \
 
 ### Step 3: Initialize and Wire Contracts (Manual)
 
+> **MAINNET REQUIREMENT (Issue #843):** initialization must happen **in the same
+> transaction as deployment** — do **not** run `contract deploy` and `invoke
+> initialize` as separate steps on mainnet. A window between the two lets an
+> attacker front-run `initialize` and become admin (`initialize` now requires
+> the admin's authorization on all six contracts, but the deploy+init gap must
+> also be closed). Use `deploy-contracts.sh` (it performs constructor-style
+> atomic init on mainnet automatically), or pass `--init-fn initialize
+> --init-args '<json>'` to every `stellar contract deploy`. `scripts/deploy-contracts.sh` is the supported path.
+>
+> If you run any manual `invoke initialize` on mainnet, you MUST do it in the
+> same transaction as the deploy for that contract (constructor-style init).
+
 For each contract in dependency order, call `initialize` then cross-wiring setters:
 
 ```bash
@@ -235,7 +250,9 @@ soroban contract invoke \
 
 ### Step 4: Verify Deployment
 
-After each step (or at the end), verify contract state:
+After each step (or at the end), verify contract state. `deploy-contracts.sh`
+does this automatically in its verification pass; if deploying manually, run
+each readback and assert the value:
 
 ```bash
 # Read back initialized values
@@ -248,6 +265,14 @@ soroban contract invoke --id C_BASKET_ID -- get_admin
 soroban contract invoke --id C_PRODUCTION_ESCROW_ID -- get_governance_contract
 # Should return C_GOVERNANCE_ID
 ```
+
+**Mandatory pre-funding gate (Issue #843):** before any funds move on mainnet,
+every `get_admin` readback **must** equal the expected multisig account. The
+deploy script asserts `get_admin` per contract and fails the run (exit 1) on
+any mismatch; it also verifies `get_registry_contract`,
+`get_governance_contract`, registry `get_contract_refs`, and — when `GUARDIAN`
+is set — `get_guardian` on every contract that exposes it. A failing readback
+means the contract must **not** receive funds until it is fixed.
 
 ### Step 5: Update Deployment Manifest
 

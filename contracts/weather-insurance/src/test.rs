@@ -73,6 +73,34 @@ fn test_initialize_second_time_rejected() {
 }
 
 #[test]
+fn test_initialize_requires_admin_auth() {
+    // Issue #843: initialize() must require the admin's authorization, so a
+    // front-runner who never signed cannot seize admin on a fresh deploy.
+    // Deliberately no mock_all_auths() — the caller must prove they control
+    // the admin address or the call is rejected before any state is written.
+    let env = Env::default();
+    env.ledger().set_timestamp(1_000_000);
+
+    let attacker = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let oracles = vec![&env, oracle];
+
+    let contract_id = env.register(WeatherInsuranceContract, ());
+    let client = WeatherInsuranceContractClient::new(&env, &contract_id);
+
+    // The attacker did not authorize `initialize`, so require_auth() traps.
+    let result = client.try_initialize(&attacker, &oracles, &1, &500);
+    assert!(result.is_err());
+
+    // No state was written — the contract is still uninitialized.
+    let readback = client.try_get_admin();
+    assert_eq!(
+        readback.unwrap_err().unwrap(),
+        InsuranceError::ContractNotInitialized
+    );
+}
+
+#[test]
 fn test_initialize_rejects_high_premium() {
     let env = Env::default();
     env.mock_all_auths();

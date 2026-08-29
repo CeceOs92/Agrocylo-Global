@@ -626,6 +626,7 @@ impl EscrowContract {
         if storage.has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
+        admin.require_auth();
         if supported_tokens.len() < 2 {
             return Err(EscrowError::MustSupportTwoTokens);
         }
