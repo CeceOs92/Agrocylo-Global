@@ -17,13 +17,41 @@ export interface NetworkConfig {
   contractId: string;
 }
 
+export const MAINNET_PASSPHRASE = "Public Global Stellar Network ; September 2015";
+export const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
+export type StellarEnv = "testnet" | "mainnet";
+
+/**
+ * Single source of truth for which network the app targets.
+ *
+ * Reads `NEXT_PUBLIC_STELLAR_ENV` ("testnet" | "mainnet"). When unset it
+ * infers "mainnet" from a mainnet passphrase, otherwise defaults to
+ * "testnet" (safe for local dev). This is the switch every fail-fast check
+ * keys off — see `stellar.ts` and `signTransaction.ts`.
+ */
+export function getStellarEnv(): StellarEnv {
+  const raw = (process.env.NEXT_PUBLIC_STELLAR_ENV || "").toLowerCase().trim();
+  if (raw === "mainnet") return "mainnet";
+  if (raw === "testnet") return "testnet";
+  if ((process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || "") === MAINNET_PASSPHRASE) {
+    return "mainnet";
+  }
+  return "testnet";
+}
+
+/** True when the app is configured to talk to mainnet (real funds). */
+export function isMainnetEnv(): boolean {
+  return getStellarEnv() === "mainnet";
+}
+
 /**
  * Checks if network config indicates mainnet (not testnet).
  * Used for production-build validation and UI network badge display.
  */
 export function isMainnet(): boolean {
   const passphrase = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || "";
-  return passphrase === "Public Global Stellar Network ; September 2015";
+  return passphrase === MAINNET_PASSPHRASE;
 }
 
 /**
@@ -31,7 +59,67 @@ export function isMainnet(): boolean {
  */
 export function isTestnet(): boolean {
   const passphrase = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || "";
-  return passphrase === "Test SDF Network ; September 2015";
+  return passphrase === TESTNET_PASSPHRASE;
+}
+
+/**
+ * The network passphrase the app itself is configured to sign/submit against.
+ *
+ * Reads `NEXT_PUBLIC_NETWORK_PASSPHRASE`. In a mainnet build it refuses to
+ * fall back to testnet — a missing passphrase throws rather than silently
+ * pointing real transactions at the wrong ledger. In a testnet/local build
+ * it falls back to the testnet passphrase.
+ */
+export function getExpectedNetworkPassphrase(): string {
+  const configured = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE;
+  if (configured) return configured;
+  if (isMainnetEnv()) {
+    throw new Error(
+      "NEXT_PUBLIC_NETWORK_PASSPHRASE is not configured but NEXT_PUBLIC_STELLAR_ENV=mainnet. " +
+        "Refusing to fall back to testnet in a mainnet build. Set the passphrase to " +
+        `"${MAINNET_PASSPHRASE}".`,
+    );
+  }
+  return TESTNET_PASSPHRASE;
+}
+
+/**
+ * Normalizes the many shapes a wallet adapter may report its active network as
+ * ("TESTNET", "PUBLIC", "mainnet", "test", or a full passphrase) to a Stellar
+ * network passphrase. Unknown custom networks are returned unchanged.
+ */
+export function normalizeToPassphrase(
+  networkOrPassphrase: string | null | undefined,
+): string | null {
+  if (!networkOrPassphrase) return null;
+  const v = networkOrPassphrase.trim();
+  if (v === MAINNET_PASSPHRASE || v === TESTNET_PASSPHRASE) return v;
+  const lower = v.toLowerCase();
+  if (lower === "public" || lower === "pubnet" || lower === "mainnet") {
+    return MAINNET_PASSPHRASE;
+  }
+  if (lower === "testnet" || lower === "test") return TESTNET_PASSPHRASE;
+  return v;
+}
+
+/**
+ * True when a connected wallet's active network does not match the network the
+ * app is configured for. A null/unknown wallet network is treated as "cannot
+ * determine" (not a mismatch); an app whose own config throws is treated as a
+ * mismatch so signing is blocked until it is fixed.
+ */
+export function isNetworkMismatch(
+  walletNetwork: string | null | undefined,
+): boolean {
+  const walletPassphrase = normalizeToPassphrase(walletNetwork);
+  if (!walletPassphrase) return false;
+  let expected: string;
+  try {
+    expected = getExpectedNetworkPassphrase();
+  } catch {
+    return true;
+  }
+  return walletPassphrase !== expected;
 }
 
 /** Currency → token contract ID map, validated once at module load. */
@@ -134,10 +222,23 @@ export function getTokenContractId(currency: string): string {
 }
 
 /**
- * Checks whether the contract ID environment variable is configured,
- * without throwing. Useful for UI guards that want to show a fallback
- * message instead of crashing.
+ * Checks whether the app is configured well enough to run transaction-capable
+ * UI, without throwing. Used by `ContractGuard` / `CartDrawer` to render a
+ * configuration-error state instead of a working form.
+ *
+ * Requires a contract ID, and — in a mainnet build — a valid network config
+ * (RPC URL + non-testnet passphrase). A mainnet build missing either of those
+ * fails this check rather than silently talking to testnet.
  */
 export function isContractConfigured(): boolean {
-  return !!process.env.NEXT_PUBLIC_CONTRACT_ID;
+  if (!process.env.NEXT_PUBLIC_CONTRACT_ID) return false;
+  if (isMainnetEnv()) {
+    try {
+      getNetworkConfig();
+      return getExpectedNetworkPassphrase() === MAINNET_PASSPHRASE;
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
