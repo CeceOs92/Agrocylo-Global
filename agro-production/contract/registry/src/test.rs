@@ -418,3 +418,73 @@ fn test_mint_batch_succeeds_for_matching_farmer() {
     assert_eq!(batch.farmer, farmer_one);
     assert_eq!(batch.campaign_id, 1);
 }
+
+#[test]
+fn test_mint_batch_link_order_provenance_lifecycle() {
+    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    let batch_id = client.mint_batch(
+        &production_contract,
+        &1,
+        &farmer_one,
+        &String::from_str(&env, "Wheat"),
+        &100,
+        &500,
+    );
+
+    client.link_batch_to_order(&production_contract, &batch_id, &42);
+
+    let batch = client.get_batch(&batch_id).unwrap();
+    assert_eq!(batch.batch_id, batch_id);
+    assert_eq!(batch.farmer, farmer_one);
+
+    let history = client.get_batch_history(&42);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap().batch_id, batch_id);
+}
+
+#[test]
+fn test_link_batch_to_order_duplicate_link_rejected() {
+    let (env, client, _, _, production_contract, _, farmer_one, _) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    let batch_id = client.mint_batch(
+        &production_contract,
+        &1,
+        &farmer_one,
+        &String::from_str(&env, "Wheat"),
+        &100,
+        &500,
+    );
+
+    client.link_batch_to_order(&production_contract, &batch_id, &42);
+
+    let dup_res = client.try_link_batch_to_order(&production_contract, &batch_id, &42);
+    assert_eq!(
+        dup_res.unwrap_err().unwrap(),
+        RegistryError::OrderBatchLinkExists
+    );
+}
+
+#[test]
+fn test_mint_batch_unauthorized_source_rejected() {
+    let (env, client, _, _, production_contract, unauthorized_contract, farmer_one, _) = setup_test();
+    client.register_farmer(&farmer_one);
+    client.register_campaign(&production_contract, &1, &farmer_one, &None);
+
+    let res = client.try_mint_batch(
+        &unauthorized_contract,
+        &1,
+        &farmer_one,
+        &String::from_str(&env, "Wheat"),
+        &100,
+        &500,
+    );
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        RegistryError::UnauthorizedContract
+    );
+}

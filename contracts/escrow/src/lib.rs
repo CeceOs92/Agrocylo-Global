@@ -265,19 +265,6 @@ const DEFAULT_FEE_RATE_BPS: u32 = 300;
 /// Slippage tolerance used before `set_max_slippage_bps` has ever been called.
 const DEFAULT_MAX_SLIPPAGE_BPS: u32 = 100; // 1%
 
-/// Issue #754 audit: called from `create_order`, `create_order_via_path_payment`,
-/// `confirm_receipt`, `refund_expired_order`, `refund_expired_orders`, and
-/// `open_split_dispute` since Issue #757's pause feature was added, but never
-/// defined anywhere in this crate — a compile-breaking gap (the whole crate
-/// was uncompilable; see also the missing `DataKey`/`EscrowError` variants
-/// fixed alongside this). Restored to match the identical helper already
-/// present on `production_escrow`/`registry`/`investment_basket`/`governance`.
-fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
-    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
-        return Err(EscrowError::ContractPaused);
-    }
-    Ok(())
-}
 
 fn read_max_slippage_bps(env: &Env) -> u32 {
     env.storage()
@@ -611,6 +598,13 @@ fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), EscrowErro
     let admin_addr = read_admin(env)?;
     if *caller != admin_addr {
         return Err(EscrowError::NotAdmin);
+    }
+    Ok(())
+}
+
+fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
+    if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        return Err(EscrowError::ContractPaused);
     }
     Ok(())
 }
@@ -1073,6 +1067,7 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         farmer.require_auth();
         attester_caller.require_auth();
+        require_not_paused(&env)?;
 
         let attester_addr = read_attester(&env)?;
         if attester_caller != attester_addr {
@@ -1242,6 +1237,7 @@ impl EscrowContract {
     /// reason (the fee has already left the contract).
     pub fn cancel_order(env: Env, buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         buyer.require_auth();
+        require_not_paused(&env)?;
 
         let mut order = read_order(&env, order_id)?;
         if order.buyer != buyer {
@@ -1294,6 +1290,7 @@ impl EscrowContract {
         shares: Vec<i128>,
     ) -> Result<u64, EscrowError> {
         initiator.require_auth();
+        require_not_paused(&env)?;
 
         if co_buyers.len() < 2 {
             return Err(EscrowError::EmptyCoBuyerList);
@@ -1379,6 +1376,7 @@ impl EscrowContract {
     /// farmer's eventual payout.
     pub fn fund_split_order(env: Env, co_buyer: Address, order_id: u64) -> Result<(), EscrowError> {
         co_buyer.require_auth();
+        require_not_paused(&env)?;
 
         let mut order = read_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Funding {
@@ -1475,6 +1473,7 @@ impl EscrowContract {
         order_id: u64,
     ) -> Result<(), EscrowError> {
         co_buyer.require_auth();
+        require_not_paused(&env)?;
 
         let mut order = read_split_order(&env, order_id)?;
         if order.status != SplitOrderStatus::Active {
@@ -1656,6 +1655,7 @@ impl EscrowContract {
         evidence_hash: String,
     ) -> Result<(), EscrowError> {
         opened_by.require_auth();
+        require_not_paused(&env)?;
 
         let mut order = read_order(&env, order_id)?;
         if order.status != OrderStatus::Pending {

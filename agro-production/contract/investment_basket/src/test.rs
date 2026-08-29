@@ -1,7 +1,7 @@
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Events, Ledger, LedgerInfo},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Env,
 };
@@ -682,4 +682,30 @@ fn test_migrate_translates_pre_682_baskets_and_flips_schema_version() {
     // that could clobber real data with the backfill default.
     let err = t.basket.try_migrate(&t.admin, &10).unwrap_err().unwrap();
     assert_eq!(err, BasketError::AlreadyMigrated);
+}
+
+#[test]
+fn test_event_schema_version_full_lifecycle() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+    let deadline = now + 100_000;
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+
+    let constituents = vec![&t.env, (c1, 10_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    t.escrow.start_production(&t.farmer, &c1);
+    t.escrow.mark_harvest(&t.farmer, &t.attester, &c1);
+    t.escrow.settle(&t.farmer, &c1);
+
+    t.basket.claim_basket_returns(&t.depositor, &basket_id);
+
+    let events = t.env.events().all();
+    assert!(!events.is_empty(), "Events should be emitted during full lifecycle");
 }

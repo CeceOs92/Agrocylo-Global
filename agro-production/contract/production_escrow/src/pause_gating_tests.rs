@@ -8,16 +8,15 @@
 //! pause-gating matrix and the real implementation.
 
 extern crate std;
+use std::{format, println};
 
 use soroban_sdk::{
-    contract, contractimpl,
-    testutils::{Address as _, Ledger, LedgerInfo},
-    token::{Client as TokenClient, StellarAssetClient},
+    testutils::Address as _,
     Address, Env, Vec,
 };
 
 use crate::{
-    CampaignStatus, EscrowError, OrderStatus, ProductionEscrowContract,
+    ProductionEscrowContract,
     ProductionEscrowContractClient,
 };
 
@@ -160,25 +159,23 @@ fn test_pause_blocks_create_campaign() {
     match result {
         Ok(_) => panic!("Expected Paused error, but create_campaign succeeded"),
         Err(e) => {
-            assert_eq!(
-                e.to_string().contains("Paused") || e.to_string().contains("paused"),
-                true,
+            let err_str = format!("{:?}", e);
+            assert!(
+                err_str.contains("ContractPaused") || err_str.contains("Paused") || err_str.contains("paused"),
                 "Expected 'Paused' error, got: {}",
-                e
+                err_str
             );
-            println!("✓ create_campaign blocked while paused: {}", e);
+            println!("✓ create_campaign blocked while paused: {}", err_str);
         }
     }
 }
 
 #[test]
 fn test_unpause_allows_create_campaign() {
-    let (env, client, _admin) = setup_paused_env();
+    let (env, client, admin) = setup_paused_env();
 
-    let guardian = Address::generate(&env);
-
-    // Unpause
-    client.unpause(&guardian);
+    // Unpause (using admin/governance, matching setup_paused_env setup)
+    client.unpause(&admin);
 
     // Now create_campaign should be callable (though it may fail for other reasons like no token)
     let farmer = Address::generate(&env);
@@ -194,9 +191,9 @@ fn test_unpause_allows_create_campaign() {
             println!("✓ create_campaign allowed after unpause (succeeded unexpectedly; check mock setup)");
         }
         Err(e) => {
-            let err_str = e.to_string();
+            let err_str = format!("{:?}", e);
             assert!(
-                !err_str.contains("Paused") && !err_str.contains("paused"),
+                !err_str.contains("ContractPaused") && !err_str.contains("Paused") && !err_str.contains("paused"),
                 "Got Paused error after unpause (should have different error). Error: {}",
                 err_str
             );
@@ -207,7 +204,7 @@ fn test_unpause_allows_create_campaign() {
 
 #[test]
 fn test_is_paused_returns_correct_status() {
-    let (env, client, _admin) = setup_paused_env();
+    let (env, client, admin) = setup_paused_env();
 
     // Immediately after setup, should be paused
     assert_eq!(
@@ -218,8 +215,7 @@ fn test_is_paused_returns_correct_status() {
     println!("✓ is_paused correctly reports paused=true");
 
     // Unpause
-    let guardian = Address::generate(&env);
-    client.unpause(&guardian);
+    client.unpause(&admin);
 
     // Should now be unpaused
     assert_eq!(
