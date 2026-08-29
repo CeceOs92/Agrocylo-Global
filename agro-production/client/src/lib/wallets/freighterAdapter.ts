@@ -1,6 +1,6 @@
 import FreighterApi from "@stellar/freighter-api";
 import { getFreighterPublicKey } from "@/lib/walletFreighter";
-import { getFreighterSignerFromWindow } from "@/types/freighter";
+import { getFreighterSignerFromWindow } from "@agrocylo/wallet-core";
 import type { WalletAdapter } from "./types";
 
 function hasWindowFreighter(): boolean {

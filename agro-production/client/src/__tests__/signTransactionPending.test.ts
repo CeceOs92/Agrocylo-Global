@@ -28,7 +28,7 @@ vi.mock("@stellar/stellar-sdk", () => ({
   TransactionBuilder: { fromXDR: (x: string) => x },
 }));
 
-vi.mock("@/types/freighter", () => ({
+vi.mock("@agrocylo/wallet-core", () => ({
   getFreighterSignerFromWindow: () => null,
 }));
 

@@ -1,13 +1,22 @@
 {
-  "name": "agrocylo-global",
-  "version": "1.0.0",
-  "description": "Agrocylo monorepo - multiple app pairings (server/client, agro-production/server/client)",
+  "name": "agrocylo-monorepo",
   "private": true,
-  "type": "module",
+  "description": "Turborepo workspace root (Issue #755) tying the two Next.js clients and shared packages together, replacing independent per-app drift.",
+  "workspaces": [
+    "client",
+    "agro-production/client",
+    "packages/*"
+  ],
   "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check:versions": "node scripts/check-shared-versions.js",
     "prepare": "husky"
   },
   "devDependencies": {
+    "turbo": "^2.3.3",
     "husky": "^9.0.0"
   }
 }

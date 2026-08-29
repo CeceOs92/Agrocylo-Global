@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
 import { ColumnDef } from "@tanstack/react-table";
 import { MoreHorizontal, EyeOff, Trash2 } from "lucide-react";
@@ -71,7 +71,10 @@ function ActionCell({ product, onDelist }: { product: Product; onDelist: (p: Pro
   );
 }
 
-const columns: ColumnDef<Product>[] = [
+function buildColumns(
+  onDelist: (p: Product) => void,
+): ColumnDef<Product>[] {
+  return [
   {
     id: "product",
     header: "Product",
@@ -141,15 +144,20 @@ const columns: ColumnDef<Product>[] = [
     header: "",
     enableGlobalFilter: false,
     enableSorting: false,
-    cell: ({ row }) => <ActionCell product={row.original} onDelist={setConfirmDelistProduct} />,
+    cell: ({ row }) => <ActionCell product={row.original} onDelist={onDelist} />,
   },
-];
+  ];
+}
 
 export default function AdminProductsPage() {
   const { data, isLoading, error } = useProducts({ pageSize: 100 });
   const products = data?.items ?? [];
   const delist = useAdminDelistProduct();
   const [confirmDelistProduct, setConfirmDelistProduct] = useState<Product | null>(null);
+  const columns = useMemo(
+    () => buildColumns(setConfirmDelistProduct),
+    [setConfirmDelistProduct],
+  );
 
   return (
     <div className="space-y-8">
