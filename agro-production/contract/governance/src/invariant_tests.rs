@@ -364,7 +364,6 @@ fn test_invariant_lifecycle_lock_proptest() {
             let h = make_gov_harness(&[60, 50], QUORUM);
             let caller = Address::generate(&h.env);
             let guardian = Address::generate(&h.env);
-            let pid = propose_set_fee_config(&h);
 
             // Set guardian for Cancelled path
             if path == 2 {
@@ -384,6 +383,8 @@ fn test_invariant_lifecycle_lock_proptest() {
                 advance_gov(&h, TIMELOCK_DELAY + 1);
                 h.gov.execute(&caller, &gid);
             }
+
+            let pid = propose_set_fee_config(&h);
 
             if path == 0 {
                 // Execute path: vote for, queue after period, execute after timelock

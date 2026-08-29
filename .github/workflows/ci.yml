@@ -21,6 +21,7 @@ on:
       - "agro-production/client/**"
       - "agro-production/contract/**"
       - ".github/workflows/ci.yml"
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -199,6 +200,12 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Run fast cargo check
+        run: cargo check --workspace --all-targets --target wasm32v1-none
+
+      - name: Build tests (no-run)
+        run: cargo test --workspace --no-run
+
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
@@ -239,8 +246,9 @@ jobs:
           # PROPTEST_CASES: "10"
           RUST_BACKTRACE: "1"
         run: |
-          cargo test --workspace invariant_tests -- --test-threads=4 2>&1 | tail -50
-          cargo test --workspace state_machine_tests -- --test-threads=4 2>&1 | tail -50
+          set -e -o pipefail
+          cargo test --workspace invariant_tests -- --test-threads=4
+          cargo test --workspace state_machine_tests -- --test-threads=4
 
       - name: Build contracts (release)
         run: cargo build --workspace --target wasm32v1-none --release
