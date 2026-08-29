@@ -1,0 +1,20 @@
+{
+  "network": "testnet",
+  "updated": "2026-08-29T00:00:00Z",
+  "contracts": {
+    "governance": { "id": "C…", "wasm": "governance.wasm", "wasm_hash": "…", "salt": "…" },
+    "escrow": { "id": "C…", "wasm": "escrow.wasm", "wasm_hash": "…", "salt": "…" },
+    "production_escrow": { "id": "C…", "wasm": "production_escrow_v2.wasm", "wasm_hash": "…", "salt": "…" },
+    "registry": { "id": "C…", "wasm": "registry.wasm", "wasm_hash": "…", "salt": "…" },
+    "investment_basket": { "id": "C…", "wasm": "investment_basket.wasm", "wasm_hash": "…", "salt": "…" }
+  },
+  "wiring": {
+    "escrow.registry": "C…(registry)",
+    "escrow.governance": "C…(governance)",
+    "escrow.path_payment_router": "C…(router)",
+    "production_escrow.registry": "C…(registry)",
+    "production_escrow.governance": "C…(governance)",
+    "registry.governance": "C…(governance)",
+    "investment_basket.governance": "C…(governance)"
+  }
+}
