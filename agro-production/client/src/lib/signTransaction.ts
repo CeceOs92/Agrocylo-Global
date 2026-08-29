@@ -1,6 +1,6 @@
 import { TransactionBuilder, rpc } from "@stellar/stellar-sdk";
-import FreighterApi from "@stellar/freighter-api";
-import { getFreighterSignerFromWindow } from "@agrocylo/wallet-core";
+import { getWalletAdapter, DEFAULT_WALLET_ID } from "@/lib/wallets/registry";
+import { loadWalletSession } from "@/lib/walletSession";
 import {
   getInFlightForIntent,
   recordSubmittedTransaction,
@@ -40,9 +40,9 @@ export interface SignAndSubmitOptions {
 }
 
 export class NetworkMismatchError extends Error {
-  constructor(expected: string, actual: string) {
+  constructor(expected: string, actual: string, walletName: string) {
     super(
-      `Network mismatch: expected "${expected}" but Freighter is connected to "${actual}"`
+      `Network mismatch: expected "${expected}" but ${walletName} is connected to "${actual}"`
     );
     this.name = "NetworkMismatchError";
   }
@@ -57,13 +57,17 @@ const NETWORK_PASSPHRASE =
 const TX_TIME_BOUND_SECONDS = 30;
 const DEFAULT_CONFIRM_TIMEOUT_MS = 30_000;
 
-async function resolveNetworkPassphrase(): Promise<string> {
-  try {
-    const details = await FreighterApi.getNetworkDetails();
-    return details.networkPassphrase;
-  } catch {
-    return NETWORK_PASSPHRASE;
-  }
+/** The wallet the user last connected with, per {@link WalletProvider}'s persisted session. */
+function activeAdapter() {
+  const session = loadWalletSession();
+  return getWalletAdapter(session?.walletId ?? DEFAULT_WALLET_ID);
+}
+
+async function resolveNetworkPassphrase(
+  adapter: ReturnType<typeof activeAdapter>,
+): Promise<string> {
+  const details = await adapter.getNetwork();
+  return details?.networkPassphrase ?? NETWORK_PASSPHRASE;
 }
 
 export async function signAndSubmitTransaction(
@@ -92,17 +96,15 @@ export async function signAndSubmitTransaction(
       }
     }
 
-    const networkPassphrase = await resolveNetworkPassphrase();
+    const adapter = activeAdapter();
+    const networkPassphrase = await resolveNetworkPassphrase(adapter);
 
     if (networkPassphrase !== NETWORK_PASSPHRASE) {
-      throw new NetworkMismatchError(NETWORK_PASSPHRASE, networkPassphrase);
+      throw new NetworkMismatchError(NETWORK_PASSPHRASE, networkPassphrase, adapter.name);
     }
 
     onStage?.("signing");
-    const signer = getFreighterSignerFromWindow();
-    const signedXdr = signer
-      ? await signer.signTransaction(transactionXdr, { networkPassphrase })
-      : await FreighterApi.signTransaction(transactionXdr, { networkPassphrase });
+    const signedXdr = await adapter.signTransaction(transactionXdr, { networkPassphrase });
 
     if (!signedXdr) throw new Error("Transaction rejected by wallet");
 

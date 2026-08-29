@@ -141,7 +141,7 @@ export default function CampaignDetailPage() {
           </div>
           {!connected ? (
             <button
-              onClick={connect}
+              onClick={() => connect()}
               disabled={walletLoading}
               className="whitespace-nowrap bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
             >

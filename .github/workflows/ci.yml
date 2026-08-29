@@ -31,6 +31,7 @@ on:
       - "turbo.json"
       - "scripts/**"
       - ".github/workflows/ci.yml"
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -233,6 +234,12 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Run fast cargo check
+        run: cargo check --workspace --all-targets --target wasm32v1-none
+
+      - name: Build tests (no-run)
+        run: cargo test --workspace --no-run
+
       - name: Run cargo fmt
         run: cargo fmt --all -- --check
 
@@ -273,8 +280,9 @@ jobs:
           # PROPTEST_CASES: "10"
           RUST_BACKTRACE: "1"
         run: |
-          cargo test --workspace invariant_tests -- --test-threads=4 2>&1 | tail -50
-          cargo test --workspace state_machine_tests -- --test-threads=4 2>&1 | tail -50
+          set -e -o pipefail
+          cargo test --workspace invariant_tests -- --test-threads=4
+          cargo test --workspace state_machine_tests -- --test-threads=4
 
       - name: Build contracts (release)
         run: cargo build --workspace --target wasm32v1-none --release
@@ -302,6 +310,15 @@ jobs:
       - name: Install dependencies
         working-directory: .
         run: npm ci
+
+      - name: No committed build artifacts under src/
+        run: |
+          matches=$(git ls-files 'src/**/*.js' 'src/**/*.js.map' 'src/**/*.d.ts' 'src/**/*.d.ts.map')
+          if [ -n "$matches" ]; then
+            echo "Generated build artifacts must not be committed under src/:"
+            echo "$matches"
+            exit 1
+          fi
 
       # Migrated .eslintrc.json -> flat config alongside the eslint-config-next
       # 16 bump (Issue #755). That surfaced ~66 pre-existing lint errors that

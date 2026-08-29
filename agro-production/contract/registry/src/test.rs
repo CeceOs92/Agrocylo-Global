@@ -414,7 +414,7 @@ fn test_mint_batch_succeeds_for_matching_farmer() {
         &100,
     );
 
-    let batch = client.get_batch(&batch_id).unwrap().unwrap();
+    let batch = client.get_batch(&batch_id).unwrap();
     assert_eq!(batch.farmer, farmer_one);
     assert_eq!(batch.campaign_id, 1);
 }
