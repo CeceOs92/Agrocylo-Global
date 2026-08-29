@@ -2,6 +2,8 @@
 
 Welcome to the AgroCylo frontend repository. This document outlines the setup, architecture, and environment configuration.
 
+> **Environment variables:** the authoritative reference for every variable this app reads is [`docs/deployment/environment.md`](../docs/deployment/environment.md). `.env.example` is checked against code by `scripts/check-env-drift.js` in CI.
+
 ## Setup
 
 1. Install dependencies:

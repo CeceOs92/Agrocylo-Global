@@ -2,6 +2,8 @@
 
 The Express + TypeScript backend for Agrocylo-Global. It exposes a REST API, manages data via Prisma + PostgreSQL (Supabase), handles product image uploads, and watches a Stellar Soroban smart contract for on-chain escrow events.
 
+> **Environment variables:** the authoritative reference for every variable this app reads — plus the JWT/API-key rotation procedures — is [`docs/deployment/environment.md`](../docs/deployment/environment.md). `.env.example` is checked against code by `scripts/check-env-drift.js` in CI.
+
 ---
 
 ## Table of Contents

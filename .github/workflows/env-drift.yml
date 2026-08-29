@@ -1,0 +1,56 @@
+name: Env Drift
+
+# Fails when an app's .env.example and its actual code disagree on which
+# environment variables exist (Issue #750). The authoritative cross-app
+# reference is docs/deployment/environment.md.
+#
+# Deliberately a standalone workflow (not a job in ci.yml) so it triggers on
+# changes to any app's source or .env.example — including agro-production/server,
+# which ci.yml does not cover — without pulling the rest of CI along with it.
+
+on:
+  pull_request:
+    paths:
+      - "**/.env.example"
+      - "**/src/**"
+      - "**/*.config.ts"
+      - "scripts/check-env-drift.js"
+      - "docs/deployment/environment.md"
+      - ".github/workflows/env-drift.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/.env.example"
+      - "**/src/**"
+      - "**/*.config.ts"
+      - "scripts/check-env-drift.js"
+      - "docs/deployment/environment.md"
+      - ".github/workflows/env-drift.yml"
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: .env.example ↔ code
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Fails when a var is declared in an .env.example but never read by that
+      # app's code, or read by code but missing from the .env.example. Keep
+      # docs/deployment/environment.md's per-app tables updated alongside any fix.
+      - name: Check env drift
+        run: node scripts/check-env-drift.js
