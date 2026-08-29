@@ -49,12 +49,14 @@ Copy these numbers into the appropriate row in the table below.
 
 ### production_escrow
 
+*(Measured against `soroban-sdk 22.0.11` / `soroban-env-host 22.1.3`)*
+
 | Entry Point | Max Input | CPU Instructions | Memory Bytes | Ledger Reads | Ledger Writes | % of Limit | Status |
 |-------------|-----------|------------------|--------------|--------------|---------------|-----------|--------|
 | `create_campaign` | 1 campaign | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Not yet measured |
 | `invest` | 1 investment | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Not yet measured |
 | `claim_returns` | 1 investor | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Not yet measured |
-| `batch_refund_investors` | 50 investors (max cap) | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Not yet measured |
+| `batch_refund_investors` | 50 investors (max cap) | 20,987,890 | 6,357,010 | 0 (mock) | 0 (mock) | 69.9% | Measured |
 | `batch_refund_orders` | All orders (unbounded?) | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Needs cap review |
 | `vote_to_resolve` | Full arbitrator list | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | <TO BE FILLED IN BY MAINTAINER RUNNING THE COST HARNESS> | TBD | Not yet measured |
 

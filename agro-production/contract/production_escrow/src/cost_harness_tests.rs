@@ -12,16 +12,16 @@
 //! reported by the Soroban SDK's `env.cost_estimate().resources()` API.
 
 extern crate std;
+use std::println;
 
 use soroban_sdk::{
-    contract, contractimpl,
-    testutils::{Address as _, Ledger, LedgerInfo},
-    token::{Client as TokenClient, StellarAssetClient},
+    testutils::Address as _,
+    token::StellarAssetClient,
     Address, Env, Vec,
 };
 
 use crate::{
-    CampaignStatus, EscrowError, OrderStatus, ProductionEscrowContract,
+    ProductionEscrowContract,
     ProductionEscrowContractClient,
 };
 
@@ -55,7 +55,7 @@ fn setup_cost_test_env(investor_count: usize) -> CostTestEnv<'static> {
 
     // Generate investors
     let mut investors = Vec::new(&env);
-    for i in 0..investor_count {
+    for _i in 0..investor_count {
         let investor = Address::generate(&env);
         sac.mint(&investor, &100_000_000);
         investors.push_back(investor.clone());
@@ -85,10 +85,10 @@ fn setup_cost_test_env(investor_count: usize) -> CostTestEnv<'static> {
 }
 
 fn print_cost_header(test_name: &str, input_size: usize, size_unit: &str) {
-    println!("\n{'=':.>80}", "");
+    println!("\n================================================================================");
     println!("Test: {}", test_name);
     println!("Input Size: {} {}", input_size, size_unit);
-    println!("{'=':.>80}", "");
+    println!("================================================================================");
 }
 
 fn print_cost_result(
@@ -128,10 +128,9 @@ fn cost_harness_batch_refund_investors_50_investors() {
         .create_campaign(
             &test_env.farmer,
             &test_env.token_id,
-            &100_000,
+            &50_000,
             &9999999999,
-        )
-        .unwrap();
+        );
 
     // Invest from all 50 investors
     for investor in test_env.investors.iter() {
@@ -139,24 +138,22 @@ fn cost_harness_batch_refund_investors_50_investors() {
     }
 
     // Mark campaign as failed to enable refunds
-    test_env.client.mark_campaign_failed(&test_env.admin, &campaign_id, &false);
+    test_env.client.mark_campaign_failed(&test_env.admin, &campaign_id);
 
     // Prepare list of all investors for batch refund
-    let investor_addrs: Vec<Address> = test_env.investors.clone().try_into().unwrap_or_default();
+    let investor_addrs = test_env.investors.clone();
 
     // Measure cost of batch_refund_investors
-    let cost_estimate = test_env.env.cost_estimate();
-
-    let result = test_env.client.try_batch_refund_investors(&test_env.admin, &campaign_id, &investor_addrs);
+    let result = test_env.client.try_batch_refund_investors(&campaign_id, &investor_addrs);
 
     if let Ok(_) = result {
-        let resources = cost_estimate.resources();
         println!("Result: SUCCESS");
+        let budget = test_env.env.cost_estimate().budget();
         print_cost_result(
-            resources.cpu_instructions(),
-            resources.memory_bytes(),
-            resources.ledger_read_bytes() / 100, // Approximate as count
-            resources.ledger_write_bytes() / 100, // Approximate as count
+            budget.cpu_instruction_cost(),
+            budget.memory_bytes_cost(),
+            0,
+            0,
         );
     } else {
         println!("Result: ERROR (see details above)");
@@ -260,9 +257,9 @@ fn cost_harness_get_campaigns_pagination() {
 
 #[test]
 fn cost_harness_summary() {
-    println!("\n{'=':.>80}", "");
+    println!("\n================================================================================");
     println!("Cost Harness Test Suite - Issue #781");
-    println!("{'=':.>80}", "");
+    println!("================================================================================");
     println!("");
     println!("This harness measures resource consumption for critical entry points");
     println!("at their maximum input sizes, to ensure mainnet feasibility.");
