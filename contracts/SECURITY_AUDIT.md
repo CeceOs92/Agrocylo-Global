@@ -1,6 +1,6 @@
 # Security Audit Checklist
 
-> **Scope:** 5 contracts: Registry, ProductionEscrow, Governance, InvestmentBasket, and legacy Escrow (`contracts/escrow/src/lib.rs`)
+> **Scope:** 6 contracts: Registry, ProductionEscrow, Governance, InvestmentBasket, legacy Escrow (`contracts/escrow/src/lib.rs`), and Weather Insurance (`contracts/weather-insurance/src/lib.rs`)
 >
 > **Audit Date:** 2026-05-29 (original review)
 > **Last Verified Against:** Commit TBD (tie re-audits to CI check — see §15 below)
@@ -25,6 +25,7 @@
 13. [Findings Summary](#13-findings-summary)
 14. [Issue #652 Follow-up: Legacy/Production Escrow Drift Re-audit](#14-issue-652-follow-up-legacyproduction-escrow-drift-re-audit)
 15. [Issue #754: Full-Scope Audit — Governance, Investment Basket, Path-Payment Router](#15-issue-754-full-scope-audit--governance-investment-basket-path-payment-router)
+16. [Issues #840, #841, #842: Weather Insurance Hardening & Solvency Audit](#16-issues-840-841-842-weather-insurance-hardening--solvency-audit)
 
 ---
 
@@ -510,12 +511,13 @@ This audit is from **2026-05-29** (3+ months old) and the stated scope has drift
 
 **Original scope (stale):** Escrow (`contracts/escrow/src/lib.rs`), Registry, ProductionEscrow
 
-**Current production scope (5 contracts — all handle real user funds):**
+**Current production scope (6 contracts — all handle real user funds):**
 1. `agro-production/contract/production_escrow/src/lib.rs` — crowdfunded production campaigns (investor funds, farmer revenue)
 2. `agro-production/contract/governance/src/lib.rs` — governance contract for timelock + weighted-vote proposals (admin/governance configuration)
 3. `agro-production/contract/investment_basket/src/lib.rs` — investment baskets (investor funds across multiple campaigns)
 4. `agro-production/contract/registry/src/lib.rs` — campaign registry + reputation scoring (critical governance reference)
 5. `contracts/escrow/src/lib.rs` — legacy direct buyer↔farmer marketplace escrow (still live, backed by root `client/` app)
+6. `contracts/weather-insurance/src/lib.rs` — parametric weather insurance policies (farmer premium collection, LP capital pool reserves, multi-oracle quorum, challenge window finalization)
 
 **Out of scope:** `agro-production/contract/src/lib.rs` (dead, orphaned, superseded by the split into registry + production_escrow)
 
@@ -552,3 +554,27 @@ The original audit (§1) claimed: "Transfers tokens to farmer BEFORE writing upd
 **Current code check (production_escrow::confirm_order):** The function transfers tokens (effects) after loading the order (checks) and before updating its status (would be effects). However, Soroban's synchronous, non-reentrant runtime makes reentrancy impossible; the primary concern is code clarity, not runtime safety.
 
 **Status:** Accurate but acknowledged as low-risk in Soroban's model (§1 states "given Soroban's non-reentrant runtime, this is a code-quality concern rather than an exploitable vulnerability"). Not a blocker, but future refactors should favor writing all state changes before token transfers for clarity.
+
+---
+
+## 16. Issues #840, #841, #842: Weather Insurance Hardening & Solvency Audit
+
+> **Date:** 2026-08-29
+> **Target:** `contracts/weather-insurance/src/lib.rs`
+
+### 16.1 Solvency & Reserve Accounting (#840)
+- **Capital Provider Deposit/Withdrawal:** Capital providers fund the contract via `deposit_capital` to maintain pool reserves. Unreserved capital can be withdrawn via `withdraw_capital`.
+- **Solvency Invariant:** At policy creation (`take_premium`), the contract enforces `total_exposure + payout_amount <= total_reserves + premium`. A policy cannot be issued if exposure exceeds total available reserves.
+- **Payout Conservation:** On `finalize_payout`, reserves and exposure are decremented by `payout_amount`. Premium collected remains in reserves as pool yield when policies expire without breach.
+
+### 16.2 Oracle Quorum & Challenge Window (#841)
+- **M-of-N Oracle Quorum:** Breach reports require M-of-N oracle consensus. A single oracle cannot trigger a payout alone.
+- **Plausibility Bounds:** Enforces parameter-level sanity bounds per `WeatherParam` (Rainfall: `[0, 10,000]` mm, Temperature: `[-100, 100]` °C). Out-of-bounds reports are rejected.
+- **Challenge Window:** When quorum is met, payout enters `PendingPayout` with `unlock_time = timestamp + challenge_window_secs`. Governance/guardian can call `cancel_pending_payout` during the window; `finalize_payout` executes after the window expires.
+
+### 16.3 Production Hardening Primitives (#842)
+- **Governance Auth:** `initialize` requires `admin.require_auth()`. Governance-gated setters use `require_governed_caller` (admin fallback until governance contract is configured).
+- **Pause & Guardian:** Instant emergency `pause` callable by guardian/governance/admin; `unpause` is strictly governance-gated. `pause` blocks `take_premium` and `report_breach`.
+- **Upgrade & Migration:** `upgrade` (WASM hash update), `migrate` (schema versioning), `SchemaVersion` tracking.
+- **Instance Storage TTL:** `bump_instance()` called on all state-changing entry points; permissionless `bump_instance_ttl()` keeper endpoint added.
+

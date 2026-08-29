@@ -615,19 +615,7 @@ fn require_governed_caller(env: &Env, caller: &Address) -> Result<(), EscrowErro
     Ok(())
 }
 
-/// Gates state-changing entry points while the contract is paused (Issue
-/// #757), mirroring `production_escrow`/`registry`'s identical guard.
-fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
-    if env
-        .storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false)
-    {
-        return Err(EscrowError::ContractPaused);
-    }
-    Ok(())
-}
+
 
 #[contract]
 pub struct EscrowContract;

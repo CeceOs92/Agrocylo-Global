@@ -168,6 +168,7 @@ pub enum DataKey {
 /// extend `migrate` the same way for any future layout change — see
 /// `docs/CONTRACT_UPGRADES.md`.
 const CURRENT_SCHEMA_VERSION: u32 = 2;
+const EVENT_SCHEMA_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Constants

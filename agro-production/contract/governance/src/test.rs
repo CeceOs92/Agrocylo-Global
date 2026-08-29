@@ -533,7 +533,7 @@ fn test_cancel_proposal_only_when_queued() {
         .try_cancel_proposal(&guardian, &proposal_id)
         .unwrap_err()
         .unwrap();
-    assert_eq!(err, GovernanceError::ProposalCancelled);
+    assert_eq!(err, GovernanceError::NotQueued);
 }
 
 fn advance_time(env: &Env, delta: u64) {
