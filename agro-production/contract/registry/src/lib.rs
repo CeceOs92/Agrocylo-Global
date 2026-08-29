@@ -692,12 +692,13 @@ impl RegistryContract {
         if !is_authorized_contract(&source_contract, &refs) {
             return Err(RegistryError::UnauthorizedContract);
         }
-        if !env
+        let campaign: CampaignRecord = env
             .storage()
             .persistent()
-            .has(&DataKey::Campaign(campaign_id))
-        {
-            return Err(RegistryError::CampaignAlreadyRegistered);
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(RegistryError::FarmerNotRegistered)?;
+        if campaign.farmer != farmer {
+            return Err(RegistryError::InvalidFarmerAddress);
         }
 
         let batch_count: u64 = env
