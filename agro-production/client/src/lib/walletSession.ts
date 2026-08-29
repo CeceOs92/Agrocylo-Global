@@ -4,6 +4,8 @@ const LEGACY_ADDRESS_KEY = "ap_walletAddress";
 export interface WalletSession {
   address: string;
   connectedAt: number;
+  /** Adapter id (e.g. "freighter"). Absent on sessions saved before multi-wallet support. */
+  walletId?: string;
 }
 
 function isValidSession(value: unknown): value is WalletSession {
@@ -13,7 +15,8 @@ function isValidSession(value: unknown): value is WalletSession {
     typeof session.address === "string" &&
     session.address.length > 0 &&
     typeof session.connectedAt === "number" &&
-    Number.isFinite(session.connectedAt)
+    Number.isFinite(session.connectedAt) &&
+    (session.walletId === undefined || typeof session.walletId === "string")
   );
 }
 

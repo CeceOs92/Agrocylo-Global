@@ -214,7 +214,7 @@ export default function CheckoutPage() {
             <div className="border border-border rounded-xl p-5 text-center space-y-3">
               <p className="text-sm text-muted">Connect your wallet to place an order.</p>
               <button
-                onClick={connect}
+                onClick={() => connect()}
                 disabled={walletLoading}
                 aria-label={walletLoading ? "Connecting wallet" : "Connect wallet to place order"}
                 className="bg-primary-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 inline-flex items-center gap-2"

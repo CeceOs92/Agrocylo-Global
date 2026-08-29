@@ -1,11 +1,20 @@
 {
   "welcome": "Bienvenue sur le Portail de Production Agricole",
   "navigation": {
+    "home": "Accueil AgroProduction",
+    "backToMain": "Retour à Agrocylo",
+    "marketplace": "Marché",
     "campaigns": "Campagnes",
+    "orders": "Commandes",
+    "farmerDashboard": "Agriculteur",
+    "dashboard": "Tableau de bord",
     "milestones": "Jalons",
     "escrow": "Escrow",
     "registry": "Registre",
-    "mainClient": "Retour au Marché Principal"
+    "mainClient": "Retour au Marché Principal",
+    "switchToLight": "Passer en mode clair",
+    "switchToDark": "Passer en mode sombre",
+    "language": "Langue"
   },
   "campaigns": {
     "title": "Campagnes de Production",

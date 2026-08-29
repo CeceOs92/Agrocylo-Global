@@ -297,8 +297,10 @@ function runE2ESuite() {
       // through a non-literal variable so tsc doesn't try to include the
       // client package's contractService.ts (a different package, with its
       // own dependencies) in this package's compilation/rootDir checks.
+      // Vitest transforms .ts on the fly at runtime, so this imports the
+      // real source directly instead of a committed build artifact.
       const contractServiceModulePath: string =
-        '../../../client/src/lib/contractService.js';
+        '../../../client/src/lib/contractService.ts';
       const { buildInvest } = await import(contractServiceModulePath);
 
       const result = await buildInvest(INVESTOR, '1', BigInt(100_000));
