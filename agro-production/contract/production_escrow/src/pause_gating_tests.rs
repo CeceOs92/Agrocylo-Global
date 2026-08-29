@@ -204,7 +204,7 @@ fn test_unpause_allows_create_campaign() {
 
 #[test]
 fn test_is_paused_returns_correct_status() {
-    let (env, client, _admin) = setup_paused_env();
+    let (env, client, admin) = setup_paused_env();
 
     // Immediately after setup, should be paused
     assert_eq!(
@@ -215,8 +215,7 @@ fn test_is_paused_returns_correct_status() {
     println!("✓ is_paused correctly reports paused=true");
 
     // Unpause
-    let guardian = Address::generate(&env);
-    client.unpause(&guardian);
+    client.unpause(&admin);
 
     // Should now be unpaused
     assert_eq!(
