@@ -113,6 +113,12 @@ Notifications: In-app (DB-persisted, delivered via REST API)
 
 Enable swift, fair, and transparent trade
 
+### 🔒 Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md)
+for scope, response SLAs, and how to reach us. Do not open a public issue for
+security findings.
+
 ### 🤝 Contributing
 
 Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.

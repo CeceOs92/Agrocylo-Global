@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useWallet } from "@/context/WalletContext";
 import { trackWalletConnected, trackWalletDisconnected } from "@/lib/analytics";
 
@@ -16,11 +17,27 @@ const NETWORK_NAME = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE === "Public Glob
   : "Stellar Test Network";
 
 export default function WalletConnect({ className = "" }: WalletConnectProps) {
-  const { address, connected, loading, reconnecting, error, walletState, connect, disconnect } = useWallet();
+  const {
+    address,
+    connected,
+    loading,
+    reconnecting,
+    error,
+    walletState,
+    walletId,
+    wallets,
+    connect,
+    disconnect,
+    selectWallet,
+  } = useWallet();
   const busy = loading || reconnecting;
+  const [showWalletList, setShowWalletList] = useState(false);
+  const activeWallet = wallets.find((w) => w.id === walletId);
 
-  async function handleConnect() {
-    const addr = await connect();
+  async function handleConnect(id?: string) {
+    if (id) selectWallet(id);
+    setShowWalletList(false);
+    const addr = await connect(id);
     if (addr) trackWalletConnected(addr);
   }
 
@@ -81,13 +98,48 @@ export default function WalletConnect({ className = "" }: WalletConnectProps) {
   return (
     <div className={`flex flex-col items-start gap-1 ${className}`}>
       <button
-        onClick={handleConnect}
+        onClick={() => handleConnect()}
         disabled={busy}
         aria-label={busy ? "Connecting wallet" : "Connect wallet"}
         className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 disabled:opacity-50 transition-colors"
       >
-        {reconnecting ? "Reconnecting…" : loading ? "Connecting…" : "Connect Wallet"}
+        {reconnecting
+          ? "Reconnecting…"
+          : loading
+            ? "Connecting…"
+            : `Connect ${activeWallet?.name ?? "Wallet"}`}
       </button>
+
+      {wallets.length > 1 && !busy && (
+        <div className="relative">
+          <button
+            onClick={() => setShowWalletList((v) => !v)}
+            aria-expanded={showWalletList}
+            className="text-xs text-muted hover:text-foreground underline"
+          >
+            Use a different wallet
+          </button>
+          {showWalletList && (
+            <ul className="absolute z-10 mt-1 bg-white border border-border rounded-lg shadow-sm py-1 min-w-[10rem]">
+              {wallets.map((wallet) => (
+                <li key={wallet.id}>
+                  <button
+                    onClick={() => handleConnect(wallet.id)}
+                    aria-label={`Connect ${wallet.name}${wallet.installed ? "" : " (not installed, opens install page)"}`}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-primary-50 flex items-center justify-between gap-2"
+                  >
+                    <span>{wallet.name}</span>
+                    {!wallet.installed && (
+                      <span className="text-xs text-muted">Install</span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {error && (
         <p className="text-xs text-red-600 max-w-xs" role="alert">{error}</p>
       )}
