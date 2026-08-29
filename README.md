@@ -5,6 +5,8 @@ Agrocylo is an Agro-DeFi platform. The aim is to make life easier for farmers (e
 
 Each purchase is secured using an escrow mechanism: funds are locked when a customer places an order and are released only after the buyer confirms receipt of goods. This guarantees protection for both parties while maintaining full user custody.
 
+**Configuration:** [`docs/deployment/environment.md`](docs/deployment/environment.md) is the authoritative environment-variable reference for all four apps and the contract set, including secret-management and key-rotation procedures. Drift between each app's `.env.example` and its code is caught by `scripts/check-env-drift.js` in CI.
+
 ### ✨ Features
 * On-chain escrow settlement - Funds are locked in an escrow smart contract until buyers confirm receipt of goods.
 
