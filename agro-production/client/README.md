@@ -2,6 +2,8 @@
 
 Quick start and development notes for the `agro-production/client` frontend.
 
+> **Environment variables:** the authoritative reference for every variable this app reads is [`docs/deployment/environment.md`](../../docs/deployment/environment.md). `.env.example` is checked against code by `scripts/check-env-drift.js` in CI.
+
 Prerequisites
 - Node.js 18+ and npm or pnpm
 

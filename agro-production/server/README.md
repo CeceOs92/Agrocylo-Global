@@ -2,6 +2,8 @@
 
 Production backend for the Agrocylo platform. It exposes a REST API, indexes on-chain Stellar/Soroban contract events in real-time, and broadcasts updates to connected clients via WebSocket.
 
+> **Environment variables:** the authoritative reference for every variable this app reads — plus the JWT/API-key rotation procedures — is [`docs/deployment/environment.md`](../../docs/deployment/environment.md). `.env.example` is checked against code by `scripts/check-env-drift.js` in CI.
+
 ---
 
 ## Table of Contents

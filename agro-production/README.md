@@ -2,6 +2,8 @@
 
 End-to-end system for agricultural production-escrow crowdfunding on Stellar/Soroban.
 
+> **Environment variables:** the authoritative reference for every variable the server and client read is [`docs/deployment/environment.md`](../docs/deployment/environment.md). `.env.example` files are checked against code by `scripts/check-env-drift.js` in CI.
+
 ## Structure
 
 | Directory | Purpose |
