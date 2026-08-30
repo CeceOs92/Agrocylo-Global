@@ -20,6 +20,7 @@ model Nonce {
 model RefreshToken {
   id            String   @id @default(uuid())
   walletAddress String
+  /// SHA-256 digest of the high-entropy token returned to the client.
   token         String   @unique
   expiresAt     DateTime
   createdAt     DateTime @default(now())
@@ -473,7 +474,7 @@ model EquipmentRental {
 
 model IntegratorApiKey {
   id             String    @id @default(uuid())
-  /// SHA-256 hash of the raw key; the raw value is shown to the admin once
+  /// HMAC-SHA-256 digest of the raw key; the raw value is shown to the admin once
   /// at creation time and never stored.
   keyHash        String    @unique @map("key_hash")
   /// Short, non-secret prefix stored alongside the hash so keys can be
@@ -488,6 +489,7 @@ model IntegratorApiKey {
   scopedRegion   String?   @map("scoped_region")
   createdByAdmin String    @map("created_by_admin")
   revokedAt      DateTime? @map("revoked_at")
+  expiresAt      DateTime  @map("expires_at")
   lastUsedAt     DateTime? @map("last_used_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 

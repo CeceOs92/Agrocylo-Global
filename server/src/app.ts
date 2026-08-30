@@ -39,7 +39,7 @@ import demandSupplyRoutes from "./routes/demandSupplyRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
 import adminRoutes, { adminErrorHandler } from "./routes/adminRoutes.js";
 import adminReconciliationRoutes from "./routes/adminReconciliationRoutes.js";
-import disputeRoutes from "./routes/disputeRoutes.js";
+import disputeRoutes, { disputeUploadErrorHandler } from "./routes/disputeRoutes.js";
 import cropPlanRoutes from "./routes/cropPlanRoutes.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
 import groupOrderRoutes, { groupOrderErrorHandler } from "./routes/groupOrderRoutes.js";
@@ -178,6 +178,7 @@ app.get("/health", async (_req: Request, res: Response) => {
 app.use(metricsRoutes);
 
 app.use(productImageErrorHandler);
+app.use(disputeUploadErrorHandler);
 app.use(apiErrorHandler);
 app.use(profileErrorHandler);
 app.use(locationErrorHandler);

@@ -91,6 +91,19 @@ export const authRateLimiter = rateLimit({
   keyGenerator: (req: Request) => `auth:${req.ip}`,
 });
 
+// A separate target-wallet limit prevents distributed callers from repeatedly
+// replacing a victim's sign-in challenge. generateNonce also reuses a live nonce.
+export const nonceWalletRateLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skip: shouldSkipInTest,
+  store: rateLimitStore || undefined,
+  keyGenerator: (req: Request) => `auth-wallet:${String(req.body?.walletAddress ?? '').toUpperCase()}`,
+});
+
 /**
  * Upload rate limiter – product image upload endpoints.
  *
