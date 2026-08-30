@@ -5,6 +5,7 @@ describe("BasketEventParser", () => {
   it("parses basket.funded event with invested/skipped summary", () => {
     const topics = ["basket", "funded"];
     const value = [
+      1, // schema_version
       "123", // basket_id
       "1000000", // total_deposit
       "600000", // total_invested
@@ -23,6 +24,7 @@ describe("BasketEventParser", () => {
     expect(result?.eventType).toBe("basket.funded");
     expect(result?.entity).toBe("basket");
     expect(result?.action).toBe("funded");
+    expect(result?.schemaVersion).toBe("1");
     expect(result?.basketIdOnChain).toBe("123");
     expect(result?.amount).toBe("1000000");
     expect(result?.totalInvested).toBe("600000");
@@ -32,6 +34,7 @@ describe("BasketEventParser", () => {
   it("parses basket.skipped event with failure reason", () => {
     const topics = ["basket", "skipped"];
     const value = [
+      1, // schema_version
       "123", // basket_id
       "456", // campaign_id
       "400000", // share (skipped amount)
@@ -49,6 +52,7 @@ describe("BasketEventParser", () => {
     expect(result?.eventType).toBe("basket.skipped");
     expect(result?.entity).toBe("basket");
     expect(result?.action).toBe("skipped");
+    expect(result?.schemaVersion).toBe("1");
     expect(result?.basketIdOnChain).toBe("123");
     expect(result?.campaignIdOnChain).toBe("456");
     expect(result?.amount).toBe("400000");

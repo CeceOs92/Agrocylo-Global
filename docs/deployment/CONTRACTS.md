@@ -56,83 +56,27 @@ Derived from reading `initialize` and setter functions in each contract:
 
 ## Prerequisites
 
-### Required Tools
-- **soroban CLI** — `>= 21.0.0`. Install: https://github.com/stellar/rs-soroban-cli/releases
-- **Rust 1.89.0** — Declared in `rust-toolchain.toml`. Install: `rustup toolchain install 1.89.0`
-- **Docker** (for `verify-wasm.sh`) — For reproducible WASM builds independent of host toolchain
+- `stellar` CLI (or legacy `soroban`) on `PATH`, and `jq`
+- Rust `1.89.0` (`rust-toolchain.toml`) with the `wasm32v1-none` target
+- A funded signing identity configured via `stellar keys add <name>`
 
-### Required Environment Variables
-- `SOROBAN_RPC_URL` — RPC endpoint (default: testnet)
-- `SOROBAN_NETWORK_PASSPHRASE` — Network identifier (default: testnet)
-- `ADMIN_SECRET` — Stellar secret key for the admin signer (or deploy identity)
-- `GUARDIAN_SECRET` — Stellar secret key for the guardian signer (mainnet only, checked by deploy script)
+## Environment
 
-### Required Configuration
-- A `deployments/` directory (created by `deploy-contracts.sh`)
-- Network-specific configuration file or environment (e.g., `.env.testnet`, `.env.mainnet`)
+| Var | Required | Default | Notes |
+|---|---|---|---|
+| `DEPLOYER` | ✅ | — | `stellar keys` identity name used as source account |
+| `ADMIN` | | address of `DEPLOYER` | admin for every `initialize()` |
+| `FEE_COLLECTOR` | ✅ (deploy) | — | fee collector address |
+| `SUPPORTED_TOKENS` | ✅ (deploy) | — | comma-separated token contract IDs (escrow needs ≥ 2) |
+| `FEE_RATE_BPS` | | `0` | |
+| `PATH_PAYMENT_ROUTER` | | — | router contract for `escrow.set_path_payment_router` |
+| `GOV_VOTING_PERIOD_SECS` | | `259200` | |
+| `GOV_TIMELOCK_SECS` | | `172800` | |
+| `GOV_UPGRADE_TIMELOCK_SECS` | | `604800` | must be ≥ `GOV_TIMELOCK_SECS` |
+| `GOV_QUORUM_WEIGHT` | | `1` | |
+| `SOROBAN_RPC_URL` | | per-network default | override RPC |
 
-## Deployment Steps
-
-### Step 1: Build with `deploy-contracts.sh`
-
-The script builds all contracts and prepares a deployment manifest:
-
-```bash
-# Testnet (first try)
-./scripts/deploy-contracts.sh --network testnet
-
-# Mainnet (verify on testnet first!)
-./scripts/deploy-contracts.sh --network mainnet
-
-# Re-deploy over existing manifest (use with caution)
-./scripts/deploy-contracts.sh --network testnet --force
-```
-
-What the script does:
-1. Verifies soroban CLI and Rust 1.89.0 are available
-2. Builds all four contracts with the pinned toolchain
-3. (On mainnet) Verifies the admin and guardian accounts are multisig-configured
-4. Creates `deployments/<network>.json` template (NOT executed yet, see below)
-
-**Output:** `deployments/<network>.json` with placeholder values
-
-### Step 2: Install WASM and Deploy Instances (Manual)
-
-The actual `soroban` CLI calls must be run by the maintainer. Commands follow this pattern:
-
-```bash
-# Set network and auth
-export SOROBAN_RPC_URL="https://soroban-testnet.stellar.org"
-export SOROBAN_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
-
-# Use your secret key (or identity)
-soroban config identity create deploy-key --secret-key "S..."
-
-# 1. Install WASM for each contract
-soroban contract install \
-  --wasm target/wasm32v1-none/release/production_escrow.wasm \
-  --source deploy-key
-# Returns WASM hash (e.g., c5b7d9...); record it
-
-soroban contract install \
-  --wasm target/wasm32v1-none/release/governance.wasm \
-  --source deploy-key
-# ... repeat for registry.wasm, investment_basket.wasm
-
-# 2. Deploy each contract instance
-soroban contract deploy \
-  --wasm-ref <WASM_HASH_FROM_STEP_1> \
-  --address-book ~/.soroban/testnet-address-book.json \
-  --source deploy-key \
-  --network testnet
-# Returns contract ID (e.g., C...)
-
-# Repeat for each contract, recording all IDs
-```
-
-**Important:** Save each contract ID and WASM hash in `deployments/<network>.json` as you deploy.
-
-### Step 3: Initialize and Wire Contracts (Manual)
+## Commands per network
 
 > **MAINNET REQUIREMENT (Issue #843):** initialization must happen **in the same
 > transaction as deployment** — do **not** run `contract deploy` and `invoke
@@ -149,103 +93,10 @@ soroban contract deploy \
 For each contract in dependency order, call `initialize` then cross-wiring setters:
 
 ```bash
-# 1. Governance
-soroban contract invoke \
-  --id C_GOVERNANCE_ID \
-  --source deploy-key \
-  -- initialize \
-  --admin GADMIN \
-  --voting_period_secs 604800 \
-  --timelock_delay_secs 172800 \
-  --upgrade_timelock_delay_secs 1209600 \
-  --quorum_weight 1000
-
-# 2. Production Escrow (with required tokens)
-soroban contract invoke \
-  --id C_PRODUCTION_ESCROW_ID \
-  --source deploy-key \
-  -- initialize \
-  --admin GADMIN \
-  --supported_tokens '[CUSDC]' \
-  --fee_collector GFEE_COLLECTOR \
-  --fee_rate_bps 300
-
-# 3. Registry
-soroban contract invoke \
-  --id C_REGISTRY_ID \
-  --source deploy-key \
-  -- initialize \
-  --admin GADMIN \
-  --escrow_contract C_PRODUCTION_ESCROW_ID \
-  --production_contract C_PRODUCTION_ESCROW_ID
-
-# 4. Investment Basket
-soroban contract invoke \
-  --id C_BASKET_ID \
-  --source deploy-key \
-  -- initialize \
-  --admin GADMIN \
-  --escrow_contract C_PRODUCTION_ESCROW_ID
-
-# 5. Wire registry into escrow
-soroban contract invoke \
-  --id C_PRODUCTION_ESCROW_ID \
-  --source deploy-key \
-  -- set_registry_contract \
-  --admin_caller GADMIN \
-  --registry C_REGISTRY_ID
-
-# 6. Wire governance into all contracts
-soroban contract invoke \
-  --id C_PRODUCTION_ESCROW_ID \
-  --source deploy-key \
-  -- set_governance_contract \
-  --admin_caller GADMIN \
-  --governance C_GOVERNANCE_ID
-
-soroban contract invoke \
-  --id C_REGISTRY_ID \
-  --source deploy-key \
-  -- set_governance_contract \
-  --admin_caller GADMIN \
-  --governance C_GOVERNANCE_ID
-
-soroban contract invoke \
-  --id C_BASKET_ID \
-  --source deploy-key \
-  -- set_governance_contract \
-  --admin_caller GADMIN \
-  --governance C_GOVERNANCE_ID
-
-# 7. Set guardian (see Key Custody section below for multisig setup)
-soroban contract invoke \
-  --id C_PRODUCTION_ESCROW_ID \
-  --source deploy-key \
-  -- set_guardian \
-  --caller GADMIN \
-  --guardian G_GUARDIAN_MULTISIG
-
-soroban contract invoke \
-  --id C_REGISTRY_ID \
-  --source deploy-key \
-  -- set_guardian \
-  --caller GADMIN \
-  --guardian G_GUARDIAN_MULTISIG
-
-soroban contract invoke \
-  --id C_BASKET_ID \
-  --source deploy-key \
-  -- set_guardian \
-  --caller GADMIN \
-  --guardian G_GUARDIAN_MULTISIG
-
-# 8. Set attester (production_escrow only, admin-only, not governance-gated)
-soroban contract invoke \
-  --id C_PRODUCTION_ESCROW_ID \
-  --source deploy-key \
-  -- set_attester \
-  --admin_caller GADMIN \
-  --attester G_ATTESTER
+DEPLOYER=local-admin \
+FEE_COLLECTOR=$(stellar keys address local-admin) \
+SUPPORTED_TOKENS=$NATIVE_SAC,$USDC_SAC \
+scripts/deploy-contracts.sh --network local
 ```
 
 ### Step 4: Verify Deployment
@@ -327,98 +178,39 @@ Update `deployments/<network>.json` with actual contract IDs, WASM hashes, and l
 }
 ```
 
-## Reproducible Build Verification
-
-Use `scripts/verify-wasm.sh` to independently confirm on-chain WASM matches this repository:
+### Mainnet
 
 ```bash
-# Get the WASM hash for a deployed contract
-WASM_HASH=$(soroban contract code-get-hash --id CESCROW... --network testnet)
-
-# Verify it matches the repo
-./scripts/verify-wasm.sh production_escrow "$WASM_HASH"
-# Output: VERIFIED: production_escrow matches on-chain WASM
+DEPLOYER=mainnet-deployer \
+ADMIN=CB…MULTISIG \
+FEE_COLLECTOR=CB…FEE \
+SUPPORTED_TOKENS=CB…XLM,CB…USDC \
+FEE_RATE_BPS=50 \
+PATH_PAYMENT_ROUTER=CB…ROUTER \
+GOV_QUORUM_WEIGHT=3 \
+scripts/deploy-contracts.sh --network mainnet
 ```
 
-The script:
-1. Builds the contract in a pinned Docker image (Rust 1.89.0)
-2. Computes SHA-256 of the resulting WASM
-3. Compares against the on-chain hash
-4. Returns exit code 0 (match) or 1 (mismatch)
+## Flags
 
-**How third parties use this:**
-- Auditors can verify that on-chain bytecode was built from this exact repository
-- Maintainers can prove no secrets were embedded in WASM
-- Users can trust the deployed code is exactly what's in version control
+| Flag | Effect |
+|---|---|
+| `--force` | Ignore existing manifest IDs and redeploy fresh WASM |
+| `--skip-build` | Reuse WASM already in `target/wasm32v1-none/release/` |
+| `--verify-only` | Run only the read-back verification pass against the manifest |
 
-## Key Custody & Multisig Setup
+## Re-running / config changes
 
-See `docs/deployment/KEY_CUSTODY.md` (created in issue #779).
+Safe. Deploy is skipped for contracts already in the manifest; `initialize`
+tolerates `AlreadyInitialized`; each wiring step is a no-op when the on-chain
+value already matches. To roll out a config change (e.g. a new
+`PATH_PAYMENT_ROUTER`) set the env var and re-run — note that once governance is
+wired, parameter setters must go through a governance proposal rather than this
+script.
 
-**Summary:**
-- **admin** must be a multisig Stellar account with 2-of-3 signers (or configured threshold)
-- **guardian** must also be multisig-configured (for `pause` authorization)
-- Pre-deploy verification ensures mainnet deployments reject single-key admin/guardian
-- Key rotation procedures prevent dropping below minimum signer threshold mid-rotation
+## CI/CD
 
-## Rollback & Emergency Procedures
-
-See `docs/deployment/INCIDENT_RUNBOOK.md` (created in issue #780).
-
-**Quick reference:**
-- If deployment fails mid-sequence, consult the error message and logs
-- Abort without continuing past the failed step (the script enforces this)
-- Once all deployments succeed, use `pause` (guardian-only, instant) if a live bug is found
-- Use governance proposal/voting flow for formal fixes and upgrades (timelocked)
-- Governance is the only path to `unpause` (no guardian solo power)
-
-## Troubleshooting
-
-### "Contract not initialized"
-The `initialize` call didn't succeed or was run against a different contract instance. Check:
-- Contract ID is correct
-- Admin signer is authorized
-- All arguments (tokens, fee rate, etc.) are valid
-
-### "NotGovernance" or "NotAdmin" error
-A setter (like `set_governance_contract`) was called by an unauthorized signer. Check:
-- If governance is already wired, only governance contract can call (except bootstrap)
-- If governance is not wired, only admin can call
-- Caller identity matches expected account
-
-### "WASM hash mismatch"
-The on-chain WASM doesn't match the repository. Possible causes:
-- Repository was modified after deployment (check git status)
-- Deployment used a different Rust version (verify 1.89.0)
-- Network glitch during install (re-run `soroban contract install` and re-deploy)
-
-### Deployment fails mid-sequence
-The script exits non-zero and reports exactly which step failed:
-1. Do not attempt to continue or retry without understanding the error
-2. Consult the error message and contract logs
-3. Fix the underlying issue (bad arguments, authorization, etc.)
-4. Consider re-running with `--force` if re-deploying the same network
-
-## Maintenance & Updates
-
-### To upgrade contract WASM
-See `docs/CONTRACT_UPGRADES.md` for the full governance-gated flow.
-
-**Quick:**
-1. Governance proposes an upgrade (with the new WASM hash)
-2. Voting period passes, proposal is queued
-3. Upgrade timelock passes (14 days by default)
-4. Guardian or governance calls `pause` (instant)
-5. Governance executes the upgrade (which calls `contract.upgrade(new_wasm_hash)`)
-6. If the upgrade changes stored data, call `contract.migrate(...)`
-7. Governance calls `unpause` (only path to un-pause)
-
-### To rotate signers
-See `docs/deployment/KEY_CUSTODY.md` (issue #779).
-
-## References
-- **Issue #778:** Deployment scripting (this guide)
-- **Issue #779:** Multisig verification and key custody
-- **Issue #780:** Incident runbook and pause/unpause procedures
-- **Contract Upgrades:** `docs/CONTRACT_UPGRADES.md`
-- **Soroban CLI Docs:** https://developers.stellar.org/learn/building-apps/cli
+`.github/workflows/deploy.yml` runs the script with `--network testnet` against
+staging on merge to `main` (job `deploy-contracts`), using the `DEPLOYER_SECRET`
+and address env vars from the `staging` environment. Mainnet is run manually by a
+maintainer following the command above.

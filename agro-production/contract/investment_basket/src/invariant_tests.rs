@@ -151,7 +151,9 @@ fn create_funded_and_settled_basket(
     // Create basket pointing at this campaign (100% weight)
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((campaign_id, 10_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     // Depositor deposits into the basket
     h.basket.deposit(depositor, &basket_id, &deposit_amount);
@@ -219,7 +221,9 @@ fn test_invariant_deposit_conservation_failed_campaign_refund() {
 
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((campaign_id, 10_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     h.basket.deposit(&h.depositors[0], &basket_id, &deposit);
 
@@ -366,7 +370,9 @@ fn test_invariant_multi_depositor_total_payout_bounded() {
 
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((campaign_id, 10_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     // Each depositor deposits their share
     for dep in &h.depositors {
@@ -420,7 +426,9 @@ fn test_invariant_multi_depositor_proptest() {
 
                 let mut constituents = Vec::new(&h.env);
                 constituents.push_back((campaign_id, 10_000u32));
-                let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+                let basket_id =
+                    h.basket
+                        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
                 for (i, &dep_amount) in deposits.iter().enumerate() {
                     h.basket.deposit(&h.depositors[i], &basket_id, &dep_amount);
@@ -484,7 +492,9 @@ fn test_invariant_per_depositor_fair_share_not_exceeded() {
 
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((campaign_id, 10_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     h.basket.deposit(&h.depositors[0], &basket_id, &d0_amount);
     h.basket.deposit(&h.depositors[1], &basket_id, &d1_amount);
@@ -551,7 +561,9 @@ fn test_invariant_uninvestable_constituent_principal_returned() {
     constituents.push_back((campaign_dead, 5_000u32));
     constituents.push_back((campaign_live, 5_000u32));
 
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     h.basket.deposit(&h.depositors[0], &basket_id, &deposit);
 
@@ -622,7 +634,9 @@ fn test_invariant_withdraw_basket_returns_exact_principal() {
 
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((campaign_id, 10_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     let deposit = 8_000i128;
     h.basket.deposit(&h.depositors[0], &basket_id, &deposit);
@@ -687,7 +701,9 @@ fn test_regression_staggered_claim_no_forfeiture() {
     let mut constituents = Vec::new(&h.env);
     constituents.push_back((c1, 5_000u32));
     constituents.push_back((c2, 5_000u32));
-    let basket_id = h.basket.create_basket(&h.admin, &h.token_id, &constituents);
+    let basket_id = h
+        .basket
+        .create_basket(&h.admin, &h.token_id, &constituents, &0, &0);
 
     h.basket.deposit(&h.depositors[0], &basket_id, &deposit);
     h.basket.fund_basket(&h.admin, &basket_id);

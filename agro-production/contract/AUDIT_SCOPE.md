@@ -84,11 +84,11 @@ This document describes the four production contracts that will custody mainnet 
 **Role**: Batches investor deposits across multiple campaigns. Simplifies "invest in a diversified portfolio of campaigns" to a single deposit call.
 
 **Key Functions**:
-- `create_basket(admin, token, constituents: Vec<(campaign_id, weight_bps)>)` → admin curates basket
-- `deposit(depositor, basket_id, amount)` → investor adds principal (pre-funding)
-- `fund_basket(caller, basket_id)` → caller splits deposit across constituents via cross-contract `invest` calls
-- `claim_basket_returns(depositor, basket_id)` → depositor claims proportional returns (repeatable per #681)
-- `withdraw_basket(depositor, basket_id)` → depositor recovers principal if basket stuck Open > 7 days (Issue #682)
+- `create_basket(admin, token, constituents: Vec<(campaign_id, weight_bps)>, funding_deadline, min_deposit)` -> admin curates basket and funding conditions
+- `deposit(depositor, basket_id, amount)` -> investor adds principal (pre-funding)
+- `fund_basket(caller, basket_id)` -> admin splits before `funding_deadline`; anyone can split after the deadline once `min_deposit` is met
+- `claim_basket_returns(depositor, basket_id)` -> depositor claims proportional returns (repeatable per #681)
+- `withdraw_basket(depositor, basket_id)` -> depositor recovers principal if basket stuck Open > 7 days (Issue #682)
 
 **Constituent Failure Handling** (Issue #682):
 - If `escrow.invest` fails for a constituent (e.g. deadline passed, overfunded, wrong status):

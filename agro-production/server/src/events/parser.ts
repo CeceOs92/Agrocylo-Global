@@ -95,43 +95,62 @@ export class ProductionEventParser {
         return {
           ...base,
           action,
-          basketId: String(data[0]),
-          constituentsCount: Number(data[1]),
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          constituentsCount: Number(data[2]),
+          fundingDeadline: data[3] === undefined ? undefined : String(data[3]),
+          minDeposit: data[4] === undefined ? undefined : String(data[4]),
         };
 
       case "basket.deposit":
         return {
           ...base,
           action,
-          basketId: String(data[0]),
-          depositor: String(data[1]),
-          amount: String(data[2]),
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          depositor: String(data[2]),
+          amount: String(data[3]),
         };
 
       case "basket.funded":
         return {
           ...base,
           action,
-          basketId: String(data[0]),
-          totalDeposit: String(data[1]),
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          totalDeposit: String(data[2]),
+          totalInvested: data[3] === undefined ? undefined : String(data[3]),
+          totalSkipped: data[4] === undefined ? undefined : String(data[4]),
+        };
+
+      case "basket.fw_close":
+        return {
+          ...base,
+          action,
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          fundingDeadline: String(data[2]),
+          minDeposit: String(data[3]),
         };
 
       case "basket.withdrawn":
         return {
           ...base,
           action,
-          basketId: String(data[0]),
-          depositor: String(data[1]),
-          depositAmount: String(data[2]),
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          depositor: String(data[2]),
+          depositAmount: String(data[3]),
         };
 
       case "basket.claimed":
         return {
           ...base,
           action,
-          basketId: String(data[0]),
-          depositor: String(data[1]),
-          payout: String(data[2]),
+          schemaVersion: String(data[0]),
+          basketId: String(data[1]),
+          depositor: String(data[2]),
+          payout: String(data[3]),
         };
 
       case "campaign.produce":

@@ -67,23 +67,25 @@ export class BasketEventParser {
     };
 
     switch (eventType) {
-      // Contract: publish((basket, funded), (basket_id, total_deposit, total_invested, total_skipped))
+      // Contract: publish((basket, funded), (schema_version, basket_id, total_deposit, total_invested, total_skipped))
       case "basket.funded":
         return {
           ...common,
-          basketIdOnChain: toStringValue(data[0]),
-          amount: toStringValue(data[1]),
-          totalInvested: toStringValue(data[2]),
-          totalSkipped: toStringValue(data[3]),
+          schemaVersion: toStringValue(data[0]),
+          basketIdOnChain: toStringValue(data[1]),
+          amount: toStringValue(data[2]),
+          totalInvested: toStringValue(data[3]),
+          totalSkipped: toStringValue(data[4]),
         };
 
-      // Contract: publish((basket, skipped), (basket_id, campaign_id, share))
+      // Contract: publish((basket, skipped), (schema_version, basket_id, campaign_id, share))
       case "basket.skipped":
         return {
           ...common,
-          basketIdOnChain: toStringValue(data[0]),
-          campaignIdOnChain: toStringValue(data[1]),
-          amount: toStringValue(data[2]),
+          schemaVersion: toStringValue(data[0]),
+          basketIdOnChain: toStringValue(data[1]),
+          campaignIdOnChain: toStringValue(data[2]),
+          amount: toStringValue(data[3]),
         };
 
       default:
