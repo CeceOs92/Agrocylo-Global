@@ -170,6 +170,9 @@ const EVENT_SCHEMA_VERSION: u32 = 1;
 const INSTANCE_TTL_THRESHOLD: u32 = 1_000;
 const INSTANCE_TTL_EXTEND: u32 = 100_000;
 
+// Issue #851: Enforce minimum timelock (24 hours).
+const MIN_TIMELOCK_DELAY_SECS: u64 = 86400;
+
 // Extend instance storage TTL to prevent archival (Issue #777).
 fn bump_instance(env: &Env) {
     env.storage()
@@ -203,6 +206,10 @@ impl GovernanceContract {
         }
         admin.require_auth();
         if voting_period_secs == 0 || quorum_weight == 0 {
+            return Err(GovernanceError::InvalidConfig);
+        }
+        // Issue #851: Enforce minimum timelock (24 hours).
+        if timelock_delay_secs < MIN_TIMELOCK_DELAY_SECS {
             return Err(GovernanceError::InvalidConfig);
         }
         // Upgrades must never be *faster* to execute than an ordinary
@@ -351,6 +358,9 @@ impl GovernanceContract {
             kind
         };
 
+        // Issue #852: Validate target and function at proposal time.
+        Self::validate_proposal_target(env, &target_contract, &function_name)?;
+
         let voting_period_secs: u64 = env
             .storage()
             .instance()
@@ -387,6 +397,34 @@ impl GovernanceContract {
             (EVENT_SCHEMA_VERSION, id, proposer, target_contract, function_name),
         );
         Ok(id)
+    }
+
+    /// Issue #852: Validate cross-contract proposal target and function.
+    /// Allowlist: known governance-gated parameter changes + upgrades on any contract.
+    fn validate_proposal_target(
+        env: &Env,
+        target: &Address,
+        func: &Symbol,
+    ) -> Result<(), GovernanceError> {
+        // Self-targeted proposals are always allowed (upgrade, pause, etc.)
+        if *target == env.current_contract_address() {
+            return Ok(());
+        }
+        // For cross-contract, only allow the known governance-gated functions
+        let func_str = func.to_string();
+        let allowed = func_str == "set_fee_config"
+            || func_str == "set_supported_tokens"
+            || func_str == "update_supported_tokens"
+            || func_str == "set_registry_contract"
+            || func_str == "set_guardian"
+            || func_str == "pause"
+            || func_str == "unpause"
+            || func_str == "upgrade";
+        if allowed {
+            Ok(())
+        } else {
+            Err(GovernanceError::InvalidConfig)
+        }
     }
 
     /// Registered voter casts a weighted vote for or against a proposal
