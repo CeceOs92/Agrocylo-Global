@@ -2,27 +2,20 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+ARG DATABASE_URL=postgresql://agrocylo:agrocylo123@localhost:5432/agrocylo_db
+ENV DATABASE_URL=$DATABASE_URL
 
-# Install dependencies
+COPY package*.json ./
 RUN npm ci
 
-# Copy source code
 COPY . .
 
-# Generate Prisma client
 RUN npx prisma generate
-
-# Build TypeScript
 RUN npm run build
 
-# Expose port
 EXPOSE 5000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/health', (res) => { if (res.statusCode !== 200) throw new Error(res.statusCode) })" || exit 1
+  CMD wget --timeout=5 -q -O /dev/null http://localhost:5000/health 2>/dev/null; test $? -le 1
 
-# Start server
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss --schema=prisma/schema.prisma && npm start"]

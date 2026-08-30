@@ -94,6 +94,37 @@ fn set_fee_config_args(
 }
 
 #[test]
+fn test_initialize_requires_admin_auth() {
+    // Issue #843: initialize() must require the admin's authorization, so a
+    // front-runner who never signed cannot seize admin on a fresh deploy.
+    // Deliberately no mock_all_auths() — the caller must prove they control
+    // the admin address or the call is rejected before any state is written.
+    let env = Env::default();
+
+    let attacker = Address::generate(&env);
+
+    let contract_id = env.register(GovernanceContract, ());
+    let client = GovernanceContractClient::new(&env, &contract_id);
+
+    // The attacker did not authorize `initialize`, so require_auth() traps.
+    let result = client.try_initialize(
+        &attacker,
+        &VOTING_PERIOD,
+        &TIMELOCK_DELAY,
+        &UPGRADE_TIMELOCK_DELAY,
+        &QUORUM,
+    );
+    assert!(result.is_err());
+
+    // No state was written — the contract is still uninitialized.
+    let readback = client.try_get_admin();
+    assert_eq!(
+        readback.unwrap_err().unwrap(),
+        GovernanceError::NotInitialized
+    );
+}
+
+#[test]
 fn test_proposal_passes_and_executes_after_timelock() {
     let t = setup();
     let gov_id = t.gov.address.clone();

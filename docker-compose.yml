@@ -5,6 +5,8 @@
 version: '3.9'
 
 services:
+  # ── Infrastructure ──────────────────────────────────────────────────
+
   postgres:
     image: postgres:15-alpine
     container_name: agrocylo-postgres
@@ -17,10 +19,29 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agrocylo"]
+      test: ["CMD-SHELL", "pg_isready -U agrocylo -d agrocylo_db"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+
+  postgres-agro:
+    image: postgres:15-alpine
+    container_name: agrocylo-postgres-agro
+    environment:
+      POSTGRES_USER: agrocylo
+      POSTGRES_PASSWORD: agrocylo123
+      POSTGRES_DB: agrocylo_production
+    volumes:
+      - postgres_agro_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrocylo -d agrocylo_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
@@ -35,20 +56,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Backend services ────────────────────────────────────────────────
+
   backend:
     build:
       context: ./server
       dockerfile: Dockerfile
+      args:
+        DATABASE_URL: ${DATABASE_URL:-postgresql://agrocylo:agrocylo123@postgres:5432/agrocylo_db}
     container_name: agrocylo-backend
     environment:
       NODE_ENV: development
       PORT: 5000
-      DATABASE_URL: postgresql://agrocylo:agrocylo123@postgres:5432/agrocylo_db
-      REDIS_URL: redis://redis:6379
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://agrocylo:agrocylo123@postgres:5432/agrocylo_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SUPABASE_URL: ${SUPABASE_URL:-https://placeholder.supabase.co}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-placeholder-anon-key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-placeholder-service-role-key}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-placeholder-jwt-secret}
+      JWT_SECRET: ${JWT_SECRET:-b873d25323eb8673ad2d4ef5a86f7181ddb5f3cae3ed14c5fd8573c5b1d5f5e8}
+      RUN_WORKERS: "false"
+      RUN_CONTRACT_WATCHER: "false"
+      METRICS_API_KEY: ""
     ports:
       - "5000:5000"
     depends_on:
@@ -56,10 +85,85 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  agro-backend:
+    build:
+      context: ./agro-production/server
+      dockerfile: Dockerfile
+      args:
+        DATABASE_URL: ${AGRO_DATABASE_URL:-postgresql://agrocylo:agrocylo123@postgres-agro:5432/agrocylo_production}
+    container_name: agrocylo-agro-backend
+    environment:
+      NODE_ENV: development
+      PORT: 5001
+      DATABASE_URL: ${AGRO_DATABASE_URL:-postgresql://agrocylo:agrocylo123@postgres-agro:5432/agrocylo_production}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: dev-secret-key-do-not-use-in-production
+      LOG_LEVEL: debug
+      CORS_ORIGINS: ""
+      SUPABASE_URL: ${SUPABASE_URL:-https://placeholder.supabase.co}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-placeholder-anon-key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-placeholder-service-role-key}
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres-agro:
+        condition: service_healthy
+
+  # ── Frontend clients (dev mode) ─────────────────────────────────────
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: agrocylo-client
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      NEXT_PUBLIC_SOROBAN_RPC_URL: ${NEXT_PUBLIC_SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      NEXT_PUBLIC_NETWORK_PASSPHRASE: ${NEXT_PUBLIC_NETWORK_PASSPHRASE:-"Test SDF Network ; September 2015"}
+      NEXT_PUBLIC_DEMO_MODE: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  agro-client:
+    build:
+      context: ./agro-production/client
+      dockerfile: Dockerfile
+    container_name: agrocylo-agro-client
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:5001
+      NEXT_PUBLIC_WS_URL: ws://localhost:5001/ws
+      NEXT_PUBLIC_BASE_PATH: /agro
+      NEXT_PUBLIC_SOROBAN_RPC_URL: ${NEXT_PUBLIC_SOROBAN_RPC_URL:-https://soroban-testnet.stellar.org}
+      NEXT_PUBLIC_NETWORK_PASSPHRASE: ${NEXT_PUBLIC_NETWORK_PASSPHRASE:-"Test SDF Network ; September 2015"}
+      NEXT_PUBLIC_MAIN_CLIENT_URL: http://localhost:3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      agro-backend:
+        condition: service_healthy
+
+  # ── Reverse proxy ───────────────────────────────────────────────────
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: agrocylo-caddy
+    ports:
+      - "80:80"
     volumes:
-      - ./server/src:/app/src:cached
-      - ./server/prisma:/app/prisma:cached
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      client:
+        condition: service_healthy
+      agro-client:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  postgres_agro_data:
   redis_data:

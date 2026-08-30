@@ -9,7 +9,7 @@ import type { WalletContextType } from '@/types/wallet';
 vi.mock('@/services/stellar/contractService', () => ({
   createOrder: vi.fn(),
 }));
-vi.mock('@/lib/signTransaction', () => ({
+vi.mock('@/lib/stellarTransactions', () => ({
   signAndSubmitTransaction: vi.fn(),
 }));
 vi.mock('@/services/notification', () => ({
@@ -61,5 +61,20 @@ describe('EscrowTransaction Component', () => {
     fireEvent.click(submitBtn);
 
     expect(await screen.findByText('Please select a delivery deadline')).toBeInTheDocument();
+  });
+
+  it('disables the create button while the wallet network is mismatched', () => {
+    render(
+      <WalletContext.Provider
+        value={
+          { ...mockContextValue, networkMismatch: true } as unknown as WalletContextType
+        }
+      >
+        <EscrowTransaction {...defaultProps} />
+      </WalletContext.Provider>
+    );
+
+    expect(screen.getByText('Create Escrow Order').closest('button')).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/wrong network/i);
   });
 });

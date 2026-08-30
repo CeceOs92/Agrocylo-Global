@@ -904,6 +904,44 @@ fn test_initialize_duplicate_fails() {
     );
 }
 
+#[test]
+fn test_initialize_requires_admin_auth() {
+    // Issue #843: initialize() must require the admin's authorization, so a
+    // front-runner who never signed cannot seize admin on a fresh deploy.
+    // Deliberately no mock_all_auths() — the caller must prove they control
+    // the admin address or the call is rejected before any state is written.
+    let env = Env::default();
+    // Non-zero baseline ledger timestamp (Issue #652 fixture fix, see setup_test).
+    env.ledger().set_timestamp(1_000_000);
+
+    let attacker = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+
+    let xlm_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
+    let usdc_address = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
+
+    let contract_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &contract_id);
+
+    let mut tokens = Vec::new(&env);
+    tokens.push_back(xlm_contract.address());
+    tokens.push_back(usdc_address);
+
+    // The attacker did not authorize `initialize`, so require_auth() traps.
+    let result = client.try_initialize(&attacker, &fee_collector, &tokens);
+    assert!(result.is_err());
+
+    // No state was written — the contract is still uninitialized.
+    let readback = client.try_get_admin();
+    assert_eq!(
+        readback.unwrap_err().unwrap(),
+        EscrowError::ContractNotInitialized
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Governance gating (Issue #660)
 // ---------------------------------------------------------------------------

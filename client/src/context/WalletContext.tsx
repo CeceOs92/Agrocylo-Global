@@ -3,8 +3,16 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WalletContextType } from "../types/wallet";
 import { getXlmBalance } from "../lib/stellar";
-import { signAndSubmitTransaction } from "../lib/signTransaction";
-import type { SignAndSubmitResult } from "../lib/signTransaction";
+import {
+  signAndSubmitTransaction,
+  NetworkMismatchError,
+} from "../lib/stellarTransactions";
+import type { SignAndSubmitResult } from "../lib/stellarTransactions";
+import {
+  isNetworkMismatch,
+  normalizeToPassphrase,
+  getExpectedNetworkPassphrase,
+} from "@/services/stellar/networkConfig";
 import {
   trackWalletConnected,
   trackWalletDisconnected,
@@ -26,6 +34,7 @@ const initialState: WalletContextType = {
   restoring: false,
   error: null,
   network: null,
+  networkMismatch: false,
   activeWalletId: null,
   connect: async () => {},
   disconnect: () => {},
@@ -200,10 +209,31 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.removeItem("activeWalletId");
   }, []);
 
+  // Compare the connected wallet's active network against the network the app
+  // is configured for. Recomputed whenever the wallet reports a network change.
+  const networkMismatch = useMemo(
+    () => (connected ? isNetworkMismatch(network) : false),
+    [connected, network],
+  );
+
   const signAndSubmit = useCallback(
     async (transactionXdr: string): Promise<SignAndSubmitResult> => {
       if (!connected || !address) {
         return { success: false, error: "Wallet not connected" };
+      }
+      if (isNetworkMismatch(network)) {
+        let expected = "the configured network";
+        try {
+          expected = getExpectedNetworkPassphrase();
+        } catch {
+          /* keep generic label */
+        }
+        const err = new NetworkMismatchError(
+          normalizeToPassphrase(network) ?? network ?? "unknown",
+          expected,
+        );
+        if (mountedRef.current) setError(err.message);
+        return { success: false, error: err.message, errorKind: "mismatch" };
       }
       setError(null);
       try {
@@ -219,7 +249,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
         return { success: false, error: msg };
       }
     },
-    [connected, address],
+    [connected, address, network],
   );
 
   const value = useMemo<WalletContextType>(
@@ -231,6 +261,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       restoring,
       error,
       network,
+      networkMismatch,
       activeWalletId,
       connect,
       disconnect,
@@ -245,6 +276,7 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       restoring,
       error,
       network,
+      networkMismatch,
       activeWalletId,
       connect,
       disconnect,

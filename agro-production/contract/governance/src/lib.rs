@@ -493,6 +493,10 @@ impl GovernanceContract {
         }
 
         let mut proposal = load_proposal(&env, proposal_id)?;
+        // Check Cancelled terminal state first, matching execute/queue precedence (Issue #838)
+        if proposal.status == ProposalStatus::Cancelled {
+            return Err(GovernanceError::ProposalCancelled);
+        }
         if proposal.status != ProposalStatus::Queued {
             return Err(GovernanceError::NotQueued);
         }
