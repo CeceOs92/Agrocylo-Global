@@ -70,6 +70,29 @@ fn setup() -> TestEnv<'static> {
 }
 
 #[test]
+fn test_initialize_requires_admin_auth() {
+    // Issue #843: initialize() must require the admin's authorization, so a
+    // front-runner who never signed cannot seize admin on a fresh deploy.
+    // Deliberately no mock_all_auths() — the caller must prove they control
+    // the admin address or the call is rejected before any state is written.
+    let env = Env::default();
+
+    let attacker = Address::generate(&env);
+    let escrow_contract = env.register(ProductionEscrowContract, ());
+
+    let contract_id = env.register(InvestmentBasketContract, ());
+    let client = InvestmentBasketContractClient::new(&env, &contract_id);
+
+    // The attacker did not authorize `initialize`, so require_auth() traps.
+    let result = client.try_initialize(&attacker, &escrow_contract);
+    assert!(result.is_err());
+
+    // No state was written — the contract is still uninitialized.
+    let readback = client.try_get_admin();
+    assert_eq!(readback.unwrap_err().unwrap(), BasketError::NotInitialized);
+}
+
+#[test]
 fn test_create_basket_and_deposit_splits_across_campaigns() {
     let t = setup();
     let now = t.env.ledger().timestamp();

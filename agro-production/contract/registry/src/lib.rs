@@ -202,6 +202,16 @@ impl RegistryContract {
         env.storage().instance().get(&DataKey::GovernanceContract)
     }
 
+    /// Returns the admin address once initialized (Issue #843 deploy
+    /// verification — mirrors the getter every other contract exposes). Errors
+    /// with `RegistryError::NotInitialized` before `initialize()` has run.
+    pub fn get_admin(env: Env) -> Result<Address, RegistryError> {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(RegistryError::NotInitialized)
+    }
+
     /// Upgrades this contract's WASM. Governance-gated: admin-only while no
     /// governance is configured, governance-only once it is. Callers should
     /// use governance's `propose_upgrade`, which applies the longer upgrade

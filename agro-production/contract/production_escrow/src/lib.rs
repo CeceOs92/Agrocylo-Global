@@ -413,6 +413,7 @@ impl ProductionEscrowContract {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
+        admin.require_auth();
         if supported_tokens.is_empty() {
             return Err(EscrowError::MustSupportOneToken);
         }
