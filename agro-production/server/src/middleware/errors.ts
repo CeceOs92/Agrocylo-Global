@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import logger from "../config/logger.js";
+import { Sentry } from "../config/sentry.js";
 
 export class HttpError extends Error {
   constructor(
@@ -74,17 +75,28 @@ export function globalErrorHandler(
 
   // Storage service errors
   if (err instanceof StorageError) {
+    // 5xx-rate tracking happens once, generically, in the `finish`-based
+    // metrics middleware in app.ts (it reads the final res.statusCode
+    // regardless of which handler set it) — only Sentry capture, which needs
+    // the actual exception object, belongs here.
+    if (err.status >= 500) {
+      Sentry.captureException(err);
+    }
     problemDetail(res, req, err.status, "Storage Error", err.message);
     return;
   }
 
   // HTTP errors (e.g., from route handlers)
   if (err instanceof HttpError) {
+    if (err.status >= 500) {
+      Sentry.captureException(err);
+    }
     problemDetail(res, req, err.status, "Request Error", err.message);
     return;
   }
 
   // Unhandled errors
   logger.error("Unhandled request error", { error: err, path: req.path });
+  Sentry.captureException(err);
   problemDetail(res, req, 500, "Internal Server Error");
 }

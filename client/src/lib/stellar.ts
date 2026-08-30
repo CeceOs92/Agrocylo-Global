@@ -1,23 +1,60 @@
 import { Horizon, rpc } from "@stellar/stellar-sdk";
 import FreighterApi from "@stellar/freighter-api";
+import {
+  getStellarEnv,
+  isMainnetEnv,
+  MAINNET_PASSPHRASE,
+  TESTNET_PASSPHRASE,
+} from "../services/stellar/networkConfig";
 
 // Map of Stellar network names to Horizon URLs
 const HORIZON_URLS: Record<string, string> = {
-  "Public Global Stellar Network ; September 2015":
-    "https://horizon.stellar.org",
-  "Test SDF Network ; September 2015": "https://horizon-testnet.stellar.org",
+  [MAINNET_PASSPHRASE]: "https://horizon.stellar.org",
+  [TESTNET_PASSPHRASE]: "https://horizon-testnet.stellar.org",
 };
 
 // Map of Stellar network names to Soroban RPC URLs
 const RPC_URLS: Record<string, string> = {
-  "Public Global Stellar Network ; September 2015":
-    "https://soroban-rpc.mainnet.stellar.org",
-  "Test SDF Network ; September 2015": "https://soroban-testnet.stellar.org",
+  [MAINNET_PASSPHRASE]: "https://soroban-rpc.mainnet.stellar.org",
+  [TESTNET_PASSPHRASE]: "https://soroban-testnet.stellar.org",
 };
 
-// Defaults to testnet
-export const DEFAULT_HORIZON_URL = "https://horizon-testnet.stellar.org";
-export const DEFAULT_RPC_URL = "https://soroban-testnet.stellar.org";
+/**
+ * Network defaults, keyed off the single `NEXT_PUBLIC_STELLAR_ENV` switch.
+ *
+ * These are only ever a fallback when Freighter cannot be reached; a mainnet
+ * build never falls back to testnet — see `mainnetGuard()`.
+ */
+export const DEFAULT_HORIZON_URL =
+  process.env.NEXT_PUBLIC_HORIZON_URL ||
+  (getStellarEnv() === "mainnet"
+    ? "https://horizon.stellar.org"
+    : "https://horizon-testnet.stellar.org");
+export const DEFAULT_RPC_URL =
+  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
+  (getStellarEnv() === "mainnet"
+    ? "https://soroban-rpc.mainnet.stellar.org"
+    : "https://soroban-testnet.stellar.org");
+
+const DEFAULT_NETWORK_NAME =
+  getStellarEnv() === "mainnet" ? MAINNET_PASSPHRASE : TESTNET_PASSPHRASE;
+
+/**
+ * In a mainnet build, rethrows instead of letting a caller silently fall back
+ * to a testnet endpoint when wallet detection fails AND no explicit mainnet
+ * endpoint is configured. When `NEXT_PUBLIC_SOROBAN_RPC_URL` is set it already
+ * points at mainnet, so falling back to it (via `DEFAULT_*`) is safe and we
+ * don't throw — read-only calls like balance display keep working.
+ */
+function mainnetGuard(context: string, cause: unknown): void {
+  if (isMainnetEnv() && !process.env.NEXT_PUBLIC_SOROBAN_RPC_URL) {
+    throw new Error(
+      `${context}, NEXT_PUBLIC_STELLAR_ENV=mainnet, and no NEXT_PUBLIC_SOROBAN_RPC_URL — ` +
+        `refusing to fall back to testnet. ` +
+        `Original error: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+}
 
 let currentServer: Horizon.Server | null = null;
 let currentRpcServer: rpc.Server | null = null;
@@ -45,10 +82,11 @@ export async function getServer(): Promise<Horizon.Server> {
     currentNetworkName = networkName;
     return currentServer;
   } catch (err) {
-    console.warn("Failed to detect Freighter network, using testnet:", err);
+    mainnetGuard("Failed to detect the wallet's network for Horizon", err);
+    console.warn("Failed to detect Freighter network, using configured default:", err);
     if (!currentServer) {
       currentServer = new Horizon.Server(DEFAULT_HORIZON_URL);
-      currentNetworkName = "Test SDF Network ; September 2015";
+      currentNetworkName = DEFAULT_NETWORK_NAME;
     }
     return currentServer;
   }
@@ -75,10 +113,11 @@ export async function getRpcServer(): Promise<rpc.Server> {
     currentNetworkName = networkName;
     return currentRpcServer;
   } catch (err) {
-    console.warn("Failed to detect Freighter network for RPC, using testnet:", err);
+    mainnetGuard("Failed to detect the wallet's network for Soroban RPC", err);
+    console.warn("Failed to detect Freighter network for RPC, using configured default:", err);
     if (!currentRpcServer) {
       currentRpcServer = new rpc.Server(DEFAULT_RPC_URL);
-      currentNetworkName = "Test SDF Network ; September 2015";
+      currentNetworkName = DEFAULT_NETWORK_NAME;
     }
     return currentRpcServer;
   }
@@ -121,9 +160,10 @@ export async function getCurrentNetworkName(): Promise<string> {
     const networkDetails = await FreighterApi.getNetworkDetails();
     return networkDetails.network;
   } catch (err) {
-    // If we can't reach Freighter, return the cached network name (if available)
-    // or fall back to testnet
+    mainnetGuard("Failed to read the wallet's network name", err);
+    // If we can't reach the wallet, return the cached network name (if available)
+    // or the configured default for this environment.
     console.warn("Failed to get network name:", err);
-    return currentNetworkName || "Test SDF Network ; September 2015";
+    return currentNetworkName || DEFAULT_NETWORK_NAME;
   }
 }

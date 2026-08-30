@@ -1,9 +1,7 @@
-#![cfg(test)]
-
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::{Address as _, Events, Ledger, LedgerInfo},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Env,
 };
@@ -56,11 +54,8 @@ fn setup() -> TestEnv<'static> {
     let basket = InvestmentBasketContractClient::new(&env, &basket_id_contract);
     basket.initialize(&admin, &escrow_id);
 
-    let env: Env = unsafe { std::mem::transmute(env) };
-    let basket: InvestmentBasketContractClient<'static> =
-        unsafe { std::mem::transmute(basket) };
-    let escrow: ProductionEscrowContractClient<'static> =
-        unsafe { std::mem::transmute(escrow) };
+    let basket: InvestmentBasketContractClient<'static> = unsafe { std::mem::transmute(basket) };
+    let escrow: ProductionEscrowContractClient<'static> = unsafe { std::mem::transmute(escrow) };
 
     TestEnv {
         env,
@@ -80,8 +75,12 @@ fn test_create_basket_and_deposit_splits_across_campaigns() {
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
 
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -107,8 +106,12 @@ fn test_mixed_outcome_basket_partial_failure_does_not_block_settled_payout() {
 
     // c1 will be fully funded then settled (payable).
     // c2 will be underfunded and left to expire -> Failed (refundable).
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &500_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &10_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &500_000, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &10_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 5_000u32), (c2, 5_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -169,9 +172,21 @@ fn test_staggered_settlement_across_multiple_claims_pays_full_fair_share() {
     let sac = StellarAssetClient::new(&t.env, &t.token_id);
     sac.mint(&depositor_b, &10_000_000);
 
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &3_000, &deadline);
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
-    let c3 = t.escrow.create_campaign(&t.farmer, &t.token_id, &2_000, &deadline);
+    // Total deposit is 2_000 (1_000 from each depositor); with weights
+    // 3_400/3_300/3_300 bps, `fund_basket` invests exactly 680/660/660 into
+    // c1/c2/c3. Targets must match those amounts exactly so each campaign
+    // auto-transitions to Funded once the basket invests, matching what
+    // this test actually exercises (staggered settlement, not partial
+    // funding).
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &680, &deadline);
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &660, &deadline);
+    let c3 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &660, &deadline);
 
     let constituents = vec![&t.env, (c1, 3_400u32), (c2, 3_300u32), (c3, 3_300u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -224,7 +239,9 @@ fn test_invalid_weights_rejected() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let bad_constituents = vec![&t.env, (c1, 9_000u32)];
     let err = t
@@ -243,7 +260,9 @@ fn test_too_many_constituents_rejected() {
 
     let mut constituents = soroban_sdk::Vec::new(&t.env);
     for _ in 0..21 {
-        let c = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+        let c = t
+            .escrow
+            .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
         constituents.push_back((c, 476u32)); // arbitrary, will fail on size before weight check
     }
 
@@ -262,8 +281,12 @@ fn test_fund_basket_skips_uninvestable_constituent_and_depositor_recovers_funds(
 
     // c1 stays investable. c2's deadline will already have passed by the
     // time fund_basket runs, so its `invest` call fails.
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
-    let c2 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
 
     let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -310,7 +333,9 @@ fn test_withdraw_basket_before_deadline_rejected() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -329,7 +354,9 @@ fn test_withdraw_basket_after_deadline_recovers_principal() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
 
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
@@ -367,6 +394,188 @@ fn test_withdraw_basket_after_deadline_recovers_principal() {
     assert_eq!(err, BasketError::NothingToWithdraw);
 }
 
+#[test]
+fn test_fund_basket_emits_skip_event_with_invested_skipped_summary() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    // c1 stays investable. c2's deadline will have passed, so invest fails.
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    // Advance past c2's deadline only.
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.status, BasketStatus::Funded);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 600_000);
+    assert_eq!(basket.total_skipped, 400_000);
+    assert_eq!(basket.total_collected, 400_000);
+
+    // Verify constituent details.
+    let cc1 = basket.constituents.get(0).unwrap();
+    let cc2 = basket.constituents.get(1).unwrap();
+    assert_eq!(cc1.invested_amount, 600_000);
+    assert!(!cc1.swept);
+    assert_eq!(cc2.invested_amount, 0);
+    assert_eq!(cc2.collected_amount, 400_000);
+    assert!(cc2.swept);
+}
+
+#[test]
+fn test_fund_basket_all_constituents_fail_clearly_distinguished() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    // All deadlines passed, so all invest calls will fail.
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+    let c3 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 3_333u32), (c2, 3_333u32), (c3, 3_334u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    // Advance past all deadlines.
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.status, BasketStatus::Funded);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 0);
+    assert_eq!(basket.total_skipped, 1_000_000);
+    assert_eq!(basket.total_collected, 1_000_000);
+
+    // All constituents failed to invest.
+    for i in 0..3 {
+        let c = basket.constituents.get(i).unwrap();
+        assert_eq!(c.invested_amount, 0);
+        assert!(c.swept);
+    }
+
+    // Depositor can immediately claim the full principal.
+    let payout = t.basket.claim_basket_returns(&t.depositor, &basket_id);
+    assert_eq!(payout, 1_000_000);
+}
+
+// ---------------------------------------------------------------------------
+// Schema Validation Tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_event_schema_funded_with_summary() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    assert_eq!(basket.total_deposit, 1_000_000);
+    assert_eq!(basket.total_invested, 600_000);
+    assert_eq!(basket.total_skipped, 400_000);
+}
+
+#[test]
+fn test_event_schema_skipped() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 100_000));
+    let c2 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &(now + 10));
+
+    let constituents = vec![&t.env, (c1, 6_000u32), (c2, 4_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+
+    t.env.ledger().set(LedgerInfo {
+        timestamp: now + 20,
+        protocol_version: 22,
+        sequence_number: t.env.ledger().sequence(),
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16 * 60 * 60 * 24,
+        min_persistent_entry_ttl: 30 * 24 * 60 * 60,
+        max_entry_ttl: 365 * 24 * 60 * 60,
+    });
+
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    let basket = t.basket.get_basket(&basket_id);
+    let cc2 = basket.constituents.get(1).unwrap();
+
+    // Verify that skipped constituent has no invested_amount
+    assert_eq!(cc2.invested_amount, 0);
+    assert_eq!(cc2.collected_amount, 400_000);
+    assert!(cc2.swept);
+}
+
 // ---------------------------------------------------------------------------
 // Governance, upgrade, guardian, pause, storage migration (Issue #757)
 // ---------------------------------------------------------------------------
@@ -385,7 +594,9 @@ fn test_guardian_pause_blocks_deposit_governance_only_unpauses() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
     let constituents = vec![&t.env, (c1, 10_000u32)];
     let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
 
@@ -396,9 +607,7 @@ fn test_guardian_pause_blocks_deposit_governance_only_unpauses() {
     t.basket.pause(&guardian);
     assert!(t.basket.is_paused());
 
-    let result = t
-        .basket
-        .try_deposit(&t.depositor, &basket_id, &500_000);
+    let result = t.basket.try_deposit(&t.depositor, &basket_id, &500_000);
     assert_eq!(result.unwrap_err().unwrap(), BasketError::ContractPaused);
 
     // Guardian cannot unpause (falls back to admin-gating since no
@@ -423,7 +632,9 @@ fn test_migrate_translates_pre_682_baskets_and_flips_schema_version() {
     let t = setup();
     let now = t.env.ledger().timestamp();
     let deadline = now + 100_000;
-    let c1 = t.escrow.create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
     let constituents = vec![&t.env, (c1, 10_000u32)];
     // create_basket via the current contract always produces the current
     // shape — simulate "this basket predates #682" by overwriting its
@@ -471,4 +682,30 @@ fn test_migrate_translates_pre_682_baskets_and_flips_schema_version() {
     // that could clobber real data with the backfill default.
     let err = t.basket.try_migrate(&t.admin, &10).unwrap_err().unwrap();
     assert_eq!(err, BasketError::AlreadyMigrated);
+}
+
+#[test]
+fn test_event_schema_version_full_lifecycle() {
+    let t = setup();
+    let now = t.env.ledger().timestamp();
+    let deadline = now + 100_000;
+
+    let c1 = t
+        .escrow
+        .create_campaign(&t.farmer, &t.token_id, &1_000_000, &deadline);
+
+    let constituents = vec![&t.env, (c1, 10_000u32)];
+    let basket_id = t.basket.create_basket(&t.admin, &t.token_id, &constituents);
+
+    t.basket.deposit(&t.depositor, &basket_id, &1_000_000);
+    t.basket.fund_basket(&t.depositor, &basket_id);
+
+    t.escrow.start_production(&t.farmer, &c1);
+    t.escrow.mark_harvest(&t.farmer, &t.attester, &c1);
+    t.escrow.settle(&t.farmer, &c1);
+
+    t.basket.claim_basket_returns(&t.depositor, &basket_id);
+
+    let events = t.env.events().all();
+    assert!(!events.is_empty(), "Events should be emitted during full lifecycle");
 }

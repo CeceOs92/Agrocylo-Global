@@ -13,40 +13,44 @@
  *
  * If E2E_DATABASE_URL is absent the suite is skipped gracefully.
  */
-import http from "http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import request from "supertest";
-import WebSocket from "ws";
-import { PrismaClient } from "@prisma/client";
+import http from 'http';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import WebSocket from 'ws';
+import { PrismaClient } from '@prisma/client';
 
-import app from "../app.js";
-import { attachWebSocketServer, closeWebSocketServer } from "../services/wsServer.js";
-import { EventPersister } from "../events/persister.js";
-import { startProductionWatcher } from "../events/watcher.js";
+import app from '../app.js';
+import {
+  attachWebSocketServer,
+  closeWebSocketServer,
+} from '../services/wsServer.js';
+import { EventPersister } from '../events/persister.js';
+import { startProductionWatcher } from '../events/watcher.js';
 
-import { MockRpcServer } from "./helpers/MockRpcServer.js";
+import { MockRpcServer } from './helpers/MockRpcServer.js';
 import {
   makeCampaignCreatedRawEvent,
   makeCampaignInvestedRawEvent,
-} from "./helpers/xdrBuilder.js";
+} from './helpers/xdrBuilder.js';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const CONTRACT_ID = "CTEST0000000000000000000000000000000000000000000000000000";
-const FARMER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const INVESTOR = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-const TOKEN = "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
+const CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
+const FARMER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const INVESTOR = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+const TOKEN = 'GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
 const DEADLINE = String(Math.floor(Date.now() / 1000) + 86_400);
 
 // ---------------------------------------------------------------------------
 // Skip guard
 // ---------------------------------------------------------------------------
-const E2E_DB_URL = process.env["E2E_DATABASE_URL"] ?? process.env["DATABASE_URL"];
+const E2E_DB_URL =
+  process.env['E2E_DATABASE_URL'] ?? process.env['DATABASE_URL'];
 
 if (!E2E_DB_URL) {
-  describe.skip("E2E invest flow (E2E_DATABASE_URL not set)", () => {
-    it("skipped", () => {});
+  describe.skip('E2E invest flow (E2E_DATABASE_URL not set)', () => {
+    it('skipped', () => {});
   });
 } else {
   runE2ESuite();
@@ -74,18 +78,18 @@ function runE2ESuite() {
     const rpcPort = await mockRpc.start();
 
     // Configure server env before app modules read config.
-    process.env["RPC_URL"] = `http://127.0.0.1:${rpcPort}`;
-    process.env["PRODUCTION_CONTRACT_ID"] = CONTRACT_ID;
-    process.env["DATABASE_URL"] = E2E_DB_URL;
-    process.env["EVENT_POLL_INTERVAL_MS"] = "150";
+    process.env['RPC_URL'] = `http://127.0.0.1:${rpcPort}`;
+    process.env['PRODUCTION_CONTRACT_ID'] = CONTRACT_ID;
+    process.env['DATABASE_URL'] = E2E_DB_URL;
+    process.env['EVENT_POLL_INTERVAL_MS'] = '150';
 
     // Attach WS to the HTTP server and listen.
     httpServer = http.createServer(app);
     attachWebSocketServer(httpServer);
     await new Promise<void>((resolve) => {
-      httpServer.listen(0, "127.0.0.1", () => {
+      httpServer.listen(0, '127.0.0.1', () => {
         const addr = httpServer.address();
-        serverPort = typeof addr === "object" && addr ? addr.port : 0;
+        serverPort = typeof addr === 'object' && addr ? addr.port : 0;
         resolve();
       });
     });
@@ -104,82 +108,86 @@ function runE2ESuite() {
   // ---------------------------------------------------------------------------
   // Suite 1 — Event indexing pipeline (EventPersister → DB → WS → REST)
   // ---------------------------------------------------------------------------
-  describe("Event indexing pipeline", () => {
-    it("indexes a campaign.created event and exposes it via REST", async () => {
+  describe('Event indexing pipeline', () => {
+    it('indexes a campaign.created event and exposes it via REST', async () => {
       await EventPersister.persist({
-        action: "campaign.created",
+        action: 'campaign.created',
         ledger: 200,
         eventIndex: 0,
         timestamp: new Date(),
-        rawId: "200-0",
-        campaignId: "1",
+        rawId: '200-0',
+        campaignId: '1',
         farmer: FARMER,
         token: TOKEN,
-        targetAmount: "1000000",
+        targetAmount: '1000000',
         deadline: DEADLINE,
-        txHash: "aaa",
+        txHash: 'aaa',
       });
 
-      const res = await request(app).get("/api/v1/campaigns");
+      const res = await request(app).get('/api/v1/campaigns');
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
-      expect(res.body.data[0].onChainId).toBe("1");
+      expect(res.body.data[0].onChainId).toBe('1');
     });
 
-    it("indexes a campaign.invested event, broadcasts via WS, and appears in REST", async () => {
+    it('indexes a campaign.invested event, broadcasts via WS, and appears in REST', async () => {
       // Connect WS client.
       const wsUrl = `ws://127.0.0.1:${serverPort}/ws`;
       const ws = new WebSocket(wsUrl);
-      const wsReady = new Promise<void>((resolve) => ws.once("open", () => resolve()));
+      const wsReady = new Promise<void>((resolve) =>
+        ws.once('open', () => resolve()),
+      );
       await wsReady;
 
       const wsEvent = new Promise<string>((resolve) => {
-        ws.on("message", (data) => resolve(data.toString()));
+        ws.on('message', (data) => resolve(data.toString()));
       });
 
       // Persist the investment event.
       await EventPersister.persist({
-        action: "campaign.invested",
+        action: 'campaign.invested',
         ledger: 201,
         eventIndex: 0,
         timestamp: new Date(),
-        rawId: "201-0",
-        campaignId: "1",
+        rawId: '201-0',
+        campaignId: '1',
         investor: INVESTOR,
-        amount: "500000",
-        totalRaised: "500000",
-        txHash: "bbb",
+        amount: '500000',
+        totalRaised: '500000',
+        txHash: 'bbb',
       });
 
       // WS should broadcast within 2 s.
       const raw = await Promise.race([
         wsEvent,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("WS timeout")), 2000),
+          setTimeout(() => reject(new Error('WS timeout')), 2000),
         ),
       ]);
       ws.close();
 
       const envelope = JSON.parse(raw) as { event: string; payload: unknown };
-      expect(envelope.event).toBe("campaign.invested");
+      expect(envelope.event).toBe('campaign.invested');
 
       // REST should confirm the investment.
-      const campaigns = await request(app).get("/api/v1/campaigns");
+      const campaigns = await request(app).get('/api/v1/campaigns');
       const campaignId = campaigns.body.data[0].id as string;
 
-      const inv = await request(app).get(`/api/v1/campaigns/${campaignId}/investments`);
+      const inv = await request(app).get(
+        `/api/v1/campaigns/${campaignId}/investments`,
+      );
       expect(inv.status).toBe(200);
       expect(inv.body).toHaveLength(1);
       expect(inv.body[0].investorAddress).toBe(INVESTOR);
-      expect(inv.body[0].amount).toBe("500000");
+      expect(inv.body[0].amount).toBe('500000');
     });
   });
 
   // ---------------------------------------------------------------------------
   // Suite 2 — Watcher integration (mock RPC events → watcher → DB → REST)
   // ---------------------------------------------------------------------------
-  describe("Watcher polls mock RPC and indexes events", () => {
-    it("picks up campaign.created from the mock RPC and writes it to DB", async () => {
+  describe('Watcher polls mock RPC and indexes events', () => {
+    it('picks up campaign.created from the mock RPC and writes it to DB', async () => {
       // Reset DB for a fresh ledger.
       await prisma.$executeRaw`TRUNCATE TABLE transactions, investments, orders, campaigns, users, event_cursors CASCADE`;
       mockRpc.advanceLedger(50); // establish a baseline tip the watcher cursor anchors to
@@ -191,13 +199,13 @@ function runE2ESuite() {
 
       const rawCreated = makeCampaignCreatedRawEvent(
         {
-          campaignId: "2",
+          campaignId: '2',
           farmer: FARMER,
           token: TOKEN,
-          targetAmount: "2000000",
+          targetAmount: '2000000',
           deadline: DEADLINE,
         },
-        mockRpc["currentLedger"] + 1,
+        mockRpc['currentLedger'] + 1,
         0,
         CONTRACT_ID,
       );
@@ -208,42 +216,47 @@ function runE2ESuite() {
       let found = false;
       for (let i = 0; i < 20; i++) {
         await new Promise((r) => setTimeout(r, 150));
-        const count = await prisma.campaign.count({ where: { onChainId: "2" } });
-        if (count > 0) { found = true; break; }
+        const count = await prisma.campaign.count({
+          where: { onChainId: '2' },
+        });
+        if (count > 0) {
+          found = true;
+          break;
+        }
       }
       expect(found).toBe(true);
 
       // REST confirms it.
-      const res = await request(app).get("/api/v1/campaigns");
+      const res = await request(app).get('/api/v1/campaigns');
       expect(res.status).toBe(200);
       const campaign = res.body.data.find(
-        (c: { onChainId: string }) => c.onChainId === "2",
+        (c: { onChainId: string }) => c.onChainId === '2',
       );
       expect(campaign).toBeDefined();
-      expect(campaign.targetAmount).toBe("2000000");
+      expect(campaign.targetAmount).toBe('2000000');
     });
 
-    it("picks up campaign.invested from the mock RPC and notifies via WS", async () => {
+    it('picks up campaign.invested from the mock RPC and notifies via WS', async () => {
       // WS client listening before we inject the event.
       const wsUrl = `ws://127.0.0.1:${serverPort}/ws`;
       const ws = new WebSocket(wsUrl);
-      await new Promise<void>((resolve) => ws.once("open", resolve));
+      await new Promise<void>((resolve) => ws.once('open', resolve));
 
       const investedMsg = new Promise<string>((resolve) => {
-        ws.on("message", (data) => {
+        ws.on('message', (data) => {
           const env = JSON.parse(data.toString()) as { event: string };
-          if (env.event === "campaign.invested") resolve(data.toString());
+          if (env.event === 'campaign.invested') resolve(data.toString());
         });
       });
 
       const rawInvested = makeCampaignInvestedRawEvent(
         {
-          campaignId: "2",
+          campaignId: '2',
           investor: INVESTOR,
-          amount: "750000",
-          totalRaised: "750000",
+          amount: '750000',
+          totalRaised: '750000',
         },
-        mockRpc["currentLedger"] + 1,
+        mockRpc['currentLedger'] + 1,
         0,
         CONTRACT_ID,
       );
@@ -254,45 +267,56 @@ function runE2ESuite() {
       const raw = await Promise.race([
         investedMsg,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("WS timeout after 5 s")), 5000),
+          setTimeout(() => reject(new Error('WS timeout after 5 s')), 5000),
         ),
       ]);
       ws.close();
 
-      const envelope = JSON.parse(raw) as { event: string; payload: { amount: string } };
-      expect(envelope.event).toBe("campaign.invested");
-      expect(envelope.payload.amount).toBe("750000");
+      const envelope = JSON.parse(raw) as {
+        event: string;
+        payload: { amount: string };
+      };
+      expect(envelope.event).toBe('campaign.invested');
+      expect(envelope.payload.amount).toBe('750000');
     });
   });
 
   // ---------------------------------------------------------------------------
   // Suite 3 — Client XDR building (buildInvest against mock RPC)
   // ---------------------------------------------------------------------------
-  describe("Client XDR building", () => {
-    it("buildInvest returns a base64 XDR string against the mock RPC", async () => {
+  describe('Client XDR building', () => {
+    it('buildInvest returns a base64 XDR string against the mock RPC', async () => {
       // Import contractService pointing at the mock RPC.
       // The function reads env vars from process.env at call time.
-      process.env["NEXT_PUBLIC_SOROBAN_RPC_URL"] = mockRpc.url;
-      process.env["NEXT_PUBLIC_PRODUCTION_CONTRACT_ID"] = CONTRACT_ID;
-      process.env["NEXT_PUBLIC_NETWORK_PASSPHRASE"] =
-        "Test SDF Network ; September 2015";
+      process.env['NEXT_PUBLIC_SOROBAN_RPC_URL'] = mockRpc.url;
+      process.env['NEXT_PUBLIC_PRODUCTION_CONTRACT_ID'] = CONTRACT_ID;
+      process.env['NEXT_PUBLIC_NETWORK_PASSPHRASE'] =
+        'Test SDF Network ; September 2015';
 
-      // Dynamic import to pick up the fresh env vars.
-      const { buildInvest } = await import(
-        "../../../client/src/lib/contractService.js"
-      );
+      // Dynamic import to pick up the fresh env vars. The path is routed
+      // through a non-literal variable so tsc doesn't try to include the
+      // client package's contractService.ts (a different package, with its
+      // own dependencies) in this package's compilation/rootDir checks.
+      // Vitest transforms .ts on the fly at runtime, so this imports the
+      // real source directly instead of a committed build artifact.
+      const contractServiceModulePath: string =
+        '../../../client/src/lib/contractService.ts';
+      const { buildInvest } = await import(contractServiceModulePath);
 
-      const result = await buildInvest(INVESTOR, "1", BigInt(100_000));
+      const result = await buildInvest(INVESTOR, '1', BigInt(100_000));
 
       // The XDR build can fail if the mock simulation is not 100% compatible.
       // We accept either a valid XDR string or a graceful error (not a crash).
       if (result.success) {
-        expect(typeof result.data).toBe("string");
+        expect(typeof result.data).toBe('string');
         expect(result.data!.length).toBeGreaterThan(0);
       } else {
         // Log the reason so CI shows it in output.
-        console.log("[e2e] buildInvest returned error (acceptable):", result.error);
-        expect(typeof result.error).toBe("string");
+        console.log(
+          '[e2e] buildInvest returned error (acceptable):',
+          result.error,
+        );
+        expect(typeof result.error).toBe('string');
       }
     });
   });
@@ -300,20 +324,20 @@ function runE2ESuite() {
   // ---------------------------------------------------------------------------
   // Suite 4 — Failure regression: any broken layer fails the suite
   // ---------------------------------------------------------------------------
-  describe("Layer break detection", () => {
-    it("fails if EventPersister throws (DB layer broken)", async () => {
+  describe('Layer break detection', () => {
+    it('fails if EventPersister throws (DB layer broken)', async () => {
       // Passing an invalid event type should reject, not silently swallow.
       const badEvent = {
-        action: "campaign.created" as const,
+        action: 'campaign.created' as const,
         ledger: 9999,
         eventIndex: 999,
         timestamp: new Date(),
-        rawId: "9999-999",
-        campaignId: "nonexistent-in-db",
-        farmer: "GBADFARMERADDRESSNOTVALID000000000000000000000000000000000",
+        rawId: '9999-999',
+        campaignId: 'nonexistent-in-db',
+        farmer: 'GBADFARMERADDRESSNOTVALID000000000000000000000000000000000',
         token: TOKEN,
-        targetAmount: "-1",
-        deadline: "0",
+        targetAmount: '-1',
+        deadline: '0',
       };
 
       // This should NOT throw — it should succeed via upsert semantics.
@@ -321,10 +345,10 @@ function runE2ESuite() {
       await expect(EventPersister.persist(badEvent)).resolves.toBeUndefined();
     });
 
-    it("REST /health returns UP", async () => {
-      const res = await request(app).get("/health");
+    it('REST /health returns UP', async () => {
+      const res = await request(app).get('/health');
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe("UP");
+      expect(res.body.status).toBe('UP');
     });
   });
 }

@@ -1,23 +1,8 @@
-# ────────────────────────────────────────────────────────────────────────
-# Agrocylo — full local-dev orchestration
-#
-#   docker compose up          # foreground logs
-#   docker compose up -d       # detached
-#   docker compose down -v     # tear down + wipe volumes
-#
-# Reverse proxy (Caddy):
-#   http://localhost           → root marketplace client (:3000)
-#   http://localhost/agro      → agro-production client (:3000)
-#   http://localhost/api/*     → root backend API (:5000)
-#   http://localhost/api/v1/*  → agro-production backend API (:5001)
-#
-# Direct service ports (for debugging):
-#   5000  root backend
-#   5001  agro-production backend
-#   5432  root Postgres  (agrocylo_db)
-#   5433  agro Postgres  (agrocylo_production)
-#   6379  Redis
-# ────────────────────────────────────────────────────────────────────────
+# Docker Compose for legacy server/client apps
+# This orchestrates PostgreSQL, Redis, and the backend from ./server (port 5000)
+# For agro-production/server and agro-production/client, use npm run dev locally
+# See README.md "Docker Setup" section for details
+version: '3.9'
 
 services:
   # ── Infrastructure ──────────────────────────────────────────────────

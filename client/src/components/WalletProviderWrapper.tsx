@@ -6,6 +6,7 @@ import { ProfileProvider } from "@/context/ProfileContext";
 import { CartProvider } from "@/context/CartContext";
 import CartDrawer from "./CartDrawer";
 import NotificationPoller from "./NotificationPoller";
+import NetworkMismatchBanner from "./NetworkMismatchBanner";
 
 /**
  * Mounts the wallet/profile/cart contexts plus globally-mounted UI overlays
@@ -24,6 +25,7 @@ export default function WalletProviderWrapper({
     <WalletProvider>
       <ProfileProvider>
         <CartProvider>
+          <NetworkMismatchBanner />
           {children}
           <CartDrawer />
           <NotificationPoller />

@@ -1,25 +1,25 @@
 export type EventAction =
-  | "campaign.created"
-  | "campaign.invested"
-  | "campaign.settled"
-  | "campaign.produce"
-  | "campaign.harvest"
-  | "campaign.failed"
-  | "campaign.disputed"
-  | "campaign.claimed"
-  | "campaign.refunded"
-  | "campaign.tranche"
-  | "order.created"
-  | "order.confirmed"
-  | "dispute.opened"
-  | "dispute.evidence_submitted"
-  | "dispute.resolved"
-  | "dispute.dismissed"
-  | "basket.created"
-  | "basket.deposit"
-  | "basket.funded"
-  | "basket.withdrawn"
-  | "basket.claimed";
+  | 'campaign.created'
+  | 'campaign.invested'
+  | 'campaign.settled'
+  | 'campaign.produce'
+  | 'campaign.harvest'
+  | 'campaign.failed'
+  | 'campaign.disputed'
+  | 'campaign.claimed'
+  | 'campaign.refunded'
+  | 'campaign.tranche'
+  | 'order.created'
+  | 'order.confirmed'
+  | 'dispute.opened'
+  | 'dispute.evidence_submitted'
+  | 'dispute.resolved'
+  | 'dispute.dismissed'
+  | 'basket.created'
+  | 'basket.deposit'
+  | 'basket.funded'
+  | 'basket.withdrawn'
+  | 'basket.claimed';
 
 export interface RawSorobanEvent {
   id: string;
@@ -29,8 +29,8 @@ export interface RawSorobanEvent {
   contractId: string;
   /** Hash of the containing Soroban transaction, when supplied by RPC. */
   txHash?: string;
-  topic: string[];  // base64-encoded XDR ScVal[]
-  value: string;    // base64-encoded XDR ScVal
+  topic: string[]; // base64-encoded XDR ScVal[]
+  value: string; // base64-encoded XDR ScVal
 }
 
 interface BaseEvent {
@@ -44,7 +44,7 @@ interface BaseEvent {
 }
 
 export interface CampaignCreatedEvent extends BaseEvent {
-  action: "campaign.created";
+  action: 'campaign.created';
   campaignId: string;
   farmer: string;
   token: string;
@@ -53,7 +53,7 @@ export interface CampaignCreatedEvent extends BaseEvent {
 }
 
 export interface CampaignInvestedEvent extends BaseEvent {
-  action: "campaign.invested";
+  action: 'campaign.invested';
   campaignId: string;
   investor: string;
   amount: string;
@@ -61,13 +61,13 @@ export interface CampaignInvestedEvent extends BaseEvent {
 }
 
 export interface CampaignSettledEvent extends BaseEvent {
-  action: "campaign.settled";
+  action: 'campaign.settled';
   campaignId: string;
   totalRevenue: string;
 }
 
 export interface OrderCreatedEvent extends BaseEvent {
-  action: "order.created";
+  action: 'order.created';
   orderId: string;
   buyer: string;
   campaignId: string;
@@ -75,7 +75,7 @@ export interface OrderCreatedEvent extends BaseEvent {
 }
 
 export interface OrderConfirmedEvent extends BaseEvent {
-  action: "order.confirmed";
+  action: 'order.confirmed';
   orderId: string;
   buyer: string;
   campaignId: string;
@@ -84,18 +84,27 @@ export interface OrderConfirmedEvent extends BaseEvent {
 export interface GenericCampaignEvent extends BaseEvent {
   action: Exclude<
     EventAction,
-    | "campaign.created"
-    | "campaign.invested"
-    | "campaign.settled"
-    | "order.created"
-    | "order.confirmed"
+    | 'campaign.created'
+    | 'campaign.invested'
+    | 'campaign.settled'
+    | 'order.created'
+    | 'order.confirmed'
+    | 'dispute.opened'
+    | 'dispute.evidence_submitted'
+    | 'dispute.resolved'
+    | 'dispute.dismissed'
+    | 'basket.created'
+    | 'basket.deposit'
+    | 'basket.funded'
+    | 'basket.withdrawn'
+    | 'basket.claimed'
   >;
   campaignId: string;
   extra?: unknown[];
 }
 
 export interface DisputeOpenedEvent extends BaseEvent {
-  action: "dispute.opened";
+  action: 'dispute.opened';
   disputeId: string;
   campaignId: string;
   orderId?: string;
@@ -104,7 +113,7 @@ export interface DisputeOpenedEvent extends BaseEvent {
 }
 
 export interface DisputeEvidenceSubmittedEvent extends BaseEvent {
-  action: "dispute.evidence_submitted";
+  action: 'dispute.evidence_submitted';
   disputeId: string;
   submitterAddress: string;
   evidenceUrl: string;
@@ -112,46 +121,46 @@ export interface DisputeEvidenceSubmittedEvent extends BaseEvent {
 }
 
 export interface DisputeResolvedEvent extends BaseEvent {
-  action: "dispute.resolved";
+  action: 'dispute.resolved';
   disputeId: string;
   resolutionOutcome: string;
   resolutionNotes?: string;
 }
 
 export interface DisputeDismissedEvent extends BaseEvent {
-  action: "dispute.dismissed";
+  action: 'dispute.dismissed';
   disputeId: string;
   dismissalReason?: string;
 }
 
 export interface BasketCreatedEvent extends BaseEvent {
-  action: "basket.created";
+  action: 'basket.created';
   basketId: string;
   constituentsCount: number;
 }
 
 export interface BasketDepositEvent extends BaseEvent {
-  action: "basket.deposit";
+  action: 'basket.deposit';
   basketId: string;
   depositor: string;
   amount: string;
 }
 
 export interface BasketFundedEvent extends BaseEvent {
-  action: "basket.funded";
+  action: 'basket.funded';
   basketId: string;
   totalDeposit: string;
 }
 
 export interface BasketWithdrawnEvent extends BaseEvent {
-  action: "basket.withdrawn";
+  action: 'basket.withdrawn';
   basketId: string;
   depositor: string;
   depositAmount: string;
 }
 
 export interface BasketClaimedEvent extends BaseEvent {
-  action: "basket.claimed";
+  action: 'basket.claimed';
   basketId: string;
   depositor: string;
   payout: string;

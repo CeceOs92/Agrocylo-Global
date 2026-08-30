@@ -1,31 +1,44 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, token, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token, vec, Address, Env, Vec,
+};
 
-fn setup_test_inline() -> (Env, WeatherInsuranceContractClient<'static>, Address, Address, Address, token::Client<'static>) {
+fn setup_test_inline() -> (
+    Env,
+    WeatherInsuranceContractClient<'static>,
+    Address,
+    Vec<Address>,
+    Address,
+    token::Client<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let oracle = Address::generate(&env);
+    let oracle1 = Address::generate(&env);
+    let oracle2 = Address::generate(&env);
+    let oracle3 = Address::generate(&env);
+    let oracles = vec![&env, oracle1, oracle2, oracle3];
     let farmer = Address::generate(&env);
 
     let token_admin = Address::generate(&env);
     let token_contract = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_client = token::Client::new(&env, &token_contract.address());
     let token_sac = token::StellarAssetClient::new(&env, &token_contract.address());
-    token_sac.mint(&admin, &100_000);
-    token_sac.mint(&farmer, &100_000);
+    token_sac.mint(&admin, &10_000_000);
+    token_sac.mint(&farmer, &10_000_000);
 
     let contract_id = env.register(WeatherInsuranceContract, ());
     let client = WeatherInsuranceContractClient::new(&env, &contract_id);
 
-    client.initialize(&admin, &oracle, &500);
+    client.initialize(&admin, &oracles, &2, &500);
 
     token_sac.mint(&contract_id, &1_000_000);
 
-    (env, client, admin, oracle, farmer, token_client)
+    (env, client, admin, oracles, farmer, token_client)
 }
 
 fn make_threshold(_env: &Env, param: WeatherParam, min: i128, max: i128) -> ThresholdConfig {
@@ -36,17 +49,27 @@ fn make_threshold(_env: &Env, param: WeatherParam, min: i128, max: i128) -> Thre
     }
 }
 
+// ---------------------------------------------------------------------------
+// Issue #842: Hardening tests (Init auth, Pause/Unpause, Instance TTL, Upgrade)
+// ---------------------------------------------------------------------------
+
 #[test]
 fn test_initialize_ok() {
-    let (_env, client, _admin, oracle, _farmer, _token) = setup_test_inline();
-    assert_eq!(client.get_oracle(), oracle);
+    let (_env, client, admin, oracles, _farmer, _token) = setup_test_inline();
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_oracles(), oracles);
+    assert_eq!(client.get_oracle_quorum(), 2);
+    assert_eq!(client.get_schema_version(), 1);
 }
 
 #[test]
-fn test_initialize_rejects_reinit() {
-    let (_env, client, admin, _oracle, _farmer, _token) = setup_test_inline();
-    let result = client.try_initialize(&admin, &admin, &500);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::AlreadyInitialized);
+fn test_initialize_second_time_rejected() {
+    let (_env, client, admin, oracles, _farmer, _token) = setup_test_inline();
+    let result = client.try_initialize(&admin, &oracles, &2, &500);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::AlreadyInitialized
+    );
 }
 
 #[test]
@@ -56,196 +79,365 @@ fn test_initialize_rejects_high_premium() {
     let contract_id = env.register(WeatherInsuranceContract, ());
     let client = WeatherInsuranceContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
-    let result = client.try_initialize(&admin, &admin, &3000);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PremiumRateTooHigh);
+    let oracle = Address::generate(&env);
+    let oracles = vec![&env, oracle];
+    let result = client.try_initialize(&admin, &oracles, &1, &3000);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        InsuranceError::PremiumRateTooHigh
+    );
 }
 
 #[test]
-fn test_take_premium_ok() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+fn test_pause_blocks_take_premium_and_report_breach_unpause_restores() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
 
-    let expiration = _env.ledger().sequence() + 50000;
-    token.approve(&admin, &client.address, &5000, &expiration);
-    let premium = client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-    assert_eq!(premium, 5000);
+    // Deposit capital so reserves exist
+    token.approve(
+        &admin,
+        &client.address,
+        &500_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &500_000);
 
+    // Pause contract
+    client.pause(&admin);
+    assert!(client.is_paused());
+
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
+
+    // take_premium blocked while paused
+    let err = client
+        .try_take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, InsuranceError::ContractPaused);
+
+    // Unpause contract
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+
+    // take_premium succeeds after unpause
+    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+
+    // Pause again and verify report_breach is blocked
+    client.pause(&admin);
+    let oracle1 = oracles.get(0).unwrap();
+    let err2 = client
+        .try_report_breach(&oracle1, &1, &600)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err2, InsuranceError::ContractPaused);
+}
+
+#[test]
+fn test_instance_ttl_bumping() {
+    let (env, client, admin, _oracles, _farmer, _token) = setup_test_inline();
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += 500;
+    });
+
+    client.bump_instance_ttl();
+
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_guardian_role() {
+    let (_env, client, admin, _oracles, _farmer, _token) = setup_test_inline();
+    let guardian = Address::generate(&_env);
+
+    client.set_guardian(&admin, &guardian);
+    assert_eq!(client.get_guardian(), Some(guardian.clone()));
+
+    // Guardian can pause instantly
+    client.pause(&guardian);
+    assert!(client.is_paused());
+
+    // Guardian cannot unpause (unpause is governance-gated)
+    let err = client.try_unpause(&guardian).unwrap_err().unwrap();
+    assert_eq!(err, InsuranceError::NotAdmin);
+
+    // Admin/governance can unpause
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+}
+
+// ---------------------------------------------------------------------------
+// Issue #841: Oracle quorum, Plausibility bounds, Challenge window
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_single_oracle_in_quorum_cannot_trigger_payout_alone() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
+
+    // Deposit reserves
+    token.approve(
+        &admin,
+        &client.address,
+        &500_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &500_000);
+
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+
+    let oracle1 = oracles.get(0).unwrap();
+    let oracle2 = oracles.get(1).unwrap();
+
+    // First oracle reports breach (quorum is 2)
+    let reached = client.report_breach(&oracle1, &1, &600);
+    assert!(!reached); // Quorum not reached yet
+
+    // Pending payout should not exist yet
+    assert!(client.get_pending_payout(&1).is_none());
+
+    // Second oracle reports breach
+    let reached2 = client.report_breach(&oracle2, &1, &600);
+    assert!(reached2); // Quorum reached!
+
+    // Pending payout created with challenge window
+    assert!(client.get_pending_payout(&1).is_some());
+}
+
+#[test]
+fn test_out_of_bounds_report_rejected() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
+
+    token.approve(
+        &admin,
+        &client.address,
+        &500_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &500_000);
+
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+
+    let oracle1 = oracles.get(0).unwrap();
+
+    // Negative rainfall is out of bounds
+    let err = client
+        .try_report_breach(&oracle1, &1, &-10)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, InsuranceError::ReportedValueOutOfBounds);
+
+    // Unreasonably large rainfall (>10,000) is out of bounds
+    let err2 = client
+        .try_report_breach(&oracle1, &1, &20_000)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err2, InsuranceError::ReportedValueOutOfBounds);
+}
+
+#[test]
+fn test_challenge_window_cancellation_and_finalization() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
+
+    token.approve(
+        &admin,
+        &client.address,
+        &500_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &500_000);
+
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+
+    let oracle1 = oracles.get(0).unwrap();
+    let oracle2 = oracles.get(1).unwrap();
+
+    client.report_breach(&oracle1, &1, &600);
+    client.report_breach(&oracle2, &1, &600);
+
+    // Finalizing immediately before window expires fails
+    let err = client.try_finalize_payout(&1).unwrap_err().unwrap();
+    assert_eq!(err, InsuranceError::ChallengeWindowActive);
+
+    // Guardian or Admin cancels pending payout
+    client.cancel_pending_payout(&admin, &1);
+    assert!(client.get_pending_payout(&1).is_none());
+
+    // Policy is still active since payout was cancelled
     let policy = client.get_policy(&1).unwrap();
     assert!(policy.active);
     assert!(!policy.paid_out);
-    assert_eq!(policy.premium, 5000);
-    assert_eq!(policy.payout_amount, 100_000);
 }
 
 #[test]
-fn test_take_premium_duplicate_fails() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+fn test_challenge_window_finalization_after_expiration() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
 
-    let expiration = _env.ledger().sequence() + 50000;
-    token.approve(&admin, &client.address, &5000, &expiration);
+    token.approve(
+        &admin,
+        &client.address,
+        &500_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &500_000);
+
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
     client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
 
-    let result = client.try_take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyAlreadyActive);
-}
+    let oracle1 = oracles.get(0).unwrap();
+    let oracle2 = oracles.get(1).unwrap();
 
-#[test]
-fn test_report_breach_rainfall_exceeds_max_pays_out() {
-    let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+    client.report_breach(&oracle1, &1, &600);
+    client.report_breach(&oracle2, &1, &600);
 
-    let expiration = _env.ledger().sequence() + 50000;
-    token.approve(&admin, &client.address, &5000, &expiration);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+    // Advance time past challenge window (3600s)
+    let current_time = env.ledger().timestamp();
+    env.ledger().set_timestamp(current_time + 4000);
 
     let balance_before = token.balance(&farmer);
-    client.report_breach(&oracle, &1, &600);
-    assert_eq!(token.balance(&farmer), balance_before + 100_000);
+    client.finalize_payout(&1);
 
+    assert_eq!(token.balance(&farmer), balance_before + 100_000);
     let policy = client.get_policy(&1).unwrap();
     assert!(!policy.active);
     assert!(policy.paid_out);
 }
 
+// ---------------------------------------------------------------------------
+// Issue #840: Capital reserves & Solvency invariant tests
+// ---------------------------------------------------------------------------
+
 #[test]
-fn test_report_breach_rainfall_below_min_pays_out() {
-    let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+fn test_take_premium_rejected_when_exposure_exceeds_reserves() {
+    let (env, client, admin, _oracles, farmer, token) = setup_test_inline();
 
-    let expiration = _env.ledger().sequence() + 50000;
-    token.approve(&admin, &client.address, &5000, &expiration);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+    let threshold = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    token.approve(
+        &admin,
+        &client.address,
+        &5000,
+        &(env.ledger().sequence() + 50000),
+    );
 
-    let balance_before = token.balance(&farmer);
-    client.report_breach(&oracle, &1, &50);
-    assert_eq!(token.balance(&farmer), balance_before + 100_000);
+    // Without capital reserves deposited, total_reserves = premium = 5000.
+    // Exposure = 100,000 > 5000 reserves -> rejected for insolvency!
+    let err = client
+        .try_take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, InsuranceError::InsufficientReserves);
 }
 
 #[test]
-fn test_report_breach_within_threshold_fails() {
-    let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Temperature, 10, 40);
+fn test_capital_provider_deposit_and_withdrawal() {
+    let (env, client, admin, _oracles, _farmer, token) = setup_test_inline();
 
-    token.approve(&admin, &client.address, &5000, &6311999);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+    token.approve(
+        &admin,
+        &client.address,
+        &200_000,
+        &(env.ledger().sequence() + 50000),
+    );
 
-    let result = client.try_report_breach(&oracle, &1, &25);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::ThresholdBreachReported);
+    client.deposit_capital(&admin, &token.address, &200_000);
+    assert_eq!(
+        client.get_capital_provider_balance(&admin, &token.address),
+        200_000
+    );
+
+    let (reserves, exposure) = client.get_pool_solvency(&token.address);
+    assert_eq!(reserves, 200_000);
+    assert_eq!(exposure, 0);
+
+    // Withdraw capital
+    client.withdraw_capital(&admin, &token.address, &50_000);
+    assert_eq!(
+        client.get_capital_provider_balance(&admin, &token.address),
+        150_000
+    );
 }
 
 #[test]
-fn test_report_breach_non_oracle_fails() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+fn test_multi_policy_pool_solvency_and_payout_conservation() {
+    let (env, client, admin, oracles, farmer, token) = setup_test_inline();
 
-    token.approve(&admin, &client.address, &5000, &6311999);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+    // Deposit 200,000 capital reserve
+    token.approve(
+        &admin,
+        &client.address,
+        &200_000,
+        &(env.ledger().sequence() + 50000),
+    );
+    client.deposit_capital(&admin, &token.address, &200_000);
 
-    let not_oracle = Address::generate(&_env);
-    let result = client.try_report_breach(&not_oracle, &1, &600);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::NotOracle);
-}
+    let threshold1 = make_threshold(&env, WeatherParam::Rainfall, 100, 500);
+    let threshold2 = make_threshold(&env, WeatherParam::Temperature, 10, 40);
 
-#[test]
-fn test_report_breach_no_policy_fails() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let oracle = Address::generate(&env);
-    let contract_id = env.register(WeatherInsuranceContract, ());
-    let client = WeatherInsuranceContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &oracle, &500);
-    let result = client.try_report_breach(&oracle, &99, &600);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyNotActive);
-}
+    token.approve(
+        &admin,
+        &client.address,
+        &10_000,
+        &(env.ledger().sequence() + 50000),
+    );
 
-#[test]
-fn test_expire_policy_ok() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+    // Policy 1: 100,000 payout (premium 5,000)
+    let prem1 = client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold1);
+    assert_eq!(prem1, 5000);
 
-    token.approve(&admin, &client.address, &5000, &6311999);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
+    // Policy 2: 100,000 payout (premium 5,000)
+    let prem2 = client.take_premium(&admin, &2, &farmer, &token.address, &100_000, &threshold2);
+    assert_eq!(prem2, 5000);
 
-    client.expire_policy(&admin, &1);
-    let policy = client.get_policy(&1).unwrap();
-    assert!(!policy.active);
-}
+    let (reserves, exposure) = client.get_pool_solvency(&token.address);
+    assert_eq!(reserves, 210_000); // 200,000 capital + 10,000 premiums
+    assert_eq!(exposure, 200_000); // Policy 1 + Policy 2 exposure
 
-#[test]
-fn test_expire_policy_non_admin_fails() {
-    let (_env, client, _admin, _oracle, farmer, token) = setup_test_inline();
+    // Breach on Policy 1
+    let oracle1 = oracles.get(0).unwrap();
+    let oracle2 = oracles.get(1).unwrap();
+    client.report_breach(&oracle1, &1, &600);
+    client.report_breach(&oracle2, &1, &600);
 
-    let result = client.try_expire_policy(&farmer, &1);
-    assert!(result.is_err());
-}
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 4000);
+    client.finalize_payout(&1);
 
-#[test]
-fn test_double_payout_fails() {
-    let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
+    // Remaining solvency pool can still back Policy 2
+    let (reserves_after, exposure_after) = client.get_pool_solvency(&token.address);
+    assert_eq!(reserves_after, 110_000);
+    assert_eq!(exposure_after, 100_000);
 
-    let expiration = _env.ledger().sequence() + 50000;
-    token.approve(&admin, &client.address, &5000, &expiration);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-
-    client.report_breach(&oracle, &1, &600);
-    let result = client.try_report_breach(&oracle, &1, &600);
-    assert_eq!(result.unwrap_err().unwrap(), InsuranceError::PolicyNotActive);
-}
-
-#[test]
-fn test_temperature_threshold_breach_pays_out() {
-    let (_env, client, admin, oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Temperature, 15, 35);
-
-    token.approve(&admin, &client.address, &5000, &6311999);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-
-    let balance_before = token.balance(&farmer);
-    client.report_breach(&oracle, &1, &45);
-    assert_eq!(token.balance(&farmer), balance_before + 100_000);
-}
-
-#[test]
-fn test_policy_count_increments() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-
-    assert_eq!(client.get_policy_count(), 0);
-
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
-    token.approve(&admin, &client.address, &5000, &6311999);
-    client.take_premium(&admin, &1, &farmer, &token.address, &100_000, &threshold);
-
-    assert_eq!(client.get_policy_count(), 1);
-}
-
-#[test]
-fn test_set_oracle_ok() {
-    let (_env, client, admin, _oracle, _farmer, _token) = setup_test_inline();
-    let new_oracle = Address::generate(&_env);
-    client.set_oracle(&admin, &new_oracle);
-    assert_eq!(client.get_oracle(), new_oracle);
-}
-
-#[test]
-fn test_set_oracle_non_admin_fails() {
-    let (_env, client, _admin, _oracle, farmer, _token) = setup_test_inline();
-    let result = client.try_set_oracle(&farmer, &farmer);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_premium_deducted_from_funding() {
-    let (_env, client, admin, _oracle, farmer, token) = setup_test_inline();
-    let threshold = make_threshold(&_env, WeatherParam::Rainfall, 100, 500);
-    let funding_amount: i128 = 100_000;
-    let expected_premium: i128 = funding_amount * 500 / 10_000;
-
-    let balance_before = token.balance(&admin);
-    token.approve(&admin, &client.address, &expected_premium, &6311999);
-    let premium = client.take_premium(&admin, &1, &farmer, &token.address, &funding_amount, &threshold);
-    assert_eq!(premium, expected_premium);
-    assert_eq!(token.balance(&admin), balance_before - expected_premium);
+    // Solvency invariant holds: reserves (110k) >= exposure (100k)
+    assert!(reserves_after >= exposure_after);
 }

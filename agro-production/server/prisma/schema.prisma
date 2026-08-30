@@ -13,7 +13,7 @@ datasource db {
 model User {
   id            String   @id @default(uuid())
   walletAddress String   @unique
-  role          String   @default("INVESTOR") // INVESTOR | FARMER | BUYER
+  role          UserRole @default(INVESTOR)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -45,12 +45,47 @@ model Campaign {
   orders        Order[]
   transactions  Transaction[]
   disputes      Dispute[]
-  products      Product[]
-  conversations Conversation[]
+  // No `conversations` relation here either: `Conversation` only carries an
+  // `orderId` (conversations are per-order, buyer/seller messaging), never a
+  // `campaignId` — this was the same class of half-finished relation as
+  // `products` below, unbacked and with no callers. Reach a campaign's
+  // conversations by joining through its `orders`, not a direct relation.
+  // No `products` relation here: a harvested campaign becoming sellable
+  // marketplace inventory is a real, wanted feature, but Prisma can't
+  // relate across the two independent schemas/databases (this used to be
+  // `products Product[]` pointing at a model that only exists in
+  // server/prisma/schema.prisma — dead, would fail `prisma generate` the
+  // moment anything tried to use it). See docs/architecture/backend-unification.md:
+  // cross-backend links go through `walletAddress`/an opaque id scalar and
+  // an application-level join, never a schema-level relation.
 
   @@index([farmerAddress])
   @@index([status])
   @@map("campaigns")
+}
+
+// Backing model for the `products` table created by the
+// add_product_marketplace migration — the model itself was never added to
+// this schema, which broke `prisma generate`/`migrate diff` outright (#744).
+model Product {
+  id             String   @id @default(uuid())
+  name           String
+  description    String
+  imageUrl       String?
+  priceTokens    BigInt
+  campaignId     String?
+  inventoryCount Int
+  category       String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([category])
+  @@index([isActive])
+  @@map("products")
 }
 
 model Investment {
@@ -83,9 +118,10 @@ model Order {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  buyer    User     @relation(fields: [buyerAddress], references: [walletAddress], onDelete: Restrict)
-  disputes Dispute[]
+  campaign     Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  buyer        User                     @relation(fields: [buyerAddress], references: [walletAddress], onDelete: Restrict)
+  disputes     Dispute[]
+  conversation MarketplaceConversation?
 
   @@index([campaignId])
   @@index([buyerAddress])
@@ -165,12 +201,13 @@ model AuthNonce {
 }
 
 model EventCursor {
-  id         String   @id @default(uuid())
-  contractId String
-  ledger     Int
-  eventIndex Int
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
+  id           String   @id @default(uuid())
+  contractId   String
+  ledger       Int
+  eventIndex   Int
+  ledgerHash   String?  // Hash of the ledger at this sequence — used to detect reorgs
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
 
   @@unique([contractId])
   @@map("event_cursors")
@@ -295,7 +332,8 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
-model Conversation {
+/// Buyer-seller chat tied to a marketplace order.
+model MarketplaceConversation {
   id            String   @id @default(uuid())
   orderId       String   @unique
   buyerAddress  String
@@ -304,50 +342,159 @@ model Conversation {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  order        Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  messages     Message[]
-  participants ConversationParticipant[]
+  order        Order                              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  messages     MarketplaceMessage[]
+  participants MarketplaceConversationParticipant[]
 
   @@index([buyerAddress])
   @@index([sellerAddress])
+  @@map("marketplace_conversations")
+}
+
+model MarketplaceMessage {
+  id             String      @id @default(uuid())
+  conversationId String
+  senderAddress  String
+  content        String      @db.VarChar(4000)
+  type           MessageType @default(TEXT)
+  fileUrl        String?
+  createdAt      DateTime    @default(now())
+  editedAt       DateTime?
+  deletedAt      DateTime?
+
+  conversation MarketplaceConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([senderAddress])
+  @@map("marketplace_messages")
+}
+
+model MarketplaceConversationParticipant {
+  id                String   @id @default(uuid())
+  conversationId    String
+  walletAddress     String
+  lastReadMessageId String?
+  updatedAt         DateTime @updatedAt
+
+  conversation MarketplaceConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, walletAddress])
+  @@index([conversationId])
+  @@index([walletAddress])
+  @@map("marketplace_conversation_participants")
+}
+
+/// Farmer-investor chat tied to a campaign.
+model Conversation {
+  id              String   @id @default(uuid())
+  campaignId      String
+  farmerAddress   String
+  investorAddress String
+  isArchived      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  campaign Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  messages Message[]
+  blocks   BlockedUser[]
+
+  @@unique([campaignId, investorAddress])
+  @@index([farmerAddress])
+  @@index([investorAddress])
   @@map("conversations")
 }
 
 model Message {
-  id             String    @id @default(uuid())
+  id             String      @id @default(uuid())
   conversationId String
   senderAddress  String
-  content        String    @db.VarChar(4000)
+  content        String      @db.VarChar(4000)
   type           MessageType @default(TEXT)
   fileUrl        String?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime    @default(now())
   editedAt       DateTime?
   deletedAt      DateTime?
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  reports      MessageReport[]
 
   @@index([conversationId, createdAt(sort: Desc)])
   @@index([senderAddress])
   @@map("messages")
 }
 
-model ConversationParticipant {
-  id                 String    @id @default(uuid())
-  conversationId     String
-  walletAddress      String
-  lastReadMessageId  String?
-  updatedAt          DateTime  @updatedAt
+/// One participant blocking another within a specific campaign conversation.
+model BlockedUser {
+  id              String   @id @default(uuid())
+  conversationId  String
+  blockerAddress  String
+  blockedAddress  String
+  createdAt       DateTime @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  @@unique([conversationId, walletAddress])
+  @@unique([conversationId, blockerAddress, blockedAddress])
   @@index([conversationId])
-  @@index([walletAddress])
-  @@map("conversation_participants")
+  @@map("blocked_users")
+}
+
+model MessageReport {
+  id              String   @id @default(uuid())
+  messageId       String
+  reporterAddress String
+  reason          String   @db.VarChar(1000)
+  createdAt       DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_reports")
 }
 
 enum MessageType {
   TEXT
   FILE
   SYSTEM
+}
+
+model ReconciliationAlert {
+  id          String    @id @default(uuid())
+  entityType  String    @map("entity_type")  // "campaign" | "order" | "dispute" | "basket"
+  entityId    String    @map("entity_id")    // onChainId
+  contractSet String    @map("contract_set") // "production_escrow" | "escrow" | "investment_basket"
+  driftType   String    @map("drift_type")   // "status_mismatch" | "amount_mismatch" | "missing_on_chain" | "missing_in_db"
+  dbValue     Json      @map("db_value")
+  chainValue  Json      @map("chain_value")
+  detectedAt  DateTime  @default(now()) @map("detected_at")
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  notes       String?
+
+  @@index([entityType, entityId])
+  @@index([detectedAt(sort: Desc)])
+  @@index([resolvedAt])
+  @@index([driftType])
+  @@map("reconciliation_alerts")
+}
+
+model AdminAuditLog {
+  id            String   @id @default(uuid())
+  actorAddress  String
+  action        String   // e.g., "reconciliation_run", "alert_resolved"
+  resourceType  String?  // e.g., "reconciliation_alert", "campaign"
+  resourceId    String?
+  details       Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([actorAddress])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+  @@map("admin_audit_logs")
+}
+
+enum UserRole {
+  INVESTOR
+  FARMER
+  BUYER
+  ADMIN
 }

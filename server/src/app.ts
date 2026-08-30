@@ -1,8 +1,11 @@
 import express from "express";
 import type { Request, Response } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import * as Sentry from "@sentry/node";
 import logger from "./config/logger.js";
 import { config } from "./config/index.js";
+import { initializeSentry, extractTraceContext, withSpan } from "./config/observability.js";
 import { prisma } from "./config/database.js";
 import { getSupabaseAdmin } from "./config/supabase.js";
 import {
@@ -10,8 +13,11 @@ import {
   incrementErrorCount,
 } from "./services/metricsService.js";
 import { ApiError, sendProblem } from "./http/errors.js";
+import { Sentry } from "./config/sentry.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { createIdempotencyMiddleware } from "./middleware/idempotency.js";
+import { sharedRedisClient } from "./middleware/rateLimiter.js";
 import productImageRoutes, {
   productImageErrorHandler,
 } from "./routes/productImageRoutes.js";
@@ -32,6 +38,7 @@ import jobRoutes from "./routes/jobRoutes.js";
 import demandSupplyRoutes from "./routes/demandSupplyRoutes.js";
 import metricsRoutes from "./routes/metricsRoutes.js";
 import adminRoutes, { adminErrorHandler } from "./routes/adminRoutes.js";
+import adminReconciliationRoutes from "./routes/adminReconciliationRoutes.js";
 import disputeRoutes from "./routes/disputeRoutes.js";
 import cropPlanRoutes from "./routes/cropPlanRoutes.js";
 import equipmentRoutes from "./routes/equipmentRoutes.js";
@@ -41,8 +48,32 @@ import integratorRoutes, { integratorErrorHandler } from "./routes/integratorRou
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import governanceRoutes from "./routes/governanceRoutes.js";
 import ussdRoutes from "./routes/ussdRoutes.js";
+import documentRoutes from "./routes/documentRoutes.js";
+import { registerAllEndpoints } from "./openapi/endpoints.js";
+
+// Initialize error tracking and tracing
+initializeSentry('api');
 
 const app = express();
+
+// Sentry request handler must be the first middleware
+app.use(Sentry.Handlers.requestHandler());
+
+// Trust proxy to correctly extract client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Security headers middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  hsts: config.nodeEnv === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -60,6 +91,11 @@ app.use(cors({
 app.use(express.json());
 app.use(requestContext);
 app.use(requestLogger);
+
+// Idempotency middleware (if Redis is available)
+if (sharedRedisClient) {
+  app.use(createIdempotencyMiddleware(sharedRedisClient));
+}
 
 // Metrics middleware
 app.use((_req, _res, next) => {
@@ -85,10 +121,14 @@ app.use(jobRoutes);
 app.use(cropPlanRoutes);
 app.use(equipmentRoutes);
 app.use("/admin", adminRoutes);
+app.use("/admin/reconciliation", adminReconciliationRoutes);
 app.use(referralRoutes);
 app.use(integratorRoutes);
 app.use(governanceRoutes);
 app.use(ussdRoutes);
+
+// Documentation endpoints (OpenAPI spec and Swagger UI)
+app.use(documentRoutes);
 
 app.get("/health", async (_req: Request, res: Response) => {
   logger.info("Health check endpoint hit");
@@ -148,13 +188,24 @@ app.use(graphqlErrorHandler);
 app.use(adminErrorHandler);
 app.use(referralErrorHandler);
 app.use(integratorErrorHandler);
+
+// Sentry error handler must be before other error handlers
+app.use(Sentry.Handlers.errorHandler());
+
 app.use((err: unknown, req: Request, res: Response, _next: () => void) => {
   incrementErrorCount();
   if (err instanceof ApiError) {
+    // Client-facing API errors (4xx/5xx with a deliberate ApiError) are
+    // expected control flow, not incidents — only report actual 5xx ApiErrors
+    // to Sentry, so validation/auth/not-found noise doesn't drown real alerts.
+    if (err.status >= 500) {
+      Sentry.captureException(err);
+    }
     sendProblem(res, req, err);
     return;
   }
   logger.error("Unhandled request error", err);
+  Sentry.captureException(err);
   sendProblem(res, req, new ApiError(500, "Internal Server Error", "An unexpected error occurred"));
 });
 

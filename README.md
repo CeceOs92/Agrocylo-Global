@@ -5,6 +5,8 @@ Agrocylo is an Agro-DeFi platform. The aim is to make life easier for farmers (e
 
 Each purchase is secured using an escrow mechanism: funds are locked when a customer places an order and are released only after the buyer confirms receipt of goods. This guarantees protection for both parties while maintaining full user custody.
 
+**Configuration:** [`docs/deployment/environment.md`](docs/deployment/environment.md) is the authoritative environment-variable reference for all four apps and the contract set, including secret-management and key-rotation procedures. Drift between each app's `.env.example` and its code is caught by `scripts/check-env-drift.js` in CI.
+
 ### ✨ Features
 * On-chain escrow settlement - Funds are locked in an escrow smart contract until buyers confirm receipt of goods.
 
@@ -101,34 +103,71 @@ Network: Stellar Testnet
 
 Smart Contracts: Rust (Soroban)
 
-Frontend: Astro (React)
+Frontend: Next.js (React)
 
 Wallets: Freighter 
 
 Indexing: Custom event indexer / Subgraph-style service
 
-Notifications: Webhooks, Firebase, or Push APIs
+Notifications: In-app (DB-persisted, delivered via REST API)
 
 ### 📦 Project Goals
 
 Enable swift, fair, and transparent trade
 
+### 🔒 Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md)
+for scope, response SLAs, and how to reach us. Do not open a public issue for
+security findings.
+
+### 🌐 Frontend network configuration (fail-fast)
+
+The `client/` app talks to exactly one Stellar network, chosen by a single
+switch. It **fails fast** rather than silently falling back to testnet — a
+mainnet deployment missing a variable renders a configuration-error state
+instead of quietly signing real transactions against the wrong ledger.
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `NEXT_PUBLIC_STELLAR_ENV` | recommended | `testnet` \| `mainnet`. The single source of truth. Unset ⇒ inferred from the passphrase, else `testnet` (local dev only). |
+| `NEXT_PUBLIC_NETWORK_PASSPHRASE` | **yes** | `Test SDF Network ; September 2015` or `Public Global Stellar Network ; September 2015`. In `mainnet` mode a missing/testnet value is a hard error. |
+| `NEXT_PUBLIC_SOROBAN_RPC_URL` | **yes** | Soroban RPC endpoint; must match the network. |
+| `NEXT_PUBLIC_CONTRACT_ID` | **yes** for on-chain UI | Deployed escrow contract. Gates transaction-capable UI via `isContractConfigured()`. |
+| `NEXT_PUBLIC_HORIZON_URL` | optional | Overrides the Horizon endpoint; defaults follow `NEXT_PUBLIC_STELLAR_ENV`. |
+
+Fail-fast contract:
+
+- **Build time** — `next.config.ts` throws on a production build if
+  `NEXT_PUBLIC_SOROBAN_RPC_URL` or `NEXT_PUBLIC_NETWORK_PASSPHRASE` is unset.
+- **Runtime, mainnet mode** — `getNetworkConfig()`, `getExpectedNetworkPassphrase()`,
+  `getRpcServer()` / `getServer()` (`src/lib/stellar.ts`) and
+  `resolveNetworkPassphrase()` (`src/lib/signTransaction.ts`) throw instead of
+  returning testnet defaults when wallet/network detection fails.
+- **Runtime, testnet / unset** — the testnet fallback is retained for local dev.
+- **Wallet mismatch** — if the connected wallet's network differs from
+  `NEXT_PUBLIC_STELLAR_ENV`, a persistent banner is shown and signing/submission
+  is refused with a `NetworkMismatchError` (`src/context/WalletContext.tsx`,
+  `src/components/NetworkMismatchBanner.tsx`).
+
+See `client/.env.example` for the full list.
+
 ### 🤝 Contributing
 
-### Contributions are welcome!
-#### To Contribute:
+Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.
 
-   * Fork the repository
-   * Clone your Forked version
-   * cd contracts
-   * Please keep a clean working tree (create a branch and be sure its free from conlicts)
-   * Please Do not push uncompiled code
-#### You can assist by:
-    * Improving smart contract logic
-    * Enhancing UI/UX
-    * Adding indexing or notification services
-    * Writing documentation or tests
-    * Please open an issue or submit a pull request.
+**See [CONTRIBUTING.md](CONTRIBUTING.md) for:**
+- Local setup instructions per app (Rust contracts, Node.js backend, Next.js frontend)
+- Pre-PR expectations (test requirements, Rust-specific checks like `cargo check`, etc.)
+- Merge & review practices (especially important for Rust contracts holding real funds)
+- Stellar Wave bounty workflow for external contributors
+
+**Quick start:**
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Agrocylo-Global.git`
+3. Create a feature branch: `git checkout -b fix/issue-number`
+4. Follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md)
+5. Open a PR referencing the issue(s) it closes
 
 ### 🧪 Running Tests
 
@@ -141,7 +180,14 @@ cd client && npm test
 cd server && npm run test:coverage
 
 # Contract tests (Rust soroban-sdk)
-cd contracts && cargo test
+cargo test --workspace 
+# Or test individual crates:
+cargo test -p escrow
+cargo test -p weather-insurance
+cargo test -p registry
+cargo test -p production-escrow-v2
+cargo test -p investment-basket
+cargo test -p governance
 ```
 
 #### E2E Tests
@@ -155,7 +201,33 @@ cd client && npm run test:e2e:ui
 
 E2E tests mock Freighter wallet and use `NEXT_PUBLIC_DEMO_MODE=true` for deterministic responses. See `.github/workflows/e2e.yml` for CI configuration.
 
-### 🐳 Running locally with Docker
+### 🐳 Docker Setup
+
+The repository includes Docker Compose orchestration for containerized development and deployment. **Note:** This repo contains multiple app pairings (legacy `server`/`client` and current `agro-production/server`/`agro-production/client`), and the compose setup currently covers only the legacy pair.
+
+**Root docker-compose.yml** (legacy server/client)
+- Orchestrates PostgreSQL, Redis, and the backend service from `./server`
+- Exposes backend on port 5000
+- Recommended for: Contributors working on the legacy server/client apps
+- Usage:
+  ```bash
+  docker-compose up
+  ```
+
+**agro-production/server/docker-compose.redis.yml** (Redis only for agro-production)
+- Standalone Redis service with persistent storage (`appendonly` mode)
+- Exposes Redis on port 6379
+- **Currently not linked to a full app compose file** — this repo's primary dev workflow for agro-production apps uses `npm run dev` (see "Running locally" below)
+- Usage (if needed for production/staging deployments):
+  ```bash
+  cd agro-production/server && docker-compose -f docker-compose.redis.yml up
+  ```
+
+For local development of `agro-production/server` and `agro-production/client`, see "Running locally" below — the recommended approach is npm-based development, not Docker.
+
+### 🔌 API Documentation
+
+#### Product Endpoints
 
 The quickest way to get the full stack running is a single command:
 

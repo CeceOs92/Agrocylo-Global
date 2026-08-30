@@ -88,6 +88,7 @@ const mockWallet: WalletContextType = {
   restoring: false,
   error: null,
   network: "TESTNET",
+  networkMismatch: false,
   activeWalletId: "freighter",
   connect: vi.fn(),
   disconnect: vi.fn(),

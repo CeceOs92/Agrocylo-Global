@@ -1,0 +1,394 @@
+name: Deploy
+
+# Builds Docker images for all four apps, pushes to ghcr.io, and deploys
+# to Fly.io.  Staging deploys on every merge to main; production deploys
+# when a version tag (v*) is pushed.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (staging or production)"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  NODE_VERSION: "22"
+
+jobs:
+  # ── Determine target environment ────────────────────────────────────────────
+  resolve-env:
+    name: Resolve environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set.outputs.environment }}
+      tag: ${{ steps.set.outputs.tag }}
+    steps:
+      - name: Determine environment
+        id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Deploy & cross-wire Soroban contracts (testnet / staging) ──────────────
+  deploy-contracts:
+    name: Deploy contracts · testnet
+    needs: resolve-env
+    if: needs.resolve-env.outputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.89.0 + wasm target
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup target add wasm32v1-none --toolchain 1.89.0
+          rustup override set 1.89.0
+
+      - name: Install stellar CLI
+        run: cargo install --locked stellar-cli --version '^22'
+
+      - name: Configure deployer identity
+        run: stellar keys add ci-deployer --secret-key <<< "${{ secrets.TESTNET_DEPLOYER_SECRET }}"
+
+      - name: Deploy + wire + verify
+        env:
+          DEPLOYER: ci-deployer
+          ADMIN: ${{ vars.TESTNET_CONTRACT_ADMIN }}
+          FEE_COLLECTOR: ${{ vars.TESTNET_FEE_COLLECTOR }}
+          SUPPORTED_TOKENS: ${{ vars.TESTNET_SUPPORTED_TOKENS }}
+          FEE_RATE_BPS: ${{ vars.TESTNET_FEE_RATE_BPS }}
+          PATH_PAYMENT_ROUTER: ${{ vars.TESTNET_PATH_PAYMENT_ROUTER }}
+        run: scripts/deploy-contracts.sh --network testnet
+
+      - name: Upload address manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-addresses-testnet
+          path: deployments/deployed-addresses.testnet.json
+
+  # ── Build & push Docker images ──────────────────────────────────────────────
+  build-images:
+    name: Build · ${{ matrix.app }}
+    needs: resolve-env
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: server
+            context: ./server
+            image: agrocylo-server
+            port: "5000"
+          - app: client
+            context: ./client
+            image: agrocylo-client
+            port: "3000"
+          - app: agro-server
+            context: ./agro-production/server
+            image: agrocylo-agro-server
+            port: "5001"
+          - app: agro-client
+            context: ./agro-production/client
+            image: agrocylo-agro-client
+            port: "3001"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy to Fly.io ───────────────────────────────────────────────────────
+  deploy:
+    name: Deploy · ${{ needs.resolve-env.outputs.environment }}
+    needs: [resolve-env, build-images]
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.resolve-env.outputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    env:
+      FLY_APP_ROOT: agrocylo-marketplace
+      FLY_APP_AGRO: agrocylo-production
+      FLY_APP_ROOT_CLIENT: agrocylo-client
+      FLY_APP_AGRO_CLIENT: agrocylo-agro-client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set Fly app names per environment
+        id: apps
+        run: |
+          ENV="${{ needs.resolve-env.outputs.environment }}"
+          if [ "$ENV" = "production" ]; then
+            echo "app_root=agrocylo-marketplace"           >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production"             >> "$GITHUB_OUTPUT"
+            echo "app_root_client=agrocylo-client"          >> "$GITHUB_OUTPUT"
+            echo "app_agro_client=agrocylo-agro-client"     >> "$GITHUB_OUTPUT"
+          else
+            echo "app_root=agrocylo-marketplace-staging"    >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production-staging"     >> "$GITHUB_OUTPUT"
+            echo "app_root_client=agrocylo-client-staging"  >> "$GITHUB_OUTPUT"
+            echo "app_agro_client=agrocylo-agro-client-staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy root server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --app "${{ steps.apps.outputs.app_root }}" \
+            --image "${{ env.REGISTRY }}/${{ github.repository_owner }}/agrocylo-server:latest" \
+            --strategy immediate
+
+      - name: Deploy root client
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --app "${{ steps.apps.outputs.app_root_client }}" \
+            --image "${{ env.REGISTRY }}/${{ github.repository_owner }}/agrocylo-client:latest" \
+            --strategy immediate
+
+      - name: Deploy agro-production server
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --app "${{ steps.apps.outputs.app_agro }}" \
+            --image "${{ env.REGISTRY }}/${{ github.repository_owner }}/agrocylo-agro-server:latest" \
+            --strategy immediate
+
+      - name: Deploy agro-production client
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl deploy --app "${{ steps.apps.outputs.app_agro_client }}" \
+            --image "${{ env.REGISTRY }}/${{ github.repository_owner }}/agrocylo-agro-client:latest" \
+            --strategy immediate
+
+      - name: Output URL
+        id: deploy
+        run: echo "url=https://${{ steps.apps.outputs.app_root }}.fly.dev" >> "$GITHUB_OUTPUT"
+
+  # ── Run migrations ─────────────────────────────────────────────────────────
+  migrate:
+    name: Run migrations
+    needs: [resolve-env, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set app names
+        id: apps
+        run: |
+          ENV="${{ needs.resolve-env.outputs.environment }}"
+          if [ "$ENV" = "production" ]; then
+            echo "app_root=agrocylo-marketplace"        >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production"          >> "$GITHUB_OUTPUT"
+          else
+            echo "app_root=agrocylo-marketplace-staging" >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production-staging"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Install agro-server dependencies
+        run: npm ci
+        working-directory: agro-production/server
+
+      - name: Run root server migrations
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DATABASE_URL: ${{ needs.resolve-env.outputs.environment == 'production' && secrets.PRODUCTION_DATABASE_URL || secrets.STAGING_DATABASE_URL }}
+        run: |
+          npx prisma migrate deploy
+        working-directory: server
+
+      - name: Run agro-server migrations
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DATABASE_URL: ${{ needs.resolve-env.outputs.environment == 'production' && secrets.PRODUCTION_AGRO_DATABASE_URL || secrets.STAGING_AGRO_DATABASE_URL }}
+        run: |
+          npx prisma migrate deploy
+        working-directory: agro-production/server
+
+  # ── Smoke tests ────────────────────────────────────────────────────────────
+  smoke-test:
+    name: Smoke tests
+    needs: [resolve-env, migrate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set URLs
+        id: urls
+        run: |
+          ENV="${{ needs.resolve-env.outputs.environment }}"
+          if [ "$ENV" = "production" ]; then
+            echo "root=https://agrocylo-marketplace.fly.dev"       >> "$GITHUB_OUTPUT"
+            echo "agro=https://agrocylo-production.fly.dev"        >> "$GITHUB_OUTPUT"
+          else
+            echo "root=https://agrocylo-marketplace-staging.fly.dev" >> "$GITHUB_OUTPUT"
+            echo "agro=https://agrocylo-production-staging.fly.dev"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for deploys to stabilize
+        run: sleep 30
+
+      - name: Health check — root server
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+              "${{ steps.urls.outputs.root }}/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Root server healthy"
+              exit 0
+            fi
+            echo "Attempt $i: got $code, retrying in 10s..."
+            sleep 10
+          done
+          echo "Root server health check failed"
+          exit 1
+
+      - name: Health check — agro server
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+              "${{ steps.urls.outputs.agro }}/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Agro server healthy"
+              exit 0
+            fi
+            echo "Attempt $i: got $code, retrying in 10s..."
+            sleep 10
+          done
+          echo "Agro server health check failed"
+          exit 1
+
+      - name: Health check — root client
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            "${{ steps.urls.outputs.root }/" || true)
+          if [ "$code" != "200" ] && [ "$code" != "301" ] && [ "$code" != "302" ]; then
+            echo "Root client health check failed (got $code)"
+            exit 1
+          fi
+          echo "Root client healthy ($code)"
+
+      - name: Health check — agro client
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            "${{ steps.urls.outputs.agro }/" || true)
+          if [ "$code" != "200" ] && [ "$code" != "301" ] && [ "$code" != "302" ]; then
+            echo "Agro client health check failed (got $code)"
+            exit 1
+          fi
+          echo "Agro client healthy ($code)"
+
+  # ── Rollback on failure ────────────────────────────────────────────────────
+  rollback:
+    name: Rollback
+    needs: [resolve-env, smoke-test]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set app names
+        id: apps
+        run: |
+          ENV="${{ needs.resolve-env.outputs.environment }}"
+          if [ "$ENV" = "production" ]; then
+            echo "app_root=agrocylo-marketplace"        >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production"          >> "$GITHUB_OUTPUT"
+            echo "app_root_client=agrocylo-client"       >> "$GITHUB_OUTPUT"
+            echo "app_agro_client=agrocylo-agro-client"  >> "$GITHUB_OUTPUT"
+          else
+            echo "app_root=agrocylo-marketplace-staging" >> "$GITHUB_OUTPUT"
+            echo "app_agro=agrocylo-production-staging"  >> "$GITHUB_OUTPUT"
+            echo "app_root_client=agrocylo-client-staging"  >> "$GITHUB_OUTPUT"
+            echo "app_agro_client=agrocylo-agro-client-staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rollback all apps
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          for app in \
+            "${{ steps.apps.outputs.app_root }}" \
+            "${{ steps.apps.outputs.app_root_client }}" \
+            "${{ steps.apps.outputs.app_agro }}" \
+            "${{ steps.apps.outputs.app_agro_client }}"; do
+            echo "Rolling back $app..."
+            flyctl releases rollback --app "$app" --yes || true
+          done
+
+      - name: Fail the workflow
+        run: |
+          echo "::error::Deploy failed — all apps rolled back to previous release."
+          exit 1

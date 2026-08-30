@@ -14,9 +14,11 @@ vi.mock("@/lib/stellar", () => ({
   getXlmBalance: vi.fn(() => Promise.resolve("100")),
 }));
 
-vi.mock("@/lib/signTransaction", () => ({
-  signAndSubmitTransaction: vi.fn(),
-}));
+vi.mock("@/lib/stellarTransactions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/stellarTransactions")>();
+  return { ...actual, signAndSubmitTransaction: vi.fn() };
+});
 
 vi.mock("@/lib/analytics", () => ({
   trackWalletConnected: vi.fn(),
@@ -31,6 +33,7 @@ function TestConsumer() {
       <span data-testid="restoring">{String(ctx.restoring)}</span>
       <span data-testid="address">{ctx.address ?? "null"}</span>
       <span data-testid="error">{ctx.error ?? "null"}</span>
+      <span data-testid="networkMismatch">{String(ctx.networkMismatch)}</span>
     </div>
   );
 }
@@ -112,5 +115,54 @@ describe("WalletContext — restore flow", () => {
     expect(screen.getByTestId("connected").textContent).toBe("false");
     expect(screen.getByTestId("restoring").textContent).toBe("false");
     expect(screen.getByTestId("address").textContent).toBe("null");
+    expect(screen.getByTestId("networkMismatch").textContent).toBe("false");
+  });
+});
+
+describe("WalletContext — networkMismatch", () => {
+  const ADDR = "GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    // @ts-ignore
+    window.freighter = mockFreighter;
+    vi.stubEnv("NEXT_PUBLIC_STELLAR_ENV", "mainnet");
+    vi.stubEnv(
+      "NEXT_PUBLIC_NETWORK_PASSPHRASE",
+      "Public Global Stellar Network ; September 2015",
+    );
+    localStorage.setItem("walletAddress", ADDR);
+    localStorage.setItem("activeWalletId", "freighter");
+    mockFreighter.getPublicKey.mockResolvedValue(ADDR);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllEnvs();
+    // @ts-ignore
+    delete window.freighter;
+  });
+
+  it.each([
+    ["Freighter short name", "TESTNET"],
+    ["Rabet lowercase", "testnet"],
+    ["full testnet passphrase", "Test SDF Network ; September 2015"],
+  ])("sets networkMismatch true when the wallet reports %s on a mainnet app", async (_l, net) => {
+    mockFreighter.getNetwork.mockResolvedValue(net);
+    renderWithProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId("connected").textContent).toBe("true");
+      expect(screen.getByTestId("networkMismatch").textContent).toBe("true");
+    });
+  });
+
+  it("sets networkMismatch false when the wallet reports PUBLIC on a mainnet app", async () => {
+    mockFreighter.getNetwork.mockResolvedValue("PUBLIC");
+    renderWithProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId("connected").textContent).toBe("true");
+      expect(screen.getByTestId("networkMismatch").textContent).toBe("false");
+    });
   });
 });

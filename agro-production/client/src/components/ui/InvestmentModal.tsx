@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useInvest } from "@/hooks/useInvest";
+import { useNetworkFee } from "@/hooks/useNetworkFee";
 import { parseXlmToStroops } from "@/lib/validation";
 import { ButtonSpinner } from "@/components/Skeletons";
 
@@ -23,6 +24,7 @@ export default function InvestmentModal({
   const [amount, setAmount] = useState("");
   const [amountError, setAmountError] = useState<string | null>(null);
   const { invest, retryIndexing, loading, error, success, phase, txHash } = useInvest();
+  const { estimate: feeEstimate, displayXlm: feeDisplay } = useNetworkFee();
   const modalRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const amountResult = parseXlmToStroops(amount);
@@ -138,6 +140,12 @@ export default function InvestmentModal({
             <p id="invest-amount-error" className="text-xs text-error mb-2" role="alert">{amountError}</p>
           )}
         </div>
+        <p className="mt-2 mb-1 text-xs text-muted" data-testid="invest-fee-estimate">
+          Estimated network fee: <span className="font-medium text-foreground">{feeDisplay}</span>
+          {feeEstimate && !feeEstimate.fromNetwork && " (network minimum)"}
+          {feeEstimate?.fromNetwork &&
+            ` (${feeEstimate.percentile} of recent fees — adjusts with congestion)`}
+        </p>
         <button
           onClick={handleInvest}
           disabled={loading || awaitingIndex || !isFormValid}
