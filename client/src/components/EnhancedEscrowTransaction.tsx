@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { useWallet } from "@/hooks/useWallet";
 import { mapBlockchainError } from "@/components/errorHandler";
 import { createOrder } from "@/services/stellar/contractService";
-import { signAndSubmitTransaction } from "@/lib/signTransaction";
+import { signAndSubmitTransaction } from "@/lib/stellarTransactions";
 import {
   notifyTransactionSubmitted,
   notifyTransactionConfirmed,
@@ -71,7 +71,7 @@ export default function EnhancedEscrowTransaction({
   minQuantity = 1,
   maxQuantity = 100000,
 }: EnhancedEscrowTransactionProps) {
-  const { address, connected, network } = useWallet();
+  const { address, connected, network, networkMismatch } = useWallet();
 
   const [quantity, setQuantity] = useState<string>("1");
   const [deliveryDeadline, setDeliveryDeadline] = useState<string>("");
@@ -449,10 +449,19 @@ export default function EnhancedEscrowTransaction({
           {tx.status !== "idle" && <StatusPanel tx={tx} />}
         </CardContent>
 
+        {networkMismatch && (
+          <p
+            role="alert"
+            className="text-destructive px-6 pb-2 text-sm font-medium"
+          >
+            Your wallet is on the wrong network. Switch it to match this app
+            before creating an escrow order.
+          </p>
+        )}
         <CardFooter className="flex gap-3 bg-zinc-50/20 dark:bg-zinc-900/10 border-t py-4 dark:border-zinc-800">
           <Button
             onClick={() => setShowConfirm(true)}
-            disabled={busy || !isFormValid}
+            disabled={busy || !isFormValid || networkMismatch}
             size="lg"
             className="flex-1 rounded-xl text-sm font-semibold tracking-wide"
           >

@@ -121,6 +121,37 @@ Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY
 for scope, response SLAs, and how to reach us. Do not open a public issue for
 security findings.
 
+### 🌐 Frontend network configuration (fail-fast)
+
+The `client/` app talks to exactly one Stellar network, chosen by a single
+switch. It **fails fast** rather than silently falling back to testnet — a
+mainnet deployment missing a variable renders a configuration-error state
+instead of quietly signing real transactions against the wrong ledger.
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `NEXT_PUBLIC_STELLAR_ENV` | recommended | `testnet` \| `mainnet`. The single source of truth. Unset ⇒ inferred from the passphrase, else `testnet` (local dev only). |
+| `NEXT_PUBLIC_NETWORK_PASSPHRASE` | **yes** | `Test SDF Network ; September 2015` or `Public Global Stellar Network ; September 2015`. In `mainnet` mode a missing/testnet value is a hard error. |
+| `NEXT_PUBLIC_SOROBAN_RPC_URL` | **yes** | Soroban RPC endpoint; must match the network. |
+| `NEXT_PUBLIC_CONTRACT_ID` | **yes** for on-chain UI | Deployed escrow contract. Gates transaction-capable UI via `isContractConfigured()`. |
+| `NEXT_PUBLIC_HORIZON_URL` | optional | Overrides the Horizon endpoint; defaults follow `NEXT_PUBLIC_STELLAR_ENV`. |
+
+Fail-fast contract:
+
+- **Build time** — `next.config.ts` throws on a production build if
+  `NEXT_PUBLIC_SOROBAN_RPC_URL` or `NEXT_PUBLIC_NETWORK_PASSPHRASE` is unset.
+- **Runtime, mainnet mode** — `getNetworkConfig()`, `getExpectedNetworkPassphrase()`,
+  `getRpcServer()` / `getServer()` (`src/lib/stellar.ts`) and
+  `resolveNetworkPassphrase()` (`src/lib/signTransaction.ts`) throw instead of
+  returning testnet defaults when wallet/network detection fails.
+- **Runtime, testnet / unset** — the testnet fallback is retained for local dev.
+- **Wallet mismatch** — if the connected wallet's network differs from
+  `NEXT_PUBLIC_STELLAR_ENV`, a persistent banner is shown and signing/submission
+  is refused with a `NetworkMismatchError` (`src/context/WalletContext.tsx`,
+  `src/components/NetworkMismatchBanner.tsx`).
+
+See `client/.env.example` for the full list.
+
 ### 🤝 Contributing
 
 Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.

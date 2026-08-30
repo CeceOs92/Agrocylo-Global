@@ -8,7 +8,7 @@ import type { WalletContextType } from "@/types/wallet";
 vi.mock("@/services/stellar/contractService", () => ({
   createOrder: vi.fn(() => Promise.resolve({ success: true, data: "unsignedXDR" })),
 }));
-vi.mock("@/lib/signTransaction", () => ({
+vi.mock("@/lib/stellarTransactions", () => ({
   signAndSubmitTransaction: vi.fn(() => Promise.resolve({ success: true, txHash: "mockTxHash" })),
 }));
 vi.mock("@/services/notification", () => ({

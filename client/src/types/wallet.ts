@@ -1,4 +1,4 @@
-import type { SignAndSubmitResult } from "../lib/signTransaction";
+import type { SignAndSubmitResult } from "../lib/stellarTransactions";
 import type { UserRole } from "./user";
 
 export type ProfileRole = UserRole;
@@ -10,6 +10,8 @@ export interface WalletState {
   loading: boolean;
   error: string | null;
   network: string | null; // Current Stellar network name
+  /** true when the connected wallet's network differs from the app's configured network */
+  networkMismatch: boolean;
   activeWalletId: string | null; // ID of the currently active wallet adapter
   restoring: boolean; // true when restoring from localStorage
 }
