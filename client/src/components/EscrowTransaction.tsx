@@ -23,7 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { useWallet } from "@/hooks/useWallet";
 import { mapBlockchainError } from "@/components/errorHandler";
 import { createOrder } from "@/services/stellar/contractService";
-import { signAndSubmitTransaction } from "@/lib/signTransaction";
+import { signAndSubmitTransaction } from "@/lib/stellarTransactions";
 import {
   notifyTransactionSubmitted,
   notifyTransactionConfirmed,
@@ -60,7 +60,7 @@ export default function EscrowTransaction({
   pricePerUnit,
   productName,
 }: EscrowTransactionProps) {
-  const { address, connected, network } = useWallet();
+  const { address, connected, network, networkMismatch } = useWallet();
   const [quantity, setQuantity] = useState<string>("1");
   const [deliveryDeadline, setDeliveryDeadline] = useState<string>("");
   const [tx, setTx] = useState<TransactionStatus>({ status: "idle" });
@@ -237,11 +237,21 @@ export default function EscrowTransaction({
         {tx.status !== "idle" && <StatusPanel tx={tx} />}
       </CardContent>
 
-      <CardFooter className="flex gap-3">
+      <CardFooter className="flex flex-col gap-3">
+        {networkMismatch && (
+          <p
+            role="alert"
+            className="text-destructive w-full text-sm font-medium"
+          >
+            Your wallet is on the wrong network. Switch it to match this app
+            before creating an escrow order.
+          </p>
+        )}
+        <div className="flex w-full gap-3">
         <Button
           onClick={() => void callCreateOrder()}
           isLoading={busy}
-          disabled={busy}
+          disabled={busy || networkMismatch}
           size="lg"
           className="flex-1"
         >
@@ -259,6 +269,7 @@ export default function EscrowTransaction({
         >
           Reset
         </Button>
+        </div>
       </CardFooter>
     </Card>
   );

@@ -1961,6 +1961,9 @@ impl ProductionEscrowContract {
         campaign_id: u64,
     ) -> Result<(), EscrowError> {
         from.require_auth();
+        // Issue #847: Add pause gate like invest/claim_returns/refund
+        require_not_paused(&env)?;
+        
         if from == to {
             return Err(EscrowError::SameInvestor);
         }
@@ -1968,6 +1971,11 @@ impl ProductionEscrowContract {
         let campaign = load_campaign(&env, campaign_id)?;
         if campaign.status == CampaignStatus::Settled || campaign.status == CampaignStatus::Failed {
             return Err(EscrowError::CampaignAlreadyTerminal);
+        }
+        
+        // Issue #847: Reject if to == farmer or contract address
+        if to == campaign.farmer || to == env.current_contract_address() {
+            return Err(EscrowError::InvalidAmount);
         }
 
         let contribution_key = DataKey::Contribution(campaign_id, from.clone());
@@ -1983,6 +1991,12 @@ impl ProductionEscrowContract {
         let claim_key_from = DataKey::Claimed(campaign_id, from.clone());
         if env.storage().persistent().has(&claim_key_from) {
             return Err(EscrowError::AlreadyTransferred);
+        }
+        
+        // Issue #847: Reject if recipient already claimed on this campaign
+        let claim_key_to = DataKey::Claimed(campaign_id, to.clone());
+        if env.storage().persistent().has(&claim_key_to) {
+            return Err(EscrowError::AlreadyClaimed);
         }
 
         let to_contribution_key = DataKey::Contribution(campaign_id, to.clone());

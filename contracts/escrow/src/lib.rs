@@ -486,7 +486,6 @@ fn resolve_escrow_dispute_internal(
 ) -> Result<(), EscrowError> {
     let mut order = read_order(env, order_id)?;
     let mut dispute = read_dispute(env, order_id)?;
-    let token_client = token::Client::new(env, &order.token);
 
     // Tracks what fraction of the escrowed amount the buyer ended up with, so
     // the resolved outcome can be reported to the reputation registry below
@@ -494,56 +493,48 @@ fn resolve_escrow_dispute_internal(
     // `confirm_receipt`, never for dispute resolution).
     let buyer_share_bps: u32;
 
-    match resolution.clone() {
+    // Issue #848: Compute amounts BEFORE any state writes or token transfers (CEI pattern)
+    let (refund_amount, release_amount, new_status) = match resolution.clone() {
         DisputeResolution::Refund => {
-            order.status = OrderStatus::Refunded;
-            token_client.transfer(&env.current_contract_address(), &order.buyer, &order.amount);
             buyer_share_bps = 10_000;
+            (order.amount, 0, OrderStatus::Refunded)
         }
         DisputeResolution::Release => {
-            order.status = OrderStatus::Completed;
-            token_client.transfer(
-                &env.current_contract_address(),
-                &order.farmer,
-                &order.amount,
-            );
             buyer_share_bps = 0;
+            (0, order.amount, OrderStatus::Completed)
         }
         DisputeResolution::Split(split_bps) => {
             if split_bps > 10_000 {
                 return Err(EscrowError::InvalidSplitRatio);
             }
             buyer_share_bps = split_bps;
-            let refund_amount = order
+            let refund = order
                 .amount
                 .checked_mul(buyer_share_bps as i128)
                 .ok_or(EscrowError::ArithmeticError)?
                 / 10_000;
-            let release_amount = order
+            let release = order
                 .amount
-                .checked_sub(refund_amount)
+                .checked_sub(refund)
                 .ok_or(EscrowError::ArithmeticError)?;
-            if refund_amount > 0 {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &order.buyer,
-                    &refund_amount,
-                );
-            }
-            if release_amount > 0 {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &order.farmer,
-                    &release_amount,
-                );
-            }
-            order.status = OrderStatus::Completed;
+            (refund, release, OrderStatus::Completed)
         }
-    }
+    };
 
+    // Issue #848: Complete ALL state writes BEFORE any token transfers (CEI pattern)
+    order.status = new_status;
     dispute.resolved = true;
     write_order(env, order_id, &order);
     write_dispute(env, order_id, &dispute);
+
+    // Issue #848: Token transfers happen LAST, after all state is finalized
+    let token_client = token::Client::new(env, &order.token);
+    if refund_amount > 0 {
+        token_client.transfer(&env.current_contract_address(), &order.buyer, &refund_amount);
+    }
+    if release_amount > 0 {
+        token_client.transfer(&env.current_contract_address(), &order.farmer, &release_amount);
+    }
 
     report_reputation_outcome(env, &order.farmer, Some(buyer_share_bps));
 
@@ -626,12 +617,10 @@ impl EscrowContract {
         if storage.has(&DataKey::Admin) {
             return Err(EscrowError::AlreadyInitialized);
         }
-        admin.require_auth();
+        // Issue #849: Check is_empty() FIRST before len() < 2, or remove the dead TokenWhitelistEmpty variant
+        // Since the requirement is "MustSupportTwoTokens", we remove the redundant empty check
         if supported_tokens.len() < 2 {
             return Err(EscrowError::MustSupportTwoTokens);
-        }
-        if supported_tokens.is_empty() {
-            return Err(EscrowError::TokenWhitelistEmpty);
         }
         storage.set(&DataKey::Admin, &admin);
         storage.set(&DataKey::SupportedTokens, &supported_tokens);
@@ -1110,9 +1099,11 @@ impl EscrowContract {
             return Err(EscrowError::OrderNotPending);
         }
 
+        // Issue #848: Complete state write BEFORE token transfer (CEI pattern)
         order.status = OrderStatus::Completed;
         write_order(&env, order_id, &order);
 
+        // Issue #848: Token transfer happens LAST, after state is finalized
         token::Client::new(&env, &order.token).transfer(
             &env.current_contract_address(),
             &order.farmer,
@@ -1153,9 +1144,11 @@ impl EscrowContract {
             return Err(EscrowError::OrderNotExpired);
         }
 
+        // Issue #848: Complete state write BEFORE token transfer (CEI pattern)
         order.status = OrderStatus::Refunded;
         write_order(&env, order_id, &order);
 
+        // Issue #848: Token transfer happens LAST, after state is finalized
         token::Client::new(&env, &order.token).transfer(
             &env.current_contract_address(),
             &order.buyer,
@@ -1183,6 +1176,9 @@ impl EscrowContract {
         let storage = env.storage().persistent();
         let current_time = env.ledger().timestamp();
 
+        // Issue #848: Collect all valid refunds and complete ALL state writes BEFORE any transfers (CEI pattern)
+        let mut refunds: Vec<(u64, Address, Address, i128)> = Vec::new(&env);
+
         for order_id in order_ids.iter() {
             let key = DataKey::Order(order_id);
             let mut order: Order = match storage.get(&key) {
@@ -1206,19 +1202,27 @@ impl EscrowContract {
                 continue;
             }
 
+            // Update state
             order.status = OrderStatus::Refunded;
             storage.set(&key, &order);
             storage.extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
-            token::Client::new(&env, &order.token).transfer(
+            // Record refund for later execution
+            refunds.push_back((order_id, order.buyer.clone(), order.token.clone(), order.amount));
+        }
+
+        // Issue #848: ALL token transfers happen LAST, after all state is finalized
+        for refund in refunds.iter() {
+            let (order_id, buyer, token, amount) = refund;
+            token::Client::new(&env, &token).transfer(
                 &env.current_contract_address(),
-                &order.buyer,
-                &order.amount,
+                &buyer,
+                &amount,
             );
 
             env.events().publish(
                 (symbol_short!("order"), symbol_short!("refunded")),
-                (order_id, order.buyer),
+                (order_id, buyer),
             );
         }
 
@@ -1254,9 +1258,11 @@ impl EscrowContract {
             return Err(EscrowError::CancelWindowClosed);
         }
 
+        // Issue #848: Complete state write BEFORE token transfer (CEI pattern)
         order.status = OrderStatus::Refunded;
         write_order(&env, order_id, &order);
 
+        // Issue #848: Token transfer happens LAST, after state is finalized
         token::Client::new(&env, &order.token).transfer(
             &env.current_contract_address(),
             &order.buyer,

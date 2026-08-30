@@ -14,6 +14,7 @@ const mockWallet: WalletContextType = {
   restoring: false,
   error: null,
   network: "TESTNET",
+  networkMismatch: false,
   activeWalletId: "freighter",
   connect: vi.fn(),
   disconnect: vi.fn(),
@@ -42,6 +43,15 @@ vi.mock("@/services/stellar/contractService", () => ({
       data: "CCCC...",
       error: null,
     }),
+  ),
+  createOrder: vi.fn(() =>
+    Promise.resolve({ success: true, data: "DDDD...", error: null }),
+  ),
+  resolveDispute: vi.fn(() =>
+    Promise.resolve({ success: true, data: "EEEE...", error: null }),
+  ),
+  splitFunds: vi.fn(() =>
+    Promise.resolve({ success: true, data: "FFFF...", error: null }),
   ),
   getOrder: vi.fn(),
 }));
@@ -211,5 +221,68 @@ describe("useEscrowContract", () => {
 
     expect(result.current.tx.error).toBeNull();
     expect(result.current.tx.blockchainError).toBeNull();
+  });
+
+  // Issue #809 — every call site must surface a typed error from the single
+  // consolidated transaction module, not just confirm/refund/dispute.
+  describe("all six call sites surface typed errors", () => {
+    const invoke = (
+      api: ReturnType<typeof useEscrowContract>,
+      name: string,
+    ): Promise<unknown> => {
+      switch (name) {
+        case "create":
+          return api.createOrder("FARMER", "TOKEN", 1n, "2030-01-01T00:00:00Z");
+        case "confirm":
+          return api.confirmReceipt("order-1");
+        case "dispute":
+          return api.openDispute("order-1", "reason", "evidence");
+        case "resolve":
+          return api.resolveDispute("order-1", true);
+        case "split":
+          return api.splitFunds("order-1", 1n, 1n);
+        case "refund":
+          return api.requestRefund("order-1");
+        default:
+          throw new Error(`unknown action ${name}`);
+      }
+    };
+
+    it.each(["create", "confirm", "dispute", "resolve", "split", "refund"])(
+      "%s surfaces a network-timeout typed error",
+      async (action) => {
+        // A failure result from the consolidated module (errorKind: "timeout").
+        mockSignAndSubmit.mockResolvedValue({
+          success: false,
+          txHash: "TX_HASH_X",
+          status: "TIMEOUT",
+          error: "Transaction TX_HASH_X was not confirmed within 30s",
+          errorKind: "timeout",
+        });
+
+        const { result } = renderHook(() => useEscrowContract(), { wrapper });
+
+        let caught: unknown;
+        await act(async () => {
+          try {
+            await invoke(result.current, action);
+          } catch (e) {
+            caught = e;
+          }
+        });
+
+        expect(caught).toBeInstanceOf(Error);
+        const state = {
+          create: () => result.current.createState,
+          confirm: () => result.current.confirmState,
+          dispute: () => result.current.disputeState,
+          resolve: () => result.current.resolveState,
+          split: () => result.current.splitState,
+          refund: () => result.current.refundState,
+        }[action]!();
+        expect(state.error).toMatch(/not confirmed within/i);
+        expect(state.blockchainError).not.toBeNull();
+      },
+    );
   });
 });

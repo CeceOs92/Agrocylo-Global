@@ -121,6 +121,37 @@ Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY
 for scope, response SLAs, and how to reach us. Do not open a public issue for
 security findings.
 
+### 🌐 Frontend network configuration (fail-fast)
+
+The `client/` app talks to exactly one Stellar network, chosen by a single
+switch. It **fails fast** rather than silently falling back to testnet — a
+mainnet deployment missing a variable renders a configuration-error state
+instead of quietly signing real transactions against the wrong ledger.
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `NEXT_PUBLIC_STELLAR_ENV` | recommended | `testnet` \| `mainnet`. The single source of truth. Unset ⇒ inferred from the passphrase, else `testnet` (local dev only). |
+| `NEXT_PUBLIC_NETWORK_PASSPHRASE` | **yes** | `Test SDF Network ; September 2015` or `Public Global Stellar Network ; September 2015`. In `mainnet` mode a missing/testnet value is a hard error. |
+| `NEXT_PUBLIC_SOROBAN_RPC_URL` | **yes** | Soroban RPC endpoint; must match the network. |
+| `NEXT_PUBLIC_CONTRACT_ID` | **yes** for on-chain UI | Deployed escrow contract. Gates transaction-capable UI via `isContractConfigured()`. |
+| `NEXT_PUBLIC_HORIZON_URL` | optional | Overrides the Horizon endpoint; defaults follow `NEXT_PUBLIC_STELLAR_ENV`. |
+
+Fail-fast contract:
+
+- **Build time** — `next.config.ts` throws on a production build if
+  `NEXT_PUBLIC_SOROBAN_RPC_URL` or `NEXT_PUBLIC_NETWORK_PASSPHRASE` is unset.
+- **Runtime, mainnet mode** — `getNetworkConfig()`, `getExpectedNetworkPassphrase()`,
+  `getRpcServer()` / `getServer()` (`src/lib/stellar.ts`) and
+  `resolveNetworkPassphrase()` (`src/lib/signTransaction.ts`) throw instead of
+  returning testnet defaults when wallet/network detection fails.
+- **Runtime, testnet / unset** — the testnet fallback is retained for local dev.
+- **Wallet mismatch** — if the connected wallet's network differs from
+  `NEXT_PUBLIC_STELLAR_ENV`, a persistent banner is shown and signing/submission
+  is refused with a `NetworkMismatchError` (`src/context/WalletContext.tsx`,
+  `src/components/NetworkMismatchBanner.tsx`).
+
+See `client/.env.example` for the full list.
+
 ### 🤝 Contributing
 
 Contributions are welcome! Whether you're fixing bugs, adding features, improving docs, or writing tests, your help is valued.
@@ -198,6 +229,94 @@ For local development of `agro-production/server` and `agro-production/client`, 
 
 #### Product Endpoints
 
+The quickest way to get the full stack running is a single command:
+
+```bash
+docker compose up
+```
+
+This brings up **all four applications** (two backends + two frontends) along with
+both Postgres databases and Redis:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **Caddy proxy** | `80` | Unified entry point (http://localhost) |
+| Root client | `3000` | Marketplace frontend |
+| Agro-production client | `3001` | Campaign/crowdfunding frontend |
+| Root backend | `5000` | Marketplace API |
+| Agro-production backend | `5001` | Campaign API |
+| Postgres (marketplace) | `5432` | `agrocylo_db` |
+| Postgres (campaigns) | `5433` | `agrocylo_production` |
+| Redis | `6379` | Shared cache/queues |
+
+**Once running**, visit:
+
+- **http://localhost** — root marketplace (Caddy proxy)
+- **http://localhost/agro** — agro-production (Caddy proxy)
+- **http://localhost:5000** — root backend API (direct)
+- **http://localhost:5001** — agro-production backend API (direct)
+
+**Customising environment variables:**
+
+Edit the `.env` file in the repo root. Sensible development defaults are provided
+so `docker compose up` works out-of-the-box from a fresh clone.
+
+**Tearing down:**
+
+```bash
+docker compose down -v   # stops containers + wipes database volumes
+```
+
+### Running locally without Docker
+
+If you prefer to run services individually, you can start each one manually.
+This requires Node.js 20+, PostgreSQL, and Redis installed on your host.
+
+#### Agro-production server
+
+1. Navigate to the server directory:
+   ```bash
+   cd agro-production/server
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up the database (create a PostgreSQL database named `agrocylo_production`
+   and set `DATABASE_URL` in a `.env` file — see `.env.example`).
+
+4. Run migrations and start the dev server:
+   ```bash
+   npx prisma migrate deploy
+   npm run dev
+   ```
+
+   The server runs on `http://localhost:5001` by default.
+
+#### Root server
+
+1. `cd server && npm install`
+2. Copy `.env.example` to `.env` and fill in the required values (at minimum
+   `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and a 32+ character
+   `JWT_SECRET`).
+3. `npx prisma migrate deploy && npm run dev`
+
+#### Clients
+
+```bash
+# Root marketplace client
+cd client && npm install && npm run dev    # → http://localhost:3000
+
+# Agro-production client
+cd agro-production/client && npm install && npm run dev  # → http://localhost:3000
+```
+
+### 🔌 API Documentation
+
+#### Product Endpoints
+
 The backend server (`/agro-production/server`) exposes product endpoints for the marketplace.
 
 **Get all products**
@@ -210,28 +329,7 @@ GET /api/v1/products
 GET /api/v1/products/:id
 ```
 
-**Running locally**
-
-1. Navigate to the server directory:
-   ```bash
-   cd agro-production/server
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-   The server runs on `http://localhost:3001` by default.
-
 **Environment Variables**
-
-For local development, no specific environment variables are required for product endpoints. The server uses in-memory seed data.
 
 For production, ensure the following are configured (see `.env.example`):
 - `NODE_ENV`: Set to `production`
