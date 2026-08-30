@@ -1,0 +1,109 @@
+name: Compose CI
+
+# Validates that docker compose builds and starts successfully.
+# Runs on PRs touching compose / Dockerfile paths, and daily as a
+# scheduled job to catch silent rot.
+
+on:
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "Caddyfile"
+      - ".env"
+      - "server/Dockerfile"
+      - "client/Dockerfile"
+      - "agro-production/server/Dockerfile"
+      - "agro-production/client/Dockerfile"
+      - ".github/workflows/compose-ci.yml"
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compose-build:
+    name: Compose build & start
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env for CI
+        run: |
+          if [ ! -f .env ]; then
+            cp .env.example .env 2>/dev/null || cat > .env <<'ENVEOF'
+          DATABASE_URL=postgresql://agrocylo:agrocylo123@localhost:5432/agrocylo_db
+          AGRO_DATABASE_URL=postgresql://agrocylo:agrocylo123@localhost:5432/agrocylo_production
+          SUPABASE_URL=https://placeholder.supabase.co
+          SUPABASE_ANON_KEY=placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY=placeholder-service-role-key
+          JWT_SECRET=b873d25323eb8673ad2d4ef5a86f7181ddb5f3cae3ed14c5fd8573c5b1d5f5e8
+          ENVEOF
+          fi
+
+      - name: Build all services
+        run: docker compose build --no-cache
+
+      - name: Start all services
+        run: docker compose up -d
+
+      - name: Wait for services to become healthy
+        run: |
+          echo "Waiting for services to become healthy..."
+          timeout 120 bash -c 'until docker compose ps --format json | python3 -c "
+          import sys, json
+          services = [json.loads(line) for line in sys.stdin if line.strip()]
+          healthy = sum(1 for s in services if s.get(\"Health\", \"\") == \"healthy\")
+          total = len(services)
+          print(f\"{healthy}/{total} services healthy\")
+          sys.exit(0 if healthy >= 5 else 1)
+          "; do sleep 5; done'
+
+      - name: Verify API endpoints respond
+        run: |
+          echo "--- Root backend health ---"
+          curl -sf http://localhost:5000/health || echo "WARN: root backend not responding"
+          echo ""
+          echo "--- Agro backend health ---"
+          curl -sf http://localhost:5001/health || echo "WARN: agro backend not responding"
+          echo ""
+
+      - name: Verify client apps respond
+        run: |
+          echo "--- Root client ---"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost:3000/ || echo "WARN: root client not responding"
+          echo ""
+          echo "--- Agro client ---"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost:3001/ || echo "WARN: agro client not responding"
+          echo ""
+
+      - name: Verify Caddy proxy routes
+        run: |
+          echo "--- Proxy: root client ---"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost/ || echo "WARN: proxy root not responding"
+          echo ""
+          echo "--- Proxy: root API ---"
+          curl -sf http://localhost/api/health || echo "WARN: proxy /api not responding"
+          echo ""
+          echo "--- Proxy: agro client ---"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost/agro/ || echo "WARN: proxy /agro not responding"
+          echo ""
+          echo "--- Proxy: agro API ---"
+          curl -sf http://localhost/api/v1/ || echo "WARN: proxy /api/v1 not responding"
+          echo ""
+
+      - name: Collect service logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

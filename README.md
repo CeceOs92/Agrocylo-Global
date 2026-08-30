@@ -229,6 +229,94 @@ For local development of `agro-production/server` and `agro-production/client`, 
 
 #### Product Endpoints
 
+The quickest way to get the full stack running is a single command:
+
+```bash
+docker compose up
+```
+
+This brings up **all four applications** (two backends + two frontends) along with
+both Postgres databases and Redis:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **Caddy proxy** | `80` | Unified entry point (http://localhost) |
+| Root client | `3000` | Marketplace frontend |
+| Agro-production client | `3001` | Campaign/crowdfunding frontend |
+| Root backend | `5000` | Marketplace API |
+| Agro-production backend | `5001` | Campaign API |
+| Postgres (marketplace) | `5432` | `agrocylo_db` |
+| Postgres (campaigns) | `5433` | `agrocylo_production` |
+| Redis | `6379` | Shared cache/queues |
+
+**Once running**, visit:
+
+- **http://localhost** — root marketplace (Caddy proxy)
+- **http://localhost/agro** — agro-production (Caddy proxy)
+- **http://localhost:5000** — root backend API (direct)
+- **http://localhost:5001** — agro-production backend API (direct)
+
+**Customising environment variables:**
+
+Edit the `.env` file in the repo root. Sensible development defaults are provided
+so `docker compose up` works out-of-the-box from a fresh clone.
+
+**Tearing down:**
+
+```bash
+docker compose down -v   # stops containers + wipes database volumes
+```
+
+### Running locally without Docker
+
+If you prefer to run services individually, you can start each one manually.
+This requires Node.js 20+, PostgreSQL, and Redis installed on your host.
+
+#### Agro-production server
+
+1. Navigate to the server directory:
+   ```bash
+   cd agro-production/server
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Set up the database (create a PostgreSQL database named `agrocylo_production`
+   and set `DATABASE_URL` in a `.env` file — see `.env.example`).
+
+4. Run migrations and start the dev server:
+   ```bash
+   npx prisma migrate deploy
+   npm run dev
+   ```
+
+   The server runs on `http://localhost:5001` by default.
+
+#### Root server
+
+1. `cd server && npm install`
+2. Copy `.env.example` to `.env` and fill in the required values (at minimum
+   `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and a 32+ character
+   `JWT_SECRET`).
+3. `npx prisma migrate deploy && npm run dev`
+
+#### Clients
+
+```bash
+# Root marketplace client
+cd client && npm install && npm run dev    # → http://localhost:3000
+
+# Agro-production client
+cd agro-production/client && npm install && npm run dev  # → http://localhost:3000
+```
+
+### 🔌 API Documentation
+
+#### Product Endpoints
+
 The backend server (`/agro-production/server`) exposes product endpoints for the marketplace.
 
 **Get all products**
@@ -241,28 +329,7 @@ GET /api/v1/products
 GET /api/v1/products/:id
 ```
 
-**Running locally**
-
-1. Navigate to the server directory:
-   ```bash
-   cd agro-production/server
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-   The server runs on `http://localhost:3001` by default.
-
 **Environment Variables**
-
-For local development, no specific environment variables are required for product endpoints. The server uses in-memory seed data.
 
 For production, ensure the following are configured (see `.env.example`):
 - `NODE_ENV`: Set to `production`

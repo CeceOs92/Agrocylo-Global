@@ -1,0 +1,17 @@
+localhost
+
+handle /agro/* {
+	reverse_proxy agro-client:3000
+}
+
+handle /api/v1/* {
+	reverse_proxy agro-backend:5001
+}
+
+handle_path /api/* {
+	reverse_proxy backend:5000
+}
+
+handle {
+	reverse_proxy client:3000
+}
