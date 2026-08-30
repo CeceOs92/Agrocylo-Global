@@ -27,6 +27,7 @@ export interface IndexedEvent {
   token?: string;
   totalInvested?: string;
   totalSkipped?: string;
+  schemaVersion?: string;
   status?: string;
   payload: unknown;
 }

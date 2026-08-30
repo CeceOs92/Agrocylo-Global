@@ -82,9 +82,15 @@ All events include a schema version field (`schema_version: u32`) as the first e
 
 #### basket.created
 - **Topic**: `(basket, created)`
-- **Payload**: `[schema_version, basket_id, constituent_count]`
-- **Field Types**: `[u32, u64, usize]`
-- **Description**: Emitted when admin creates a new investment basket with specified constituents.
+- **Payload**: `[schema_version, basket_id, constituent_count, funding_deadline, min_deposit]`
+- **Field Types**: `[u32, u64, usize, u64, i128]`
+- **Description**: Emitted when admin creates a new investment basket with specified constituents and funding conditions.
+
+#### basket.fw_close
+- **Topic**: `(basket, fw_close)`
+- **Payload**: `[schema_version, basket_id, funding_deadline, min_deposit]`
+- **Field Types**: `[u32, u64, u64, i128]`
+- **Description**: Emitted for baskets with a future funding deadline so off-chain UIs can prompt remaining depositors before permissionless funding opens.
 
 #### basket.deposit
 - **Topic**: `(basket, deposit)`

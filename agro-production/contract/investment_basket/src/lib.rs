@@ -44,6 +44,8 @@ pub enum BasketError {
     BasketNotOpen = 21,
     BasketAlreadyFunded = 22,
     BasketNotFunded = 23,
+    FundingWindowOpen = 24,
+    MinDepositNotMet = 25,
 
     NotDepositor = 30,
     NothingToClaim = 31,
@@ -104,6 +106,11 @@ pub struct Basket {
     pub total_invested: i128,
     /// Total amount skipped due to constituent failures (Issue #785).
     pub total_skipped: i128,
+    /// Ledger timestamp when permissionless funding opens. Before this time,
+    /// only the admin can trigger `fund_basket`.
+    pub funding_deadline: u64,
+    /// Optional minimum pooled deposit required before funding can execute.
+    pub min_deposit: i128,
 }
 
 /// Shadow of `Basket` as it was stored *before* Issue #682 added `created_at`
@@ -127,6 +134,22 @@ struct OldBasketV1 {
     pub total_collected: i128,
     pub status: BasketStatus,
     pub constituents: Vec<BasketConstituent>,
+}
+
+/// Shadow of `Basket` after Issue #682/#785 and before funding-window fields.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OldBasketV2 {
+    pub id: u64,
+    pub escrow_contract: Address,
+    pub token: Address,
+    pub total_deposit: i128,
+    pub total_collected: i128,
+    pub status: BasketStatus,
+    pub constituents: Vec<BasketConstituent>,
+    pub created_at: u64,
+    pub total_invested: i128,
+    pub total_skipped: i128,
 }
 
 #[contracttype]
@@ -164,10 +187,11 @@ pub enum DataKey {
 }
 
 /// Current on-chain storage layout version. Version 1 predates Issue #682
-/// (`Basket` had no `created_at`); version 2 is current. Bump again and
+/// (`Basket` had no `created_at`); version 2 predates funding windows.
+/// Version 3 is current. Bump again and
 /// extend `migrate` the same way for any future layout change — see
 /// `docs/CONTRACT_UPGRADES.md`.
-const CURRENT_SCHEMA_VERSION: u32 = 2;
+const CURRENT_SCHEMA_VERSION: u32 = 3;
 const EVENT_SCHEMA_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
@@ -279,8 +303,10 @@ impl InvestmentBasketContract {
         require_governed_caller(&env, &caller)?;
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
-        env.events()
-            .publish((t_basket(), symbol_short!("upgraded")), (EVENT_SCHEMA_VERSION, new_wasm_hash));
+        env.events().publish(
+            (t_basket(), symbol_short!("upgraded")),
+            (EVENT_SCHEMA_VERSION, new_wasm_hash),
+        );
         Ok(())
     }
 
@@ -323,8 +349,10 @@ impl InvestmentBasketContract {
             return Err(BasketError::AlreadyPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
-        env.events()
-            .publish((t_basket(), symbol_short!("paused")), (EVENT_SCHEMA_VERSION, caller));
+        env.events().publish(
+            (t_basket(), symbol_short!("paused")),
+            (EVENT_SCHEMA_VERSION, caller),
+        );
         Ok(())
     }
 
@@ -344,8 +372,10 @@ impl InvestmentBasketContract {
             return Err(BasketError::NotPaused);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.events()
-            .publish((t_basket(), symbol_short!("unpausd")), (EVENT_SCHEMA_VERSION, caller));
+        env.events().publish(
+            (t_basket(), symbol_short!("unpausd")),
+            (EVENT_SCHEMA_VERSION, caller),
+        );
         Ok(())
     }
 
@@ -408,7 +438,25 @@ impl InvestmentBasketContract {
         let mut id = cursor + 1;
         while id <= basket_count && migrated < batch_size {
             let key = DataKey::Basket(id);
-            if let Some(old) = env.storage().persistent().get::<_, OldBasketV1>(&key) {
+            if stored <= 1 {
+                if let Some(old) = env.storage().persistent().get::<_, OldBasketV1>(&key) {
+                    let translated = Basket {
+                        id: old.id,
+                        escrow_contract: old.escrow_contract,
+                        token: old.token,
+                        total_deposit: old.total_deposit,
+                        total_collected: old.total_collected,
+                        status: old.status,
+                        constituents: old.constituents,
+                        created_at: 0,
+                        total_invested: 0,
+                        total_skipped: 0,
+                        funding_deadline: 0,
+                        min_deposit: 0,
+                    };
+                    env.storage().persistent().set(&key, &translated);
+                }
+            } else if let Some(old) = env.storage().persistent().get::<_, OldBasketV2>(&key) {
                 let translated = Basket {
                     id: old.id,
                     escrow_contract: old.escrow_contract,
@@ -417,9 +465,11 @@ impl InvestmentBasketContract {
                     total_collected: old.total_collected,
                     status: old.status,
                     constituents: old.constituents,
-                    created_at: 0,
-                    total_invested: 0,
-                    total_skipped: 0,
+                    created_at: old.created_at,
+                    total_invested: old.total_invested,
+                    total_skipped: old.total_skipped,
+                    funding_deadline: 0,
+                    min_deposit: 0,
                 };
                 env.storage().persistent().set(&key, &translated);
             }
@@ -458,6 +508,8 @@ impl InvestmentBasketContract {
         admin_caller: Address,
         token: Address,
         constituents: Vec<(u64, u32)>,
+        funding_deadline: u64,
+        min_deposit: i128,
     ) -> Result<u64, BasketError> {
         admin_caller.require_auth();
         let admin = read_admin(&env)?;
@@ -471,6 +523,9 @@ impl InvestmentBasketContract {
         }
         if constituents.len() > MAX_BASKET_SIZE {
             return Err(BasketError::TooManyConstituents);
+        }
+        if min_deposit < 0 {
+            return Err(BasketError::InvalidAmount);
         }
 
         let mut weight_sum: u32 = 0;
@@ -520,6 +575,8 @@ impl InvestmentBasketContract {
             created_at: env.ledger().timestamp(),
             total_invested: 0,
             total_skipped: 0,
+            funding_deadline,
+            min_deposit,
         };
         env.storage()
             .persistent()
@@ -530,8 +587,20 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("created")),
-            (EVENT_SCHEMA_VERSION, id, constituents.len()),
+            (
+                EVENT_SCHEMA_VERSION,
+                id,
+                constituents.len(),
+                funding_deadline,
+                min_deposit,
+            ),
         );
+        if funding_deadline > env.ledger().timestamp() {
+            env.events().publish(
+                (t_basket(), symbol_short!("fw_close")),
+                (EVENT_SCHEMA_VERSION, id, funding_deadline, min_deposit),
+            );
+        }
         Ok(id)
     }
 
@@ -609,6 +678,15 @@ impl InvestmentBasketContract {
         if basket.total_deposit <= 0 {
             return Err(BasketError::InvalidAmount);
         }
+        if basket.min_deposit > 0 && basket.total_deposit < basket.min_deposit {
+            return Err(BasketError::MinDepositNotMet);
+        }
+        if basket.funding_deadline > env.ledger().timestamp() {
+            let admin = read_admin(&env)?;
+            if caller != admin {
+                return Err(BasketError::FundingWindowOpen);
+            }
+        }
 
         let mut allocated: i128 = 0;
         let count = basket.constituents.len();
@@ -664,7 +742,13 @@ impl InvestmentBasketContract {
 
         env.events().publish(
             (t_basket(), symbol_short!("funded")),
-            (EVENT_SCHEMA_VERSION, basket_id, basket.total_deposit, basket.total_invested, basket.total_skipped),
+            (
+                EVENT_SCHEMA_VERSION,
+                basket_id,
+                basket.total_deposit,
+                basket.total_invested,
+                basket.total_skipped,
+            ),
         );
         Ok(())
     }

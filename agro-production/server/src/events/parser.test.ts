@@ -117,22 +117,26 @@ describe('ProductionEventParser', () => {
 
   describe('basket.created', () => {
     it('parses correctly', () => {
-      const raw = makeRaw('basket', 'created', [1n, 3]);
+      const raw = makeRaw('basket', 'created', [1, 1n, 3, 1_700_001_000n, 1000n]);
       const event = ProductionEventParser.parse(raw);
       expect(event.action).toBe('basket.created');
       if (event.action === 'basket.created') {
+        expect(event.schemaVersion).toBe('1');
         expect(event.basketId).toBe('1');
         expect(event.constituentsCount).toBe(3);
+        expect(event.fundingDeadline).toBe('1700001000');
+        expect(event.minDeposit).toBe('1000');
       }
     });
   });
 
   describe('basket.deposit', () => {
     it('parses correctly', () => {
-      const raw = makeRaw('basket', 'deposit', [1n, 'GDEPOSITOR', 500n]);
+      const raw = makeRaw('basket', 'deposit', [1, 1n, 'GDEPOSITOR', 500n]);
       const event = ProductionEventParser.parse(raw);
       expect(event.action).toBe('basket.deposit');
       if (event.action === 'basket.deposit') {
+        expect(event.schemaVersion).toBe('1');
         expect(event.basketId).toBe('1');
         expect(event.depositor).toBe('GDEPOSITOR');
         expect(event.amount).toBe('500');
@@ -142,22 +146,40 @@ describe('ProductionEventParser', () => {
 
   describe('basket.funded', () => {
     it('parses correctly', () => {
-      const raw = makeRaw('basket', 'funded', [1n, 1500n]);
+      const raw = makeRaw('basket', 'funded', [1, 1n, 1500n, 1200n, 300n]);
       const event = ProductionEventParser.parse(raw);
       expect(event.action).toBe('basket.funded');
       if (event.action === 'basket.funded') {
+        expect(event.schemaVersion).toBe('1');
         expect(event.basketId).toBe('1');
         expect(event.totalDeposit).toBe('1500');
+        expect(event.totalInvested).toBe('1200');
+        expect(event.totalSkipped).toBe('300');
+      }
+    });
+  });
+
+  describe('basket.fw_close', () => {
+    it('parses correctly', () => {
+      const raw = makeRaw('basket', 'fw_close', [1, 1n, 1_700_001_000n, 1000n]);
+      const event = ProductionEventParser.parse(raw);
+      expect(event.action).toBe('basket.fw_close');
+      if (event.action === 'basket.fw_close') {
+        expect(event.schemaVersion).toBe('1');
+        expect(event.basketId).toBe('1');
+        expect(event.fundingDeadline).toBe('1700001000');
+        expect(event.minDeposit).toBe('1000');
       }
     });
   });
 
   describe('basket.withdrawn', () => {
     it('parses correctly', () => {
-      const raw = makeRaw('basket', 'withdrawn', [1n, 'GDEPOSITOR', 500n]);
+      const raw = makeRaw('basket', 'withdrawn', [1, 1n, 'GDEPOSITOR', 500n]);
       const event = ProductionEventParser.parse(raw);
       expect(event.action).toBe('basket.withdrawn');
       if (event.action === 'basket.withdrawn') {
+        expect(event.schemaVersion).toBe('1');
         expect(event.basketId).toBe('1');
         expect(event.depositor).toBe('GDEPOSITOR');
         expect(event.depositAmount).toBe('500');
@@ -167,10 +189,11 @@ describe('ProductionEventParser', () => {
 
   describe('basket.claimed', () => {
     it('parses correctly', () => {
-      const raw = makeRaw('basket', 'claimed', [1n, 'GDEPOSITOR', 620n]);
+      const raw = makeRaw('basket', 'claimed', [1, 1n, 'GDEPOSITOR', 620n]);
       const event = ProductionEventParser.parse(raw);
       expect(event.action).toBe('basket.claimed');
       if (event.action === 'basket.claimed') {
+        expect(event.schemaVersion).toBe('1');
         expect(event.basketId).toBe('1');
         expect(event.depositor).toBe('GDEPOSITOR');
         expect(event.payout).toBe('620');

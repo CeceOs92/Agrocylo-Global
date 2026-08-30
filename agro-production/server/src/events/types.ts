@@ -18,6 +18,7 @@ export type EventAction =
   | 'basket.created'
   | 'basket.deposit'
   | 'basket.funded'
+  | 'basket.fw_close'
   | 'basket.withdrawn'
   | 'basket.claimed';
 
@@ -41,6 +42,7 @@ interface BaseEvent {
   rawId: string;
   /** Preserved so API read models can be tied back to the confirmed ledger tx. */
   txHash?: string;
+  schemaVersion?: string;
 }
 
 export interface CampaignCreatedEvent extends BaseEvent {
@@ -96,6 +98,7 @@ export interface GenericCampaignEvent extends BaseEvent {
     | 'basket.created'
     | 'basket.deposit'
     | 'basket.funded'
+    | 'basket.fw_close'
     | 'basket.withdrawn'
     | 'basket.claimed'
   >;
@@ -137,6 +140,8 @@ export interface BasketCreatedEvent extends BaseEvent {
   action: 'basket.created';
   basketId: string;
   constituentsCount: number;
+  fundingDeadline?: string;
+  minDeposit?: string;
 }
 
 export interface BasketDepositEvent extends BaseEvent {
@@ -150,6 +155,15 @@ export interface BasketFundedEvent extends BaseEvent {
   action: 'basket.funded';
   basketId: string;
   totalDeposit: string;
+  totalInvested?: string;
+  totalSkipped?: string;
+}
+
+export interface BasketFundingWindowClosingEvent extends BaseEvent {
+  action: 'basket.fw_close';
+  basketId: string;
+  fundingDeadline: string;
+  minDeposit: string;
 }
 
 export interface BasketWithdrawnEvent extends BaseEvent {
@@ -180,5 +194,6 @@ export type ParsedEvent =
   | BasketCreatedEvent
   | BasketDepositEvent
   | BasketFundedEvent
+  | BasketFundingWindowClosingEvent
   | BasketWithdrawnEvent
   | BasketClaimedEvent;
