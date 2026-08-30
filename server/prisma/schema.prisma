@@ -20,6 +20,7 @@ model Nonce {
 model RefreshToken {
   id            String   @id @default(uuid())
   walletAddress String
+  /// SHA-256 digest of the high-entropy token returned to the client.
   token         String   @unique
   expiresAt     DateTime
   createdAt     DateTime @default(now())

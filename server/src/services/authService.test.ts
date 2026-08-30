@@ -19,7 +19,7 @@ vi.mock('@stellar/stellar-sdk', () => ({
   },
 }));
 
-import { generateNonce, verifySignature, refreshAccessToken, logout } from './authService.js';
+import { buildSignInMessage, generateNonce, verifySignature, refreshAccessToken, logout } from './authService.js';
 import { prisma } from '../config/database.js';
 import { Keypair } from '@stellar/stellar-sdk';
 
@@ -35,10 +35,20 @@ const mockFromPublicKey = vi.mocked(Keypair.fromPublicKey);
 const VALID_WALLET = 'GBSOMEWALLET123456';
 const FUTURE_DATE_OBJ = new Date(Date.now() + 60_000);
 const PAST_DATE_OBJ = new Date(Date.now() - 60_000);
+const ISSUED_AT = new Date();
+
+function challenge(overrides: Record<string, unknown> = {}) {
+  return { nonce: 'some-nonce', createdAt: ISSUED_AT, expiresAt: FUTURE_DATE_OBJ, ...overrides } as any;
+}
+
+function message(row = challenge()) {
+  return buildSignInMessage(VALID_WALLET, row.nonce, row.createdAt, row.expiresAt);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockFromPublicKey.mockReturnValue({ verify: vi.fn().mockReturnValue(true) } as any);
+  mockNonceFindUnique.mockResolvedValue(null);
 });
 
 describe('generateNonce', () => {
@@ -48,6 +58,7 @@ describe('generateNonce', () => {
     const result = await generateNonce(VALID_WALLET);
 
     expect(result.nonce).toBeDefined();
+    expect(result.message).toContain(`Wallet Address: ${VALID_WALLET}`);
     expect(typeof result.nonce).toBe('string');
     expect(result.nonce).toHaveLength(64);
     expect(mockNonceUpsert).toHaveBeenCalledOnce();
@@ -60,15 +71,26 @@ describe('generateNonce', () => {
 
     await expect(generateNonce('INVALID_ADDRESS')).rejects.toMatchObject({ status: 400 });
   });
+
+  it('reuses an unexpired challenge instead of overwriting the wallet nonce', async () => {
+    const row = challenge();
+    mockNonceFindUnique.mockResolvedValueOnce(row);
+
+    const result = await generateNonce(VALID_WALLET);
+
+    expect(result.nonce).toBe(row.nonce);
+    expect(mockNonceUpsert).not.toHaveBeenCalled();
+  });
 });
 
 describe('verifySignature', () => {
   it('returns access and refresh tokens on valid signature', async () => {
-    mockNonceFindUnique.mockResolvedValueOnce({ nonce: 'some-nonce', expiresAt: FUTURE_DATE_OBJ } as any);
+    const row = challenge();
+    mockNonceFindUnique.mockResolvedValueOnce(row);
     mockNonceDelete.mockResolvedValueOnce({} as any);
     mockRefreshTokenCreate.mockResolvedValueOnce({} as any);
 
-    const result = await verifySignature(VALID_WALLET, 'dGVzdA==');
+    const result = await verifySignature(VALID_WALLET, 'dGVzdA==', message(row));
 
     expect(result.accessToken).toBeDefined();
     expect(result.refreshToken).toBeDefined();
@@ -82,34 +104,47 @@ describe('verifySignature', () => {
       throw new Error('Invalid');
     });
 
-    await expect(verifySignature('INVALID', 'sig')).rejects.toMatchObject({ status: 400 });
+    await expect(verifySignature('INVALID', 'sig', 'message')).rejects.toMatchObject({ status: 400 });
   });
 
   it('throws 401 when no nonce exists for the wallet', async () => {
     mockNonceFindUnique.mockResolvedValueOnce(null);
 
-    await expect(verifySignature(VALID_WALLET, 'sig')).rejects.toMatchObject({ status: 401 });
+    await expect(verifySignature(VALID_WALLET, 'sig', 'message')).rejects.toMatchObject({ status: 401 });
   });
 
   it('throws 401 when the nonce has expired', async () => {
     mockNonceFindUnique.mockResolvedValueOnce({
       nonce: 'old-nonce',
+      createdAt: PAST_DATE_OBJ,
       expiresAt: PAST_DATE_OBJ,
     } as any);
 
-    await expect(verifySignature(VALID_WALLET, 'sig')).rejects.toMatchObject({ status: 401 });
+    await expect(verifySignature(VALID_WALLET, 'sig', 'message')).rejects.toMatchObject({ status: 401 });
   });
 
   it('throws 401 when the signature is invalid', async () => {
-    mockNonceFindUnique.mockResolvedValueOnce({
-      nonce: 'some-nonce',
-      expiresAt: FUTURE_DATE_OBJ,
-    } as any);
+    const row = challenge();
+    mockNonceFindUnique.mockResolvedValueOnce(row);
     mockFromPublicKey
       .mockReturnValueOnce({ verify: vi.fn().mockReturnValue(true) } as any)
       .mockReturnValueOnce({ verify: vi.fn().mockReturnValue(false) } as any);
 
-    await expect(verifySignature(VALID_WALLET, 'dGVzdA==')).rejects.toMatchObject({ status: 401 });
+    await expect(verifySignature(VALID_WALLET, 'dGVzdA==', message(row))).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('rejects a message with a tampered structured field', async () => {
+    const row = challenge();
+    mockNonceFindUnique.mockResolvedValueOnce(row);
+    await expect(
+      verifySignature(VALID_WALLET, 'dGVzdA==', message(row).replace('agrocylo.global', 'evil.example')),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('rejects a challenge with an expired issued-at time', async () => {
+    const row = challenge({ createdAt: new Date(Date.now() - 6 * 60 * 1000) });
+    mockNonceFindUnique.mockResolvedValueOnce(row);
+    await expect(verifySignature(VALID_WALLET, 'dGVzdA==', message(row))).rejects.toMatchObject({ status: 401 });
   });
 });
 
@@ -127,8 +162,14 @@ describe('refreshAccessToken', () => {
     expect(result.accessToken).toBeDefined();
     expect(result.refreshToken).toBeDefined();
     expect(mockRefreshTokenFindUnique).toHaveBeenCalledTimes(1);
+    expect(mockRefreshTokenFindUnique).toHaveBeenCalledWith({
+      where: { token: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    });
     expect(mockRefreshTokenDelete).toHaveBeenCalledTimes(1);
     expect(mockRefreshTokenCreate).toHaveBeenCalledTimes(1);
+    expect(mockRefreshTokenCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ token: expect.not.stringMatching(/^valid-refresh-token$/) }),
+    });
   });
 
   it('throws 401 for an unknown refresh token', async () => {
@@ -157,7 +198,7 @@ describe('logout', () => {
 
     expect(mockRefreshTokenDeleteMany).toHaveBeenCalledOnce();
     expect(mockRefreshTokenDeleteMany).toHaveBeenCalledWith({
-      where: { token: 'some-refresh-token' },
+      where: { token: expect.stringMatching(/^[a-f0-9]{64}$/) },
     });
   });
 });
