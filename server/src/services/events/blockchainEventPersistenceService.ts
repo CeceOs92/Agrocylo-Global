@@ -3,6 +3,7 @@ import { prisma } from "../../config/database.js";
 import logger from "../../config/logger.js";
 import type { IndexedEvent } from "../../types/indexedEvent.js";
 import { ReferralService } from "../referralService.js";
+import { CampaignStatus, OrderStatus } from "../../constants/status.js";
 
 type PrismaTx = Omit<typeof prisma, "$connect" | "$disconnect" | "$on" | "$use" | "$extends">;
 
@@ -94,14 +95,14 @@ export class BlockchainEventPersistenceService {
             creatorAddress: event.actorAddress ?? "",
             goalAmount: event.amount ?? "0",
             token: event.token ?? "",
-            status: "ACTIVE",
+            status: CampaignStatus.ACTIVE,
           },
           create: {
             campaignIdOnChain: event.campaignIdOnChain ?? "",
             creatorAddress: event.actorAddress ?? "",
             goalAmount: event.amount ?? "0",
             token: event.token ?? "",
-            status: "ACTIVE",
+            status: CampaignStatus.ACTIVE,
           },
         });
         return;
@@ -114,7 +115,7 @@ export class BlockchainEventPersistenceService {
             creatorAddress: "",
             goalAmount: "0",
             token: event.token ?? "",
-            status: "ACTIVE",
+            status: CampaignStatus.ACTIVE,
           },
         });
         await tx.investment.upsert({
@@ -134,13 +135,13 @@ export class BlockchainEventPersistenceService {
       case "campaign.settled":
         await tx.campaign.upsert({
           where: { campaignIdOnChain: event.campaignIdOnChain },
-          update: { status: event.status ?? "SETTLED" },
+          update: { status: event.status ?? CampaignStatus.SETTLED },
           create: {
             campaignIdOnChain: event.campaignIdOnChain ?? "",
             creatorAddress: event.actorAddress ?? "",
             goalAmount: "0",
             token: event.token ?? "",
-            status: event.status ?? "SETTLED",
+            status: event.status ?? CampaignStatus.SETTLED,
           },
         });
         return;
@@ -152,7 +153,7 @@ export class BlockchainEventPersistenceService {
             sellerAddress: event.secondaryAddress ?? "",
             amount: event.amount ?? "0",
             token: event.token ?? "",
-            status: "PENDING",
+            status: OrderStatus.PENDING,
           },
           create: {
             orderIdOnChain: event.orderIdOnChain ?? "",
@@ -160,49 +161,49 @@ export class BlockchainEventPersistenceService {
             sellerAddress: event.secondaryAddress ?? "",
             amount: event.amount ?? "0",
             token: event.token ?? "",
-            status: "PENDING",
+            status: OrderStatus.PENDING,
           },
         });
         return;
       case "order.delivered":
         await tx.order.upsert({
           where: { orderIdOnChain: event.orderIdOnChain },
-          update: { status: "DELIVERED" },
+          update: { status: OrderStatus.DELIVERED },
           create: {
             orderIdOnChain: event.orderIdOnChain ?? "",
             buyerAddress: event.secondaryAddress ?? "",
             sellerAddress: event.actorAddress ?? "",
             amount: "0",
             token: "",
-            status: "DELIVERED",
+            status: OrderStatus.DELIVERED,
           },
         });
         return;
       case "order.confirmed":
         await tx.order.upsert({
           where: { orderIdOnChain: event.orderIdOnChain },
-          update: { status: "COMPLETED" },
+          update: { status: OrderStatus.COMPLETED },
           create: {
             orderIdOnChain: event.orderIdOnChain ?? "",
             buyerAddress: event.actorAddress ?? "",
             sellerAddress: event.secondaryAddress ?? "",
             amount: "0",
             token: "",
-            status: "COMPLETED",
+            status: OrderStatus.COMPLETED,
           },
         });
         return;
       case "order.refunded":
         await tx.order.upsert({
           where: { orderIdOnChain: event.orderIdOnChain },
-          update: { status: "REFUNDED" },
+          update: { status: OrderStatus.REFUNDED },
           create: {
             orderIdOnChain: event.orderIdOnChain ?? "",
             buyerAddress: event.actorAddress ?? "",
             sellerAddress: "",
             amount: "0",
             token: "",
-            status: "REFUNDED",
+            status: OrderStatus.REFUNDED,
           },
         });
         return;
