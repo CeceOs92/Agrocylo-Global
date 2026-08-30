@@ -10,6 +10,7 @@ export interface IntegratorScope {
 }
 
 const MAX_PAGE_SIZE = 200;
+const DEFAULT_KEY_LIFETIME_MS = 365 * 24 * 60 * 60 * 1000;
 
 function generateRawKey(): string {
   // 32 bytes of entropy, hex-encoded; only ever returned once at creation.
@@ -44,6 +45,7 @@ export class IntegratorService {
         scopedFarmerWallets: scopedFarmerWallets ?? [],
         scopedRegion: scopedRegion ?? null,
         createdByAdmin,
+        expiresAt: new Date(Date.now() + DEFAULT_KEY_LIFETIME_MS),
       },
     });
 
@@ -62,6 +64,7 @@ export class IntegratorService {
         scopedRegion: true,
         createdByAdmin: true,
         revokedAt: true,
+        expiresAt: true,
         lastUsedAt: true,
         createdAt: true,
       },
