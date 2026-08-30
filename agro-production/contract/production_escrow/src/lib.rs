@@ -798,11 +798,10 @@ impl ProductionEscrowContract {
             return Err(EscrowError::CampaignOverfunded);
         }
 
-        // Pull funds into the contract.
-        let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&investor, &env.current_contract_address(), &amount);
+        // Issue #850: Measure actual token delta (defends against fee-on-transfer).
+        let actual_amount = measure_token_transfer(&env, &campaign.token, &investor, amount)?;
 
-        campaign.total_raised = checked_add(campaign.total_raised, amount)?;
+        campaign.total_raised = checked_add(campaign.total_raised, actual_amount)?;
 
         // Record contribution (additive) using indexed keys instead of per-campaign Map.
         let contribution_key = DataKey::Contribution(campaign_id, investor.clone());
@@ -813,7 +812,7 @@ impl ProductionEscrowContract {
             .unwrap_or(0);
         env.storage()
             .persistent()
-            .set(&contribution_key, &checked_add(prev, amount)?);
+            .set(&contribution_key, &checked_add(prev, actual_amount)?);
         env.storage()
             .persistent()
             .extend_ttl(&contribution_key, TTL_THRESHOLD, TTL_EXTEND);
@@ -834,7 +833,7 @@ impl ProductionEscrowContract {
 
         env.events().publish(
             (t_campaign(), symbol_short!("invested")),
-            (campaign_id, investor, amount, campaign.total_raised),
+            (campaign_id, investor, actual_amount, campaign.total_raised),
         );
         Ok(())
     }
@@ -861,7 +860,10 @@ impl ProductionEscrowContract {
         }
         campaign.status = CampaignStatus::InProduction;
 
-        let tranche = checked_mul(campaign.total_raised, TRANCHE_START_BPS)? / BPS_DENOM;
+        let tranche = checked_div(
+            checked_mul(campaign.total_raised, TRANCHE_START_BPS)?,
+            BPS_DENOM,
+        )?;
         release_tranche_internal(&env, &mut campaign, tranche)?;
 
         save_campaign(&env, &campaign);
@@ -897,10 +899,13 @@ impl ProductionEscrowContract {
         }
         campaign.status = CampaignStatus::Harvested;
 
-        let cumulative_target = checked_mul(
-            campaign.total_raised,
-            TRANCHE_START_BPS + TRANCHE_HARVEST_BPS,
-        )? / BPS_DENOM;
+        let cumulative_target = checked_div(
+            checked_mul(
+                campaign.total_raised,
+                TRANCHE_START_BPS + TRANCHE_HARVEST_BPS,
+            )?,
+            BPS_DENOM,
+        )?;
         let delta = checked_sub(cumulative_target, campaign.tranche_released)?;
         if delta > 0 {
             release_tranche_internal(&env, &mut campaign, delta)?;
@@ -1009,8 +1014,10 @@ impl ProductionEscrowContract {
         }
 
         let cfg = configs.get(next_idx).unwrap();
-        let tranche_amount =
-            checked_mul(campaign.total_raised, cfg.release_bps as i128)? / BPS_DENOM;
+        let tranche_amount = checked_div(
+            checked_mul(campaign.total_raised, cfg.release_bps as i128)?,
+            BPS_DENOM,
+        )?;
         if tranche_amount > 0 {
             release_tranche_internal(&env, &mut campaign, tranche_amount)?;
         }
@@ -1049,8 +1056,8 @@ impl ProductionEscrowContract {
             return Err(EscrowError::CampaignNotHarvested);
         }
 
-        let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&buyer, &env.current_contract_address(), &amount);
+        // Issue #850: Measure actual token delta (defends against fee-on-transfer).
+        let actual_amount = measure_token_transfer(&env, &campaign.token, &buyer, amount)?;
 
         let mut id: u64 = env
             .storage()
@@ -1060,19 +1067,19 @@ impl ProductionEscrowContract {
         id += 1;
         env.storage().instance().set(&DataKey::OrderCount, &id);
 
-        // Calculate fee based on current fee rate. Fee is escrowed with the order.
+        // Issue #853: Use checked_mul for fee calculation.
         let fee_rate_bps: u32 = env
             .storage()
             .instance()
             .get(&DataKey::FeeRateBps)
             .unwrap_or(0);
-        let fee = (amount * fee_rate_bps as i128) / 10_000;
+        let fee = checked_mul(actual_amount, fee_rate_bps as i128)? / 10_000;
 
         let order = Order {
             id,
             campaign_id,
             buyer: buyer.clone(),
-            amount,
+            amount: actual_amount,
             fee,
             created_at: env.ledger().timestamp(),
             status: OrderStatus::Pending,
@@ -1085,7 +1092,7 @@ impl ProductionEscrowContract {
 
         env.events().publish(
             (t_order(), symbol_short!("created")),
-            (id, buyer, campaign_id, amount),
+            (id, buyer, campaign_id, actual_amount),
         );
         Ok(id)
     }
@@ -2205,6 +2212,34 @@ fn checked_mul(a: i128, b: i128) -> Result<i128, EscrowError> {
     a.checked_mul(b).ok_or(EscrowError::InvalidAmount)
 }
 
+/// Issue #853: Checked division (safe for non-zero divisors).
+fn checked_div(a: i128, b: i128) -> Result<i128, EscrowError> {
+    if b == 0 {
+        return Err(EscrowError::InvalidAmount);
+    }
+    Ok(a / b)
+}
+
+/// Issue #850: Measure actual token delta to defend against fee-on-transfer tokens.
+/// Returns the actual amount transferred (balance delta), not the caller-supplied amount.
+fn measure_token_transfer(
+    env: &Env,
+    token: &Address,
+    from: &Address,
+    expected: i128,
+) -> Result<i128, EscrowError> {
+    let token_client = token::Client::new(env, token);
+    let before = token_client.balance(&env.current_contract_address());
+    token_client.transfer(from, &env.current_contract_address(), &expected);
+    let after = token_client.balance(&env.current_contract_address());
+    let delta = checked_sub(after, before)?;
+    if delta != expected {
+        // Issue #850: Reject or log fee-on-transfer anomaly. For now, strict mode: reject.
+        return Err(EscrowError::UnsupportedToken);
+    }
+    Ok(delta)
+}
+
 // Extend instance storage TTL to prevent archival (Issue #777).
 fn bump_instance(env: &Env) {
     env.storage()
@@ -2376,7 +2411,10 @@ fn resolve_dispute_internal(
                 checked_sub(campaign.total_revenue, campaign.tranche_released)?,
             )?;
             if pool > 0 && farmer_bps > 0 {
-                let farmer_cut = checked_mul(pool, farmer_bps as i128)? / BPS_DENOM;
+                let farmer_cut = checked_div(
+                    checked_mul(pool, farmer_bps as i128)?,
+                    BPS_DENOM,
+                )?;
                 if farmer_cut > 0 {
                     let token_client = token::Client::new(env, &campaign.token);
                     token_client.transfer(
@@ -2438,7 +2476,10 @@ fn release_tranche_internal(
     // Enforce maximum cumulative tranche cap to always preserve at least
     // (100% - MAX_TRANCHE_BPS) of raised funds for investor refunds.
     let new_total = campaign.tranche_released + amount;
-    let max_allowed = (campaign.total_raised * MAX_TRANCHE_BPS) / BPS_DENOM;
+    let max_allowed = checked_div(
+        checked_mul(campaign.total_raised, MAX_TRANCHE_BPS)?,
+        BPS_DENOM,
+    )?;
     if new_total > max_allowed {
         return Err(EscrowError::InvalidTranche);
     }
