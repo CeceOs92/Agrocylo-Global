@@ -668,7 +668,15 @@ export async function startContractWatcher(): Promise<void> {
   const contractIds = [contractId, governanceContractId].filter(Boolean) as string[];
   logger.info(`[ContractWatcher] Listening for events on contracts ${contractIds.join(", ")} from ledger ${lastLedger} (max span ${MAX_LEDGER_SPAN}, max pages ${MAX_PAGES_PER_POLL})`);
 
-  setInterval(async () => {
+  let running = false;
+
+  async function poll() {
+    if (running) {
+      logger.debug("[ContractWatcher] Previous poll still running, skipping this tick");
+      scheduleNext();
+      return;
+    }
+    running = true;
     try {
       const latestSeq = (await server.getLatestLedger()).sequence;
       const endLedger = Math.min(lastLedger + MAX_LEDGER_SPAN, latestSeq);
@@ -770,6 +778,23 @@ export async function startContractWatcher(): Promise<void> {
         logger.info(`[ContractWatcher] Advanced checkpoint to ${lastLedger} after processing ${processedCount} events in ${pages} page(s)`);
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("startLedger must be within the retention window")) {
+        logger.warn(`[ContractWatcher] Retention window exceeded — resetting checkpoint to latest ledger`);
+        try {
+          const latest = (await server.getLatestLedger()).sequence;
+          lastLedger = latest;
+          await persistCheckpoint(lastLedger);
+          captureAlert(
+            "contract_watcher_retention_window_reset",
+            `Contract watcher checkpoint reset to ledger ${lastLedger} after retention window error`,
+            { checkpoint: lastLedger },
+          );
+        } catch (resetErr) {
+          logger.error("[ContractWatcher] Failed to reset checkpoint after retention error", resetErr);
+        }
+        return;
+      }
       logger.error("[ContractWatcher] Poll error", err);
       // Sentry groups identical errors into one issue, so a sustained RPC
       // outage polling every 5s doesn't need its own cooldown logic here —
@@ -778,6 +803,15 @@ export async function startContractWatcher(): Promise<void> {
       captureAlert("contract_watcher_poll_error", "Contract watcher poll iteration failed", {
         error: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      running = false;
+      scheduleNext();
     }
-  }, POLL_INTERVAL_MS);
+  }
+
+  function scheduleNext() {
+    setTimeout(poll, POLL_INTERVAL_MS);
+  }
+
+  scheduleNext();
 }
