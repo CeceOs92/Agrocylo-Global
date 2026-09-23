@@ -2,8 +2,13 @@
   "name": "client",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10.9.0 <11"
+  },
   "scripts": {
-    "dev": "next dev",
+    "predev": "node ../scripts/check-toolchain.cjs",
+    "dev": "node ../scripts/dev-frontend.cjs marketplace 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -11,6 +16,7 @@
     "test:ui": "vitest --ui",
     "test:a11y": "vitest run src/a11y.test.tsx",
     "test:e2e": "npx playwright test",
+    "test:e2e:csp": "npx playwright test e2e/csp.spec.ts --project=chromium",
     "test:e2e:ui": "npx playwright test --ui"
   },
   "dependencies": {

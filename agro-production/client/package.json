@@ -2,8 +2,13 @@
   "name": "agro-production-client",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.13.0 <23",
+    "npm": ">=10.9.0 <11"
+  },
   "scripts": {
-    "dev": "next dev",
+    "predev": "node ../../scripts/check-toolchain.cjs",
+    "dev": "node ../../scripts/dev-frontend.cjs production 3001",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
