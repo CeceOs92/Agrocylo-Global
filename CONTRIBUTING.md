@@ -59,6 +59,86 @@ extracted example. If you're duplicating something that already exists in
 one app while working on the other, that's a signal it belongs in a shared
 package instead.
 
+#### Dev ports
+
+Both dev servers use fixed ports so they can run side by side (also required
+by the cold-start smoke check):
+
+| App | Command | URL |
+| --- | --- | --- |
+| `client` (marketplace) | `npm run dev --workspace=client` | http://localhost:3000 |
+| `agro-production/client` | `npm run dev --workspace=agro-production/client` | http://localhost:3001 |
+| both, via Turborepo | `npm run dev` (repo root) | both of the above |
+
+#### When `npm run dev` fails: diagnose, then reset (Issues #920 / #921)
+
+Don't guess — and don't start by deleting `node_modules`. Two read-only/limited
+commands answer the usual questions:
+
+```bash
+npm run doctor                # both clients
+npm run doctor:client         # marketplace client only
+npm run doctor:agro           # agro-production client only
+```
+
+`doctor` reports, per app, the declared `next` version, where `next/package.json`
+actually resolves from (project-local vs hoisted), the workspace root, the
+lockfile in use, and the effective bundler root — then tells you whether the
+installed `next` lives **inside** that root. It distinguishes:
+
+- `NEXT_NOT_INSTALLED` — the package is missing → install at the repo root.
+- `NEXT_BROKEN_LINK` — the path exists but is a broken symlink → reinstall.
+- `ROOT_MISCONFIGURED` / `NEXT_OUTSIDE_ROOT` — `next` is installed but outside
+  the root the bundler compiles from. This is the configuration failure behind
+  *"couldn't find the Next.js package"* and the repeated
+  `.next/dev/server/pages/_app/build-manifest.json` ENOENT loop. Fix the
+  bundler root, don't reinstall.
+
+It exits nonzero on a blocking problem, prints environment-variable **names**
+only (never values, never `.env` contents), and never installs or deletes
+anything.
+
+**Recovery order** — a cache reset cannot fix a broken install or a misconfigured
+root, so always:
+
+1. Fix the **first** error the dev server or `doctor` reported.
+2. Stop that app's dev process (`Ctrl+C` on `npm run dev`). Running the reset
+   against a live server can hit file locks.
+3. If generated output was left half-written, reset **that app's** cache only:
+   ```bash
+   npm run reset:next:client   # or: npm run reset:next:agro
+   node scripts/reset-next-cache.js --app=client --dry-run   # preview
+   ```
+   It removes only the selected app's `.next`, is idempotent, refuses to follow
+   a `.next` symlink, and never touches source files, `.env` files, lockfiles,
+   `node_modules` or the other client's cache. It is deliberately **not** wired
+   into `npm run dev`.
+4. Restart: `npm run dev --workspace=client` (or the agro equivalent).
+
+If you are sure the install itself is broken, reinstall once at the repo root
+(`npm ci`) — after step 1, not instead of it.
+
+#### Cold-start smoke check (Issue #924)
+
+```bash
+npm run smoke:dev                      # npm ci, then both clients + root launcher
+npm run smoke:dev -- --skip-install    # reuse the current install
+npm run smoke:dev -- --app=client      # one app
+```
+
+Starts each app through its documented workspace command on a deterministic
+port with non-production configuration, waits for a real HTTP 200 containing an
+app-specific content marker, requests extra routes to force lazy compilation,
+then stops the server and repeats as a start/stop cycle. It fails within a
+fixed timeout, writes every server's log to `.smoke-logs/`, uploads them in CI,
+and always kills the processes it spawned.
+
+#### Upgrading Next.js (Issue #923)
+
+`next` and `eslint-config-next` are upgraded in lockstep across both clients —
+see [`docs/DEPENDENCY_UPGRADE_POLICY.md`](docs/DEPENDENCY_UPGRADE_POLICY.md).
+`npm run check:versions` enforces it in CI.
+
 #### For Backend
 ```bash
 cd agro-production/server  # or cd server/ for root marketplace
@@ -181,6 +261,8 @@ Because smart contracts hold real funds and are deployed to mainnet, merge gates
 ## Continuous Integration & Merge Gate
 
 **CI must be green before merge.** Every workflow under `.github/workflows/` (`ci.yml`, `Server CI`, `Server E2E`, `E2E · Playwright`) is a required status check on `main` — a PR cannot merge while a check relevant to the paths it touches is red. This is enforced by branch protection on `main`, not just by convention; if you believe a required check isn't actually blocking merge for your PR, treat that as a bug and file an issue (see #745 for the tracking issue on this gap).
+
+**New checks in `ci.yml`:** `Shared client dependency versions` (framework/tooling policy, #923), `Repo scripts · unit tests` (doctor / cache reset / policy / smoke-harness tests, #920–#924) and `Dev server cold-start smoke` (both dev servers plus the Turborepo launcher must serve real pages, #924). All three are path-scoped like the rest.
 
 **Scoping:** Each workflow only runs for the paths it covers (see the `paths:` filters in each `.github/workflows/*.yml` file) — e.g. a contracts-only PR isn't blocked by the Playwright suite, but a PR touching `client/` or `agro-production/client/` is. Only the checks relevant to your PR's changed paths need to pass.
 
