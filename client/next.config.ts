@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 
 // ── Build-time validation for required network configuration ──
@@ -54,10 +55,13 @@ function validateNetworkConfig() {
 
 validateNetworkConfig();
 
-const cwd = process.cwd().replace(/\\/g, "/");
-const clientRoot = cwd.endsWith("/client")
-  ? process.cwd()
-  : `${process.cwd()}\\client`;
+// Dependencies are hoisted to the repository root by the npm workspace
+// (Issue #755), so the bundler root has to be the workspace root — pointing it
+// at the app directory puts `next` itself outside the root and reproduces the
+// "couldn't find the Next.js package" / build-manifest ENOENT startup failure.
+// `__dirname` (never process.cwd()) keeps this stable when the app is started
+// through Turborepo or from another directory.
+const workspaceRoot = path.resolve(__dirname, "..");
 
 const sorobanRpc = new URL(process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org").hostname;
 const horizonHostname = new URL(process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org").hostname;
@@ -110,7 +114,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   headers,
   turbopack: {
-    root: clientRoot,
+    root: workspaceRoot,
   },
   images: {
     qualities: [75, 100],
