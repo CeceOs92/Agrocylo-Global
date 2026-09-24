@@ -13,11 +13,11 @@ import {
 
 /** Active cart for the connected wallet. */
 export function useActiveCart() {
-  const { address, connected } = useWallet();
+  const { address, connected, authenticated } = useWallet();
   return useQuery({
     queryKey: queryKeys.cart.all(),
     queryFn: () => getActiveCart(address!),
-    enabled: connected && !!address,
+    enabled: connected && authenticated && !!address,
   });
 }
 

@@ -1,6 +1,14 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useWallet } from "@/hooks/useWallet";
 import type { CartState } from "@/types/cart";
 import {
@@ -30,7 +38,7 @@ type CartContextType = {
 const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { address, connected } = useWallet();
+  const { address, connected, authenticated } = useWallet();
 
   const [cart, setCart] = useState<CartState>({ cart_id: null, groups: [] });
   const [cartLoading, setCartLoading] = useState(false);
@@ -39,7 +47,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cartRef = useRef(cart);
-  useEffect(() => { cartRef.current = cart; }, [cart]);
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
 
   const itemCount = useMemo(() => {
     return cart.groups.reduce((acc, g) => {
@@ -48,7 +58,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [cart]);
 
   const refreshCart = useCallback(async () => {
-    if (!address || !connected) return;
+    if (!address || !connected || !authenticated) return;
     setCartLoading(true);
     setCartError(null);
     try {
@@ -59,22 +69,23 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setCartLoading(false);
     }
-  }, [address, connected]);
+  }, [address, authenticated, connected]);
 
   useEffect(() => {
-    if (!connected || !address) return;
+    if (!connected || !authenticated || !address) return;
     void refreshCart();
-  }, [connected, address, refreshCart]);
+  }, [authenticated, connected, address, refreshCart]);
 
   const setQuantityForProduct = useCallback(
     (productId: string, quantity: number) => {
-      if (!address || !connected) return;
+      if (!address || !connected || !authenticated) return;
       const nextQty = Math.max(0, Math.floor(quantity));
 
       const findItem = (pid: string) => {
         for (const g of cartRef.current.groups) {
           const it = g.items.find((x) => x.product_id === pid);
-          if (it) return { itemId: it.id, quantity: Number(it.quantity), group: g };
+          if (it)
+            return { itemId: it.id, quantity: Number(it.quantity), group: g };
         }
         return null;
       };
@@ -92,7 +103,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
               const updated = await removeCartItem(address, itemId);
               setCart(updated);
             } catch (err) {
-              setCartError(err instanceof Error ? err.message : "Failed to remove item.");
+              setCartError(
+                err instanceof Error ? err.message : "Failed to remove item.",
+              );
               void refreshCart();
             }
           })();
@@ -107,7 +120,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             const updated = await addItemToCart(address, productId, nextQty);
             setCart(updated);
           } catch (err) {
-            setCartError(err instanceof Error ? err.message : "Failed to add item.");
+            setCartError(
+              err instanceof Error ? err.message : "Failed to add item.",
+            );
           }
         })();
         return;
@@ -129,10 +144,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       timersRef.current[itemId] = setTimeout(() => {
         void (async () => {
           try {
-            const updated = await updateCartItemQuantity(address, itemId, nextQty);
+            const updated = await updateCartItemQuantity(
+              address,
+              itemId,
+              nextQty,
+            );
             setCart(updated);
           } catch (err) {
-            setCartError(err instanceof Error ? err.message : "Failed to update cart item.");
+            setCartError(
+              err instanceof Error
+                ? err.message
+                : "Failed to update cart item.",
+            );
             void refreshCart();
           } finally {
             delete timersRef.current[itemId];
@@ -140,7 +163,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         })();
       }, 500);
     },
-    [address, connected, refreshCart],
+    [address, authenticated, connected, refreshCart],
   );
 
   const removeCartItemFn = useCallback(
