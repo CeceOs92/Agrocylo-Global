@@ -64,7 +64,7 @@ function computeGroupSubtotal(items: Array<{ quantity: string; unit_price: strin
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { address, connected } = useWallet();
+  const { address, connected, authenticated } = useWallet();
 
   const [cart, setCart] = useState<CartState>({ cart_id: null, groups: [] });
   const [cartLoading, setCartLoading] = useState(false);
@@ -191,7 +191,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         setCartLoading(false);
       }
     }
-  }, [address, connected]);
+  }, [address, authenticated, connected]);
 
   const getConfirmedCart = useCallback(async (): Promise<CartState | null> => {
     const walletAtCall = address;
@@ -378,7 +378,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const setQuantityForProduct = useCallback(
     (productId: string, quantity: number) => {
-      if (!address || !connected) return;
+      if (!address || !connected || !authenticated) return;
       const nextQty = Math.max(0, Math.floor(quantity));
       const walletAtCall = address;
       const genAtCall = walletGenerationRef.current;

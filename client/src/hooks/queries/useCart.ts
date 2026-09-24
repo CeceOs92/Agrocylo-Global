@@ -35,7 +35,7 @@ export function useActiveCart() {
   return useQuery({
     queryKey: address ? queryKeys.cart.byWallet(address) : queryKeys.cart.all(),
     queryFn: () => getActiveCart(address!),
-    enabled: connected && !!address,
+    enabled: connected && authenticated && !!address,
   });
 }
 

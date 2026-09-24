@@ -1,6 +1,13 @@
 "use client";
 
-import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { WalletContextType } from "../types/wallet";
 import { getXlmBalance } from "../lib/stellar";
 import {
@@ -13,16 +20,19 @@ import {
   normalizeToPassphrase,
   getExpectedNetworkPassphrase,
 } from "@/services/stellar/networkConfig";
-import {
-  trackWalletConnected,
-  trackWalletDisconnected,
-} from "@/lib/analytics";
+import { trackWalletConnected, trackWalletDisconnected } from "@/lib/analytics";
 import {
   WALLET_ADAPTERS,
   getPreferredAdapter,
   savePreferredAdapter,
   FreighterAdapter,
 } from "../lib/walletAdapters";
+import { authenticateWallet, logoutWalletSession } from "@/lib/walletSession";
+import {
+  AUTH_EXPIRED_EVENT,
+  clearAuthSession,
+  hasValidAccessToken,
+} from "@/lib/authToken";
 
 const CONNECT_TIMEOUT_MS = 12_000;
 
@@ -32,6 +42,9 @@ const initialState: WalletContextType = {
   connected: false,
   loading: false,
   restoring: false,
+  authenticated: false,
+  authenticating: false,
+  sessionError: null,
   error: null,
   network: null,
   networkMismatch: false,
@@ -39,7 +52,11 @@ const initialState: WalletContextType = {
   connect: async () => {},
   disconnect: () => {},
   refreshBalance: async () => {},
-  signAndSubmit: async () => ({ success: false, error: "Wallet not connected" }),
+  reauthenticate: async () => {},
+  signAndSubmit: async () => ({
+    success: false,
+    error: "Wallet not connected",
+  }),
 };
 
 export const WalletContext = createContext<WalletContextType>(initialState);
@@ -55,6 +72,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
   const [error, setError] = useState<string | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const restoreGenerationRef = useRef(0);
   const connectGenerationRef = useRef(0);
@@ -166,9 +186,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     setLoading(true);
     setError(null);
 
-    const adapter =
-      (adapterId ? WALLET_ADAPTERS.find((a) => a.id === adapterId) : null) ??
-      getPreferredAdapter();
+      const adapter =
+        (adapterId ? WALLET_ADAPTERS.find((a) => a.id === adapterId) : null) ??
+        getPreferredAdapter();
 
     const isMobile =
       typeof navigator !== "undefined" &&
@@ -186,22 +206,34 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    try {
-      const pub = await Promise.race([
-        adapter.getPublicKey(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s. ` +
-                    `Make sure ${adapter.name} is unlocked and try again.`,
+      if (isMobile && !adapter.supportsMobile()) {
+        const deepLink = adapter.mobileDeepLink();
+        const hint = deepLink
+          ? `Open ${adapter.name} at ${deepLink} and try again.`
+          : `${adapter.name} is not supported on mobile. Please use a desktop browser with the ${adapter.name} extension installed.`;
+        setError(hint);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const pub = await Promise.race([
+          adapter.getPublicKey(),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `Connection timed out after ${CONNECT_TIMEOUT_MS / 1000}s. ` +
+                      `Make sure ${adapter.name} is unlocked and try again.`,
+                  ),
                 ),
-              ),
-            CONNECT_TIMEOUT_MS,
+              CONNECT_TIMEOUT_MS,
+            ),
           ),
-        ),
-      ]);
+        ]);
+
+        if (!mountedRef.current) return;
 
       if (cancelled) return;
       if (generation !== connectGenerationRef.current) return;
@@ -212,19 +244,19 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       if (generation !== connectGenerationRef.current) return;
       if (!mountedRef.current) return;
 
-      setAddress(pub);
-      setNetwork(networkName);
-      setConnected(true);
-      setActiveWalletId(adapter.id);
-      trackWalletConnected(pub, {
-        network: networkName,
-        adapter: adapter.name,
-      });
+        setAddress(pub);
+        setNetwork(networkName);
+        setConnected(true);
+        setActiveWalletId(adapter.id);
+        trackWalletConnected(pub, {
+          network: networkName,
+          adapter: adapter.name,
+        });
 
-      localStorage.setItem("walletAddress", pub);
-      localStorage.setItem("walletNetwork", networkName);
-      localStorage.setItem("activeWalletId", adapter.id);
-      savePreferredAdapter(adapter.id);
+        localStorage.setItem("walletAddress", pub);
+        localStorage.setItem("walletNetwork", networkName);
+        localStorage.setItem("activeWalletId", adapter.id);
+        savePreferredAdapter(adapter.id);
 
       try {
         const b = await getXlmBalance(pub);
@@ -336,9 +368,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       network,
       networkMismatch,
       activeWalletId,
+      authenticated,
+      authenticating,
+      sessionError,
       connect,
       disconnect,
       refreshBalance,
+      reauthenticate,
       signAndSubmit,
     }),
     [
@@ -351,9 +387,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
       network,
       networkMismatch,
       activeWalletId,
+      authenticated,
+      authenticating,
+      sessionError,
       connect,
       disconnect,
       refreshBalance,
+      reauthenticate,
       signAndSubmit,
     ],
   );
