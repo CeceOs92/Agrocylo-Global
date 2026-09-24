@@ -24,10 +24,25 @@
     "test": "turbo run test",
     "test:dev-launcher": "node --test scripts/dev-frontend.test.cjs",
     "check:versions": "node scripts/check-shared-versions.js",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "dev:client": "npm run dev --workspace client",
+    "dev:agro": "npm run dev --workspace agro-production/client",
+    "doctor": "node scripts/doctor-next.js",
+    "doctor:client": "node scripts/doctor-next.js --app=client",
+    "doctor:agro": "node scripts/doctor-next.js --app=agro",
+    "reset:next:client": "node scripts/reset-next-cache.js --app=client",
+    "reset:next:agro": "node scripts/reset-next-cache.js --app=agro",
+    "smoke:dev": "node scripts/smoke-dev-start.js",
+    "test:scripts": "node --test scripts/__tests__/*.test.js"
   },
   "devDependencies": {
     "turbo": "^2.3.3",
     "husky": "^9.0.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": ">=10.0.0 <11.0.0"
+    }
   }
 }
