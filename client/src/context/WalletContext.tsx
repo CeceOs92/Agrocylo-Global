@@ -76,58 +76,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
   const [authenticating, setAuthenticating] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const authControllerRef = useRef<AbortController | null>(null);
+  const restoreGenerationRef = useRef(0);
+  const connectGenerationRef = useRef(0);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      authControllerRef.current?.abort();
     };
-  }, []);
-
-  const startAuthentication = useCallback(
-    async (
-      adapter: (typeof WALLET_ADAPTERS)[number],
-      walletAddress: string,
-    ) => {
-      authControllerRef.current?.abort();
-      const controller = new AbortController();
-      authControllerRef.current = controller;
-      clearAuthSession();
-      setAuthenticated(false);
-      setAuthenticating(true);
-      setSessionError(null);
-      try {
-        await authenticateWallet(adapter, walletAddress, controller.signal);
-        if (!mountedRef.current || controller.signal.aborted) return false;
-        setAuthenticated(true);
-        return true;
-      } catch (err) {
-        if (!mountedRef.current) return false;
-        const message =
-          err instanceof DOMException && err.name === "AbortError"
-            ? "Wallet sign-in was cancelled. Sign in again to use your cart and account."
-            : err instanceof Error
-              ? err.message
-              : "Wallet sign-in failed. Try again.";
-        setSessionError(message);
-        return false;
-      } finally {
-        if (mountedRef.current && authControllerRef.current === controller) {
-          setAuthenticating(false);
-        }
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    const onExpired = () => {
-      setAuthenticated(false);
-      setSessionError("Your session expired. Sign in again to continue.");
-    };
-    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
-    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, []);
 
   useEffect(() => {
@@ -136,8 +92,16 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     const cachedAddr = localStorage.getItem("walletAddress");
     const cachedNet = localStorage.getItem("walletNetwork");
     const cachedWalletId = localStorage.getItem("activeWalletId");
-    if (!cachedAddr) return;
+    if (!cachedAddr) {
+      // No cached wallet, ensure restoring is false even after StrictMode double mount
+      if (mountedRef.current) setRestoring(false);
+      return;
+    }
 
+    const generation = ++restoreGenerationRef.current;
+    let cancelled = false;
+    // Ensure mounted is true for this effect instance (covers StrictMode remount)
+    mountedRef.current = true;
     setRestoring(true);
 
     (async () => {
@@ -146,8 +110,13 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
           WALLET_ADAPTERS.find((a) => a.id === cachedWalletId) ??
           FreighterAdapter;
         const livePub = await adapter.getPublicKey();
-        const liveNet = await adapter.getNetwork();
+        if (cancelled) return;
+        if (generation !== restoreGenerationRef.current) return;
+        if (!mountedRef.current) return;
 
+        const liveNet = await adapter.getNetwork();
+        if (cancelled) return;
+        if (generation !== restoreGenerationRef.current) return;
         if (!mountedRef.current) return;
 
         if (livePub !== cachedAddr) {
@@ -162,25 +131,39 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
         setConnected(true);
         if (cachedWalletId) setActiveWalletId(cachedWalletId);
 
-        if (hasValidAccessToken(livePub)) {
-          setAuthenticated(true);
-        } else {
-          await startAuthentication(adapter, livePub);
+        try {
+          const b = await getXlmBalance(livePub);
+          if (cancelled) return;
+          if (generation !== restoreGenerationRef.current) return;
+          if (!mountedRef.current) return;
+          setBalance(b);
+        } catch {
+          // balance failure is non-fatal; still consider restored
         }
-
-        const b = await getXlmBalance(livePub);
-        if (mountedRef.current) setBalance(b);
       } catch {
-        if (mountedRef.current) {
-          localStorage.removeItem("walletAddress");
-          localStorage.removeItem("walletNetwork");
-          localStorage.removeItem("activeWalletId");
-        }
+        if (cancelled) return;
+        if (generation !== restoreGenerationRef.current) return;
+        if (!mountedRef.current) return;
+        localStorage.removeItem("walletAddress");
+        localStorage.removeItem("walletNetwork");
+        localStorage.removeItem("activeWalletId");
+        setAddress(null);
+        setConnected(false);
+        setNetwork(null);
+        setActiveWalletId(null);
+        setBalance(null);
       } finally {
-        if (mountedRef.current) setRestoring(false);
+        if (cancelled) return;
+        if (generation !== restoreGenerationRef.current) return;
+        if (!mountedRef.current) return;
+        setRestoring(false);
       }
     })();
-  }, [startAuthentication]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshBalance = useCallback(async () => {
     try {
@@ -195,18 +178,33 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [address]);
 
-  const connect = useCallback(
-    async (adapterId?: string) => {
-      setLoading(true);
-      setError(null);
+  const connect = useCallback(async (adapterId?: string) => {
+    const generation = ++connectGenerationRef.current;
+    let cancelled = false;
+    // Ensure mounted true for StrictMode remount; connect is user-initiated so should be true
+    mountedRef.current = true;
+    setLoading(true);
+    setError(null);
 
       const adapter =
         (adapterId ? WALLET_ADAPTERS.find((a) => a.id === adapterId) : null) ??
         getPreferredAdapter();
 
-      const isMobile =
-        typeof navigator !== "undefined" &&
-        /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+
+    if (isMobile && !adapter.supportsMobile()) {
+      const deepLink = adapter.mobileDeepLink();
+      const hint = deepLink
+        ? `Open ${adapter.name} at ${deepLink} and try again.`
+        : `${adapter.name} is not supported on mobile. Please use a desktop browser with the ${adapter.name} extension installed.`;
+      if (generation === connectGenerationRef.current && !cancelled && mountedRef.current) {
+        setError(hint);
+        setLoading(false);
+      }
+      return;
+    }
 
       if (isMobile && !adapter.supportsMobile()) {
         const deepLink = adapter.mobileDeepLink();
@@ -237,12 +235,14 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (!mountedRef.current) return;
 
-        const networkName = await adapter.getNetwork();
+      if (cancelled) return;
+      if (generation !== connectGenerationRef.current) return;
+      if (!mountedRef.current) return;
 
-        const previousAddress = localStorage.getItem("walletAddress");
-        if (previousAddress?.toLowerCase() !== pub.toLowerCase()) {
-          clearAuthSession();
-        }
+      const networkName = await adapter.getNetwork();
+      if (cancelled) return;
+      if (generation !== connectGenerationRef.current) return;
+      if (!mountedRef.current) return;
 
         setAddress(pub);
         setNetwork(networkName);
@@ -258,38 +258,43 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
         localStorage.setItem("activeWalletId", adapter.id);
         savePreferredAdapter(adapter.id);
 
-        await startAuthentication(adapter, pub);
-
+      try {
         const b = await getXlmBalance(pub);
-        if (mountedRef.current) setBalance(b);
-      } catch (err: unknown) {
+        if (cancelled) return;
+        if (generation !== connectGenerationRef.current) return;
         if (!mountedRef.current) return;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        setError(errorMsg);
-        setConnected(false);
-        setAddress(null);
-        setBalance(null);
-      } finally {
-        if (mountedRef.current) setLoading(false);
+        setBalance(b);
+      } catch {
+        // non-fatal
       }
-    },
-    [startAuthentication],
-  );
-
-  const reauthenticate = useCallback(async () => {
-    if (!address) {
-      setSessionError("Connect a wallet before signing in.");
-      return;
+    } catch (err: unknown) {
+      if (cancelled) return;
+      if (generation !== connectGenerationRef.current) return;
+      if (!mountedRef.current) return;
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(errorMsg);
+      setConnected(false);
+      setAddress(null);
+      setBalance(null);
+      setNetwork(null);
+      setActiveWalletId(null);
+    } finally {
+      if (cancelled) return;
+      if (generation !== connectGenerationRef.current) return;
+      if (!mountedRef.current) return;
+      setLoading(false);
     }
-    const adapter =
-      WALLET_ADAPTERS.find((candidate) => candidate.id === activeWalletId) ??
-      getPreferredAdapter();
-    await startAuthentication(adapter, address);
-  }, [activeWalletId, address, startAuthentication]);
+
+    // Cleanup for this connect operation in case component unmounts before async completes
+    // Note: we don't return cleanup from useCallback, but we track cancelled via closure if needed externally
+    // The generation check ensures superseded connects are ignored.
+    void cancelled;
+  }, []);
 
   const disconnect = useCallback(() => {
-    authControllerRef.current?.abort();
-    void logoutWalletSession();
+    // Increment generations to cancel any in-flight restore/connect
+    restoreGenerationRef.current += 1;
+    connectGenerationRef.current += 1;
     if (address) {
       trackWalletDisconnected({
         network: network ?? undefined,
@@ -302,13 +307,12 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({
     setError(null);
     setNetwork(null);
     setActiveWalletId(null);
-    setAuthenticated(false);
-    setAuthenticating(false);
-    setSessionError(null);
+    setLoading(false);
+    setRestoring(false);
     localStorage.removeItem("walletAddress");
     localStorage.removeItem("walletNetwork");
     localStorage.removeItem("activeWalletId");
-  }, [activeWalletId, address, network]);
+  }, [address, network, activeWalletId]);
 
   // Compare the connected wallet's active network against the network the app
   // is configured for. Recomputed whenever the wallet reports a network change.
